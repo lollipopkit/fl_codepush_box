@@ -5,3 +5,4 @@ fcb.yaml
 *.tmp
 .dart_tool/
 build/
+pubspec.lock

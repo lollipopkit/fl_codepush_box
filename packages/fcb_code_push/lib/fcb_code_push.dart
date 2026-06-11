@@ -21,17 +21,34 @@ class FcbCodePush {
   }
 
   Future<UpdateCheckResult> checkForUpdate() async {
-    return const UpdateCheckResult(
-      patchAvailable: false,
-      reason: 'native updater check is not wired in MVP package',
+    final result = _callNativeStatus('fcb_check_for_update_async');
+    if (!result.available) {
+      return UpdateCheckResult(patchAvailable: false, reason: result.reason);
+    }
+    if (result.code < 0) {
+      return UpdateCheckResult(
+        patchAvailable: false,
+        reason: 'native update check failed with code ${result.code}',
+      );
+    }
+    return UpdateCheckResult(
+      patchAvailable: result.code > 0,
+      reason: result.code > 0 ? null : 'no patch available',
     );
   }
 
   Future<DownloadResult> downloadUpdate() async {
-    return const DownloadResult(
-      success: false,
-      reason: 'native updater download is not wired in MVP package',
-    );
+    final result = _callNativeStatus('fcb_download_and_install_blocking');
+    if (!result.available) {
+      return DownloadResult(success: false, reason: result.reason);
+    }
+    if (result.code < 0) {
+      return DownloadResult(
+        success: false,
+        reason: 'native update download failed with code ${result.code}',
+      );
+    }
+    return const DownloadResult(success: true);
   }
 
   Future<bool> isNewPatchReadyToInstall() async {
@@ -45,6 +62,14 @@ class FcbCodePush {
   Future<void> markLaunchSuccessful() async {
     final fn = _lookupInt('fcb_mark_launch_success');
     fn?.call();
+  }
+
+  _NativeStatus _callNativeStatus(String symbol) {
+    final fn = _lookupInt(symbol);
+    if (fn == null) {
+      return _NativeStatus.unavailable('native symbol $symbol is unavailable');
+    }
+    return _NativeStatus.available(fn());
   }
 
   int Function()? _lookupInt(String symbol) {
@@ -72,6 +97,23 @@ class FcbCodePush {
     }
     throw UnsupportedError('unsupported platform');
   }
+}
+
+class _NativeStatus {
+  const _NativeStatus._(
+      {required this.available, required this.code, this.reason});
+
+  factory _NativeStatus.available(int code) {
+    return _NativeStatus._(available: true, code: code);
+  }
+
+  factory _NativeStatus.unavailable(String reason) {
+    return _NativeStatus._(available: false, code: -1, reason: reason);
+  }
+
+  final bool available;
+  final int code;
+  final String? reason;
 }
 
 class UpdateCheckResult {

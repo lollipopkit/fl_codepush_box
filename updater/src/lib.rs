@@ -123,7 +123,9 @@ pub extern "C" fn fcb_check_for_update_async() -> c_int {
 
 #[no_mangle]
 pub extern "C" fn fcb_download_and_install_blocking() -> c_int {
-    0
+    ffi_guard(-1, |runtime| {
+        runtime.set_error("download and install is not configured")
+    })
 }
 
 #[no_mangle]
