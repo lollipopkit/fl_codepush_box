@@ -26,6 +26,7 @@
 - `.gitignore` 已忽略 Flutter package/example 生成的 `pubspec.lock`。
 - `snapshot_replace` patch manifest 现在标记 `snapshot_replace_artifact`；updater 安装时会把 payload 同步写成 `patches/<n>/libapp.so`，state 记录 `artifact_path`，`fcb_get_launch_patch()` 对 snapshot backend 返回绝对 artifact path。
 - 已实现最小 binary diff/apply：`fcb-simple-v1` 用共同前缀/后缀 + 插入段生成 `binary_diff` payload，manifest 记录 `diff_algorithm/base_hash/output_hash`，updater 使用本地 baseline artifact apply diff 并验证输出 hash 后写入 `libapp.so`。
+- 已新增 Android Engine hook scaffold：`engine_patch/android/fcb_engine_hook.{h,cc}` 把 `fcb_get_launch_patch()` 结果转换成 `FcbEnginePatchDecision`，snapshot backend 返回可接入 Engine AOT artifact settings 的 `artifact_path`；`fcb_engine_hook_test.cc` 覆盖 no patch、snapshot、bytecode、错误路径。
 
 **已验证**
 - `cargo test`: 通过。
@@ -43,6 +44,7 @@
 - Fiber server + object store 本地闭环通过：`fcb init -> release -> patch -> promote -> check --install`，自动从 server 下载 manifest/payload 到 `.fcb/downloads/...` 并安装到 `.fcb/cache`。
 - 当前代码重建 CLI 后，`snapshot_replace` artifact 闭环通过：临时 Fiber server + `fcb init -> release -> patch --payload patched-libapp.so -> promote -> check --install`，`cmp` 确认 `.fcb/cache/patches/4/libapp.so` 与输入 artifact 一致，`state.json` 记录 `artifact_path = patches/4/libapp.so`。
 - binary diff 闭环通过：临时 Fiber server + `fcb init -> release -> patch --payload patched-libapp.so -> promote -> check --install`，manifest 显示 `payload.kind=binary_diff` / `diff_algorithm=fcb-simple-v1`，`cmp` 确认 apply 后 `.fcb/cache/patches/5/libapp.so` 与目标 artifact 一致。
+- Android hook scaffold 验证通过：`c++ -std=c++17 -Wall -Wextra -Werror -Iengine_patch/android engine_patch/android/fcb_engine_hook.cc engine_patch/android/fcb_engine_hook_test.cc -o /tmp/fcb_engine_hook_test`，随后 `/tmp/fcb_engine_hook_test` 通过。
 
 **当前状态**
 - 当前目录是 git repo，`main` 已包含 PR #1 合并结果。
@@ -53,7 +55,7 @@
 - `fcb.yaml`、`.fcb/`、`target/` 为验证/构建产物，不应作为源码提交。
 
 **下一步**
-1. 继续实现 Android 侧 native Engine hook / launch artifact path 接入。
+1. 将 `engine_patch/android/fcb_engine_hook.cc` 接入真实 Flutter Engine Android AOT settings 初始化路径。
 2. 将 `fcb-simple-v1` 替换为真正 bsdiff/zstd，或保留为 MVP fallback 并新增 bsdiff backend。
 
 **完整计划仍缺**
