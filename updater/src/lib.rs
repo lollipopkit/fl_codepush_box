@@ -271,6 +271,22 @@ pub extern "C" fn fcb_is_new_patch_ready_to_install() -> c_int {
 }
 
 #[no_mangle]
+pub extern "C" fn fcb_last_check_patch_number() -> c_int {
+    ffi_guard(-1, |runtime| {
+        let Some(response) = &runtime.last_check else {
+            return 0;
+        };
+        let Some(patch) = &response.patch else {
+            return 0;
+        };
+        if patch.patch_number > c_int::MAX as u32 {
+            return runtime.set_error("last check patch_number exceeds c_int range");
+        }
+        patch.patch_number as c_int
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn fcb_mark_launch_success() -> c_int {
     ffi_guard(-1, |runtime| {
         match Updater::new(runtime.cache_dir.clone()).mark_success() {
@@ -457,8 +473,8 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 mod tests {
     use super::{
         fcb_check_for_update_async, fcb_download_and_install_blocking, fcb_get_launch_patch,
-        fcb_init, fcb_is_new_patch_ready_to_install, fcb_set_server_url, FcbInitParams,
-        FcbLaunchPatch,
+        fcb_init, fcb_is_new_patch_ready_to_install, fcb_last_check_patch_number,
+        fcb_set_server_url, FcbInitParams, FcbLaunchPatch,
     };
     use fcb_core::crypto;
     use fcb_core::manifest::{self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest};
@@ -693,6 +709,7 @@ mod tests {
         assert_eq!(fcb_init(&params), 0);
         assert_eq!(fcb_set_server_url(server_url_c.as_ptr()), 0);
         assert_eq!(fcb_check_for_update_async(), 1);
+        assert_eq!(fcb_last_check_patch_number(), 9);
         assert_eq!(fcb_download_and_install_blocking(), 1);
         assert_eq!(fcb_is_new_patch_ready_to_install(), 1);
         assert_eq!(

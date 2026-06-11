@@ -103,8 +103,10 @@ class FcbCodePush {
         reason: 'native update check failed with code ${result.code}',
       );
     }
+    final patchNumber = result.code > 0 ? _lastCheckPatchNumber() : null;
     return UpdateCheckResult(
       patchAvailable: result.code > 0,
+      patchNumber: patchNumber,
       reason: result.code > 0 ? null : 'no patch available',
     );
   }
@@ -156,6 +158,15 @@ class FcbCodePush {
       }
       return null;
     }
+  }
+
+  int? _lastCheckPatchNumber() {
+    final fn = _lookupInt('fcb_last_check_patch_number');
+    if (fn == null) {
+      return null;
+    }
+    final value = fn();
+    return value > 0 ? value : null;
   }
 
   int Function(Pointer<_FcbInitParams>)? _lookupInit() {

@@ -343,6 +343,7 @@ int fcb_get_launch_patch(FcbLaunchPatch* out_patch);
 int fcb_check_for_update_async(void);
 int fcb_download_and_install_blocking(void);
 int fcb_is_new_patch_ready_to_install(void);
+int fcb_last_check_patch_number(void);
 int fcb_mark_launch_success(void);
 int fcb_mark_launch_failure(int patch_number, const char* reason);
 int fcb_current_patch_number(void);
