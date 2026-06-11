@@ -32,6 +32,7 @@
 - Flutter package 新增 `FcbCodePush.configure(...)`，通过 Dart FFI 调 `fcb_init` 和 server/client/baseline setters；缺 native lib 时仍返回 `false` 且不崩溃。
 - `examples/counter_app` 已从静态 patch number FutureBuilder 改为可操作 MVP 页面：通过 `--dart-define FCB_*` 配置 native updater，展示 configured/current/ready/check/download 状态，并提供 Check、Download、Mark success 按钮。
 - Flutter package 已有本机 native lib 构建/加载路径：`packages/fcb_code_push/tool/build_native.sh` 构建 `fcb_updater` cdylib 并复制到 ignored 的 `packages/fcb_code_push/native/`；Dart FFI 会优先尝试从该 native 目录加载 `libfcb_updater.*`。
+- Flutter package 已升级为 Android plugin scaffold：`packages/fcb_code_push/android/` 提供 Gradle library、manifest 和 no-op `FcbCodePushPlugin`，用于把 `libfcb_updater.so` 打包进 app；`tool/prepare_android_prebuilt.sh` 会把指定 ABI 的预编译 `.so` 复制到 ignored 的 `android/src/main/jniLibs/<abi>/`。
 
 **已验证**
 - `cargo test`: 通过。
@@ -54,11 +55,12 @@
 - native check/download 验证通过：`cargo test -p fcb_updater` 用本地 `TcpListener` 模拟 server，直接调用 FFI 完成 check、manifest/payload 下载、安装并确认 ready。
 - example app 验证通过：`flutter analyze` in `examples/counter_app`。
 - native lib 加载验证通过：运行 `packages/fcb_code_push/tool/build_native.sh` 后，`flutter test` in `packages/fcb_code_push` 在存在 `native/libfcb_updater.dylib` 时通过，且不再依赖系统路径加载。
+- Android packaging scaffold 验证通过：用临时 `libfcb_updater.so` 运行 `packages/fcb_code_push/tool/prepare_android_prebuilt.sh arm64-v8a ...`，`cmp` 确认复制到 `android/src/main/jniLibs/arm64-v8a/libfcb_updater.so`。
 
 **当前状态**
 - 当前目录是 git repo，`main` 已包含 PR #1 合并结果。
 - 当前分支 `feat/fiber-server-install-flow` 已有 PR #2；本地提交领先远端，后续需要按需 push 到 PR。
-- example app 在本机可通过 package native 目录加载 `libfcb_updater`；Android/iOS 设备打包仍需要平台工程集成 native library。
+- example app 在本机可通过 package native 目录加载 `libfcb_updater`；Android 设备已有 plugin/jniLibs 打包 scaffold，但还需要真实 Android ABI `.so`；iOS 设备打包仍需要平台工程集成 native library。
 - 本轮启动的 `127.0.0.1:8080` Fiber server 已结束，端口不再占用。
 - 本轮临时 `127.0.0.1:18080/18081` Fiber server 已结束。
 - 本轮临时 `127.0.0.1:18082` Fiber server 已结束。
@@ -66,7 +68,7 @@
 
 **下一步**
 1. 将 `engine_patch/android/fcb_engine_hook.cc` 接入真实 Flutter Engine Android AOT settings 初始化路径。
-2. 增加 Android/iOS 平台工程，将 `libfcb_updater` 打进 app 并让 Dart FFI/Engine 都能加载。
+2. 增加真实 Android ABI cross-build，把 `libfcb_updater.so` 产物接入 plugin `jniLibs`；再补 iOS 平台工程。
 3. 将 `fcb-simple-v1` 替换为真正 bsdiff/zstd，或保留为 MVP fallback 并新增 bsdiff backend。
 
 **完整计划仍缺**
