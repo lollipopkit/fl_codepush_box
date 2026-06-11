@@ -65,6 +65,16 @@ enum Command {
         #[arg(long, default_value_t = 100)]
         rollout_percentage: u8,
     },
+    Rollback {
+        #[arg(long)]
+        release_version: String,
+        #[arg(long)]
+        patch_number: u32,
+        #[arg(long, default_value = "android")]
+        platform: String,
+        #[arg(long, default_value = "arm64-v8a")]
+        arch: String,
+    },
     Check {
         #[arg(long)]
         release_version: String,
@@ -204,6 +214,18 @@ fn run() -> Result<()> {
             println!("patch {patch_number} marked failed");
             Ok(())
         }
+        Command::Rollback {
+            release_version,
+            patch_number,
+            platform,
+            arch,
+        } => rollback(
+            &args.server,
+            &release_version,
+            patch_number,
+            &platform,
+            &arch,
+        ),
         Command::Inspect { kind, path } => inspect(&kind, &path),
     }
 }
@@ -382,6 +404,27 @@ fn promote(
         rollout_percentage,
     })?;
     println!("patch {patch_number} promoted to {channel} at {rollout_percentage}%");
+    Ok(())
+}
+
+fn rollback(
+    server: &str,
+    release_version: &str,
+    patch_number: u32,
+    platform: &str,
+    arch: &str,
+) -> Result<()> {
+    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
+    Client::new(server).rollback_patch(&PromotePatchRequest {
+        app_id: config.app_id,
+        release_version: release_version.to_string(),
+        platform: platform.to_string(),
+        arch: arch.to_string(),
+        patch_number,
+        channel: String::new(),
+        rollout_percentage: 0,
+    })?;
+    println!("patch {patch_number} rolled back");
     Ok(())
 }
 

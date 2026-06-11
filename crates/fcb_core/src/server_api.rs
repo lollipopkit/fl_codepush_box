@@ -85,6 +85,10 @@ impl Client {
         self.post_json("/v1/patches/promote", request)
     }
 
+    pub fn rollback_patch(&self, request: &PromotePatchRequest) -> Result<()> {
+        self.post_json("/v1/patches/rollback", request)
+    }
+
     pub fn check(
         &self,
         app_id: &str,
