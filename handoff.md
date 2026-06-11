@@ -57,12 +57,12 @@
 - example app 验证通过：`flutter analyze` in `examples/counter_app`。
 - native lib 加载验证通过：运行 `packages/fcb_code_push/tool/build_native.sh` 后，`flutter test` in `packages/fcb_code_push` 在存在 `native/libfcb_updater.dylib` 时通过，且不再依赖系统路径加载。
 - Android packaging scaffold 验证通过：用临时 `libfcb_updater.so` 运行 `packages/fcb_code_push/tool/prepare_android_prebuilt.sh arm64-v8a ...`，`cmp` 确认复制到 `android/src/main/jniLibs/arm64-v8a/libfcb_updater.so`。
-- Android cross-build 脚本验证：当前机器缺少 `cargo-ndk`，`build_android_native.sh arm64-v8a` 按预期失败并输出 `cargo install cargo-ndk` 指引；prebuilt 复制路径已验证通过。
+- Android cross-build 验证通过：安装 `cargo-ndk` 与 `aarch64-linux-android` target 后，`packages/fcb_code_push/tool/build_android_native.sh arm64-v8a` 成功构建并复制 `libfcb_updater.so`；`file` 显示 ARM aarch64 ELF，`nm -gU ... | rg 'fcb_'` 确认导出关键 FFI 符号。
 
 **当前状态**
 - 当前目录是 git repo，`main` 已包含 PR #1 合并结果。
 - 当前分支 `feat/fiber-server-install-flow` 已有 PR #2；本地提交领先远端，后续需要按需 push 到 PR。
-- example app 在本机可通过 package native 目录加载 `libfcb_updater`；Android 设备已有 plugin/jniLibs 打包和 `cargo-ndk` 构建入口，但当前机器尚未安装 `cargo-ndk`/Android Rust targets；iOS 设备打包仍需要平台工程集成 native library。
+- example app 在本机可通过 package native 目录加载 `libfcb_updater`；Android 设备已有 plugin/jniLibs 打包和真实 arm64-v8a `cargo-ndk` 构建验证；iOS 设备打包仍需要平台工程集成 native library。
 - 本轮启动的 `127.0.0.1:8080` Fiber server 已结束，端口不再占用。
 - 本轮临时 `127.0.0.1:18080/18081` Fiber server 已结束。
 - 本轮临时 `127.0.0.1:18082` Fiber server 已结束。
@@ -70,7 +70,7 @@
 
 **下一步**
 1. 将 `engine_patch/android/fcb_engine_hook.cc` 接入真实 Flutter Engine Android AOT settings 初始化路径。
-2. 安装 `cargo-ndk` 与 Android Rust targets 后运行真实 ABI build，验证 APK 内包含 `libfcb_updater.so`；再补 iOS 平台工程。
+2. 验证 APK 内包含 `libfcb_updater.so` 并在 Android 设备/模拟器上加载；再补 iOS 平台工程。
 3. 将 `fcb-simple-v1` 替换为真正 bsdiff/zstd，或保留为 MVP fallback 并新增 bsdiff backend。
 
 **完整计划仍缺**
