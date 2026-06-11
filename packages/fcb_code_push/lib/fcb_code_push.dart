@@ -52,11 +52,12 @@ class FcbCodePush {
   }
 
   Future<bool> isNewPatchReadyToInstall() async {
-    return false;
+    final result = _callNativeStatus('fcb_is_new_patch_ready_to_install');
+    return result.available && result.code > 0;
   }
 
   Future<bool> requestRestartToApply() async {
-    return false;
+    return isNewPatchReadyToInstall();
   }
 
   Future<void> markLaunchSuccessful() async {

@@ -154,6 +154,17 @@ pub extern "C" fn fcb_download_and_install_blocking() -> c_int {
 }
 
 #[no_mangle]
+pub extern "C" fn fcb_is_new_patch_ready_to_install() -> c_int {
+    ffi_guard(-1, |runtime| {
+        match Updater::new(runtime.cache_dir.clone()).ready_patch() {
+            Ok(Some(_)) => 1,
+            Ok(None) => 0,
+            Err(e) => runtime.set_error(e.to_string()),
+        }
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn fcb_mark_launch_success() -> c_int {
     ffi_guard(-1, |runtime| {
         match Updater::new(runtime.cache_dir.clone()).mark_success() {
@@ -237,7 +248,10 @@ fn lock_runtime(runtime: &Mutex<Runtime>) -> MutexGuard<'_, Runtime> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fcb_get_launch_patch, fcb_init, FcbInitParams, FcbLaunchPatch};
+    use super::{
+        fcb_get_launch_patch, fcb_init, fcb_is_new_patch_ready_to_install, FcbInitParams,
+        FcbLaunchPatch,
+    };
     use fcb_core::state::{InstalledPatch, State, Updater};
     use std::ffi::{CStr, CString};
 
@@ -301,6 +315,58 @@ mod tests {
                 .as_ref(),
             cache_dir.join("patches/3/libapp.so").to_string_lossy()
         );
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn ready_check_does_not_mark_launch_pending() {
+        let cache_dir = std::env::temp_dir().join(format!(
+            "fcb-updater-ready-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let updater = Updater::new(&cache_dir);
+        updater
+            .save_state(&State {
+                schema_version: 1,
+                release_version: "1.0.0+1".to_string(),
+                current_patch_number: 0,
+                pending_patch_number: Some(4),
+                bad_patches: Vec::new(),
+                last_launch: None,
+                installed: vec![InstalledPatch {
+                    patch_number: 4,
+                    backend: "snapshot_replace".to_string(),
+                    manifest_path: "patches/4/manifest.json".to_string(),
+                    payload_path: "patches/4/payload.bin".to_string(),
+                    artifact_path: Some("patches/4/libapp.so".to_string()),
+                    installed_at: "0".to_string(),
+                }],
+            })
+            .expect("write state");
+
+        let cache_dir_c = CString::new(cache_dir.to_string_lossy().as_bytes()).expect("cache dir");
+        let params = FcbInitParams {
+            app_id: std::ptr::null(),
+            channel: std::ptr::null(),
+            release_version: std::ptr::null(),
+            platform: std::ptr::null(),
+            arch: std::ptr::null(),
+            cache_dir: cache_dir_c.as_ptr(),
+            public_key_pem: std::ptr::null(),
+            check_on_startup: 0,
+        };
+        assert_eq!(fcb_init(&params), 0);
+
+        assert_eq!(fcb_is_new_patch_ready_to_install(), 1);
+        assert!(updater
+            .load_state()
+            .expect("load state")
+            .last_launch
+            .is_none());
 
         let _ = std::fs::remove_dir_all(cache_dir);
     }

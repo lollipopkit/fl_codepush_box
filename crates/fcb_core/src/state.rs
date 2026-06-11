@@ -197,6 +197,21 @@ impl Updater {
         Ok(installed)
     }
 
+    pub fn ready_patch(&self) -> Result<Option<InstalledPatch>> {
+        let state = self.load_state()?;
+        let Some(patch_number) = state.pending_patch_number else {
+            return Ok(None);
+        };
+        if state.bad_patches.contains(&patch_number) {
+            return Ok(None);
+        }
+        Ok(state
+            .installed
+            .iter()
+            .find(|p| p.patch_number == patch_number)
+            .cloned())
+    }
+
     pub fn mark_success(&self) -> Result<()> {
         let mut state = self.load_state()?;
         let Some(last) = &mut state.last_launch else {
@@ -362,6 +377,39 @@ mod tests {
         assert_eq!(state.bad_patches, vec![1]);
         assert_eq!(state.pending_patch_number, None);
         assert!(state.last_launch.is_none());
+        let _ = std::fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn ready_patch_reports_pending_without_marking_launch() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let updater = Updater::new(&cache_dir);
+        updater
+            .save_state(&State {
+                schema_version: 1,
+                release_version: "1.0.0+1".to_string(),
+                current_patch_number: 0,
+                pending_patch_number: Some(1),
+                bad_patches: Vec::new(),
+                last_launch: None,
+                installed: vec![InstalledPatch {
+                    patch_number: 1,
+                    backend: "snapshot_replace".to_string(),
+                    manifest_path: "patches/1/manifest.json".to_string(),
+                    payload_path: "patches/1/payload.bin".to_string(),
+                    artifact_path: Some("patches/1/libapp.so".to_string()),
+                    installed_at: "0".to_string(),
+                }],
+            })
+            .expect("write state");
+
+        let ready = updater.ready_patch().expect("ready patch");
+        let state = updater.load_state().expect("load state");
+
+        assert_eq!(ready.expect("ready").patch_number, 1);
+        assert!(state.last_launch.is_none());
+        assert_eq!(state.pending_patch_number, Some(1));
         let _ = std::fs::remove_dir_all(cache_dir);
     }
 

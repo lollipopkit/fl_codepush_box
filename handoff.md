@@ -27,6 +27,7 @@
 - `snapshot_replace` patch manifest 现在标记 `snapshot_replace_artifact`；updater 安装时会把 payload 同步写成 `patches/<n>/libapp.so`，state 记录 `artifact_path`，`fcb_get_launch_patch()` 对 snapshot backend 返回绝对 artifact path。
 - 已实现最小 binary diff/apply：`fcb-simple-v1` 用共同前缀/后缀 + 插入段生成 `binary_diff` payload，manifest 记录 `diff_algorithm/base_hash/output_hash`，updater 使用本地 baseline artifact apply diff 并验证输出 hash 后写入 `libapp.so`。
 - 已新增 Android Engine hook scaffold：`engine_patch/android/fcb_engine_hook.{h,cc}` 把 `fcb_get_launch_patch()` 结果转换成 `FcbEnginePatchDecision`，snapshot backend 返回可接入 Engine AOT artifact settings 的 `artifact_path`；`fcb_engine_hook_test.cc` 覆盖 no patch、snapshot、bytecode、错误路径。
+- 已补无副作用 ready-check：`Updater::ready_patch()` / `fcb_is_new_patch_ready_to_install()` 会检查 pending installed patch 但不写入 `last_launch`；Flutter package 的 `isNewPatchReadyToInstall()` 和 `requestRestartToApply()` 已接入该 FFI。
 
 **已验证**
 - `cargo test`: 通过。
@@ -45,6 +46,7 @@
 - 当前代码重建 CLI 后，`snapshot_replace` artifact 闭环通过：临时 Fiber server + `fcb init -> release -> patch --payload patched-libapp.so -> promote -> check --install`，`cmp` 确认 `.fcb/cache/patches/4/libapp.so` 与输入 artifact 一致，`state.json` 记录 `artifact_path = patches/4/libapp.so`。
 - binary diff 闭环通过：临时 Fiber server + `fcb init -> release -> patch --payload patched-libapp.so -> promote -> check --install`，manifest 显示 `payload.kind=binary_diff` / `diff_algorithm=fcb-simple-v1`，`cmp` 确认 apply 后 `.fcb/cache/patches/5/libapp.so` 与目标 artifact 一致。
 - Android hook scaffold 验证通过：`c++ -std=c++17 -Wall -Wextra -Werror -Iengine_patch/android engine_patch/android/fcb_engine_hook.cc engine_patch/android/fcb_engine_hook_test.cc -o /tmp/fcb_engine_hook_test`，随后 `/tmp/fcb_engine_hook_test` 通过。
+- ready-check 验证通过：`cargo test` 覆盖 core ready 状态和 FFI ready 状态不污染 `last_launch`；`flutter test` / `flutter analyze` 覆盖 Dart package 缺 native lib 降级行为。
 
 **当前状态**
 - 当前目录是 git repo，`main` 已包含 PR #1 合并结果。
