@@ -21,14 +21,15 @@
 - 已补测试：Go server 覆盖 rollout 稳定性、object key 防穿越、payload object store/check URL；Flutter package 覆盖缺 native lib 时 MVP API 不崩溃。
 - 已补 Rust 测试：canonical JSON、patch manifest sign/verify/失败恢复、updater pending launch crash rollback。
 - `Updater::launch_patch()` 现在会把上次未 mark success 的 `pending_success` patch 标记为 bad，避免 crash loop。
+- 已处理后续 review：`fcb check --install` 对无补丁响应改为成功 no-op、Fiber advisory 注释写入 `server/go.mod`、server payload atomic write 改用 `os.CreateTemp` + `Sync`、`download_bytes` 增加本地路径信任边界说明、payload endpoint 增加 URL-encoded traversal 集成测试。
 
 **已验证**
 - `cargo test`: 通过。
 - `go test ./...` in `server/`: 通过。
+- `cargo fmt --all -- --check`: 通过。
 - `flutter analyze` in `packages/fcb_code_push`: 通过。
 - `flutter test` in `packages/fcb_code_push`: 通过。
 - `flutter analyze` in `examples/counter_app`: 通过。
-- `cargo fmt --all -- --check`: 通过。
 - `/tmp` 新目录执行 `fcb init` 后，`.fcb/keys/dev-ed25519.private` 权限为 `600`。
 - 本地闭环通过：启动 server 后运行 `fcb init`、`fcb release android --example examples/counter_app --release-version 1.0.0+1`、`fcb patch android --release-version 1.0.0+1 --patch-number 1`、`fcb promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100`、`fcb check --release-version 1.0.0+1`，check 返回 `patch_available: true`。
 - `fcb install` 能验证签名/hash 并写入 `.fcb/cache/state.json`。
@@ -37,6 +38,7 @@
 
 **当前状态**
 - 当前目录是 git repo，`main` 已包含 PR #1 合并结果。
+- 当前分支 `feat/fiber-server-install-flow` 已有 PR #2；本轮 review 修复尚未提交/推送。
 - 本轮启动的 `127.0.0.1:8080` Fiber server 已结束，端口不再占用。
 - `fcb.yaml`、`.fcb/`、`target/` 为验证/构建产物，不应作为源码提交。
 

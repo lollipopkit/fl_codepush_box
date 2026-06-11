@@ -2,6 +2,9 @@ module fcb-server
 
 go 1.26
 
+// Fiber is pinned at v2.52.13+ for GHSA-qjv7-627w-8qjv and
+// GHSA-mrq8-rjmw-wpq3. GHSA-68rr-p4fp-j59v covers UUID entropy; this repo
+// targets Go 1.26, reducing risk, but Fiber advisories should be monitored.
 require github.com/gofiber/fiber/v2 v2.52.13
 
 require (

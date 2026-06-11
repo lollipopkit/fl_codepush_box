@@ -401,7 +401,12 @@ fn download_and_install(
     cache_dir: &Path,
 ) -> Result<()> {
     let Some(patch) = &response.patch else {
-        return Err(err("no patch available to install"));
+        if response.patch_available {
+            return Err(err(
+                "server response marked patch_available but omitted patch",
+            ));
+        }
+        return Ok(());
     };
     let (manifest_path, payload_path) =
         download_patch_files(client, patch, release_version, platform, arch)?;

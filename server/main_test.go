@@ -40,6 +40,16 @@ func TestObjectPathRejectsTraversal(t *testing.T) {
 	if path, err := server.objectPath("patches/app/release/payload.bin"); err != nil || !strings.Contains(path, "objects") {
 		t.Fatalf("objectPath rejected valid key: path=%q err=%v", path, err)
 	}
+	app := buildApp(server)
+	req := httptest.NewRequest(http.MethodGet, "/v1/patches/payload?key=%2e%2e%2fpayload.bin", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("/v1/patches/payload accepted URL-encoded traversal key")
+	}
 }
 
 func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {

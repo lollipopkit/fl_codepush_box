@@ -112,6 +112,14 @@ impl Client {
         Ok(response.into_json()?)
     }
 
+    /// `download_bytes` fetches `http://` and `https://` URLs over HTTP(S) via
+    /// `self.agent`; all other values are treated as local filesystem paths and
+    /// read with `fs::read`.
+    ///
+    /// Security assumption: callers must ensure non-HTTP URLs come from a
+    /// trusted source, such as a server `CheckResponse`. Validate or sanitize
+    /// inputs first if that trust boundary cannot be guaranteed, otherwise a
+    /// malicious value could cause unintended local file reads.
     pub fn download_bytes(&self, url: &str) -> Result<Vec<u8>> {
         if url.starts_with("http://") || url.starts_with("https://") {
             let response = self.agent.get(url).call().map_err(Box::new)?;
