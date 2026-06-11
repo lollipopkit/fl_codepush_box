@@ -1,12 +1,22 @@
 use crate::manifest::{PatchManifest, ReleaseManifest};
 use crate::{err, Error, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::Read;
+use std::path::Path;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAppRequest {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreatePatchRequest<'a> {
+    pub manifest: &'a PatchManifest,
+    pub payload_b64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,8 +71,14 @@ impl Client {
         self.post_json("/v1/releases", manifest)
     }
 
-    pub fn create_patch(&self, manifest: &PatchManifest) -> Result<()> {
-        self.post_json("/v1/patches", manifest)
+    pub fn create_patch(&self, manifest: &PatchManifest, payload: &[u8]) -> Result<()> {
+        self.post_json(
+            "/v1/patches",
+            &CreatePatchRequest {
+                manifest,
+                payload_b64: STANDARD.encode(payload),
+            },
+        )
     }
 
     pub fn promote_patch(&self, request: &PromotePatchRequest) -> Result<()> {
@@ -94,6 +110,19 @@ impl Client {
             .call()
             .map_err(Box::new)?;
         Ok(response.into_json()?)
+    }
+
+    pub fn download_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        if url.starts_with("http://") || url.starts_with("https://") {
+            let response = self.agent.get(url).call().map_err(Box::new)?;
+            return response
+                .into_reader()
+                .take(64 * 1024 * 1024)
+                .bytes()
+                .collect::<std::io::Result<Vec<_>>>()
+                .map_err(Into::into);
+        }
+        Ok(fs::read(Path::new(url))?)
     }
 
     fn post_json<T: Serialize>(&self, path: &str, value: &T) -> Result<()> {

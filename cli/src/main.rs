@@ -4,7 +4,9 @@ use fcb_core::crypto;
 use fcb_core::manifest::{
     self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest, ReleaseManifest,
 };
-use fcb_core::server_api::{Client, CreateAppRequest, PromotePatchRequest};
+use fcb_core::server_api::{
+    CheckResponse, Client, CreateAppRequest, PatchCheck, PromotePatchRequest,
+};
 use fcb_core::state::Updater;
 use fcb_core::{err, fcb_dir, Result};
 use std::fs;
@@ -75,6 +77,10 @@ enum Command {
         current_patch_number: u32,
         #[arg(long, default_value = "dev-client")]
         client_id: String,
+        #[arg(long)]
+        install: bool,
+        #[arg(long, default_value = ".fcb/cache")]
+        cache_dir: PathBuf,
     },
     Install {
         #[arg(long)]
@@ -165,6 +171,8 @@ fn run() -> Result<()> {
             channel,
             current_patch_number,
             client_id,
+            install,
+            cache_dir,
         } => check(
             &args.server,
             &release_version,
@@ -173,6 +181,8 @@ fn run() -> Result<()> {
             &channel,
             current_patch_number,
             &client_id,
+            install,
+            &cache_dir,
         ),
         Command::Install {
             manifest,
@@ -287,7 +297,7 @@ fn patch(
         release_version: release_version.to_string(),
         patch_number,
         channel: config.channel.clone(),
-        created_at: "dev".to_string(),
+        created_at: "1970-01-01T00:00:00Z".to_string(),
         backend: backend_for(&config, platform),
         platform: platform.to_string(),
         arch: arch.to_string(),
@@ -296,7 +306,14 @@ fn patch(
             compression: "none".to_string(),
             hash: payload_hash.clone(),
             size: payload_bytes.len() as u64,
-            download_url: out.join("payload.bin").display().to_string(),
+            download_url: object_key(
+                &config.app_id,
+                release_version,
+                platform,
+                arch,
+                patch_number,
+                "payload.bin",
+            ),
         },
         policy: PatchPolicy {
             rollout_percentage: 0,
@@ -310,7 +327,7 @@ fn patch(
     };
     manifest::sign_patch_manifest(&mut manifest, private_key.trim())?;
     manifest::write_json(&out.join("patch_manifest.json"), &manifest)?;
-    Client::new(server).create_patch(&manifest)?;
+    Client::new(server).create_patch(&manifest, &payload_bytes)?;
     println!("{}", out.join("patch_manifest.json").display());
     println!("payload_sha256={payload_hash}");
     Ok(())
@@ -347,9 +364,12 @@ fn check(
     channel: &str,
     current_patch_number: u32,
     client_id: &str,
+    install_patch: bool,
+    cache_dir: &Path,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let response = Client::new(server).check(
+    let client = Client::new(server);
+    let response = client.check(
         &config.app_id,
         release_version,
         platform,
@@ -359,6 +379,70 @@ fn check(
         client_id,
     )?;
     println!("{}", serde_json::to_string_pretty(&response)?);
+    if install_patch {
+        download_and_install(
+            &client,
+            &response,
+            release_version,
+            platform,
+            arch,
+            cache_dir,
+        )?;
+    }
+    Ok(())
+}
+
+fn download_and_install(
+    client: &Client,
+    response: &CheckResponse,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+    cache_dir: &Path,
+) -> Result<()> {
+    let Some(patch) = &response.patch else {
+        return Err(err("no patch available to install"));
+    };
+    let (manifest_path, payload_path) =
+        download_patch_files(client, patch, release_version, platform, arch)?;
+    install(&manifest_path, &payload_path, cache_dir)
+}
+
+fn download_patch_files(
+    client: &Client,
+    patch: &PatchCheck,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+) -> Result<(PathBuf, PathBuf)> {
+    let out = fcb_dir()
+        .join("downloads")
+        .join(release_version)
+        .join(patch.patch_number.to_string())
+        .join(platform)
+        .join(arch);
+    fs::create_dir_all(&out)?;
+
+    let manifest_bytes = client.download_bytes(&patch.manifest_url)?;
+    ensure_hash("manifest", &manifest_bytes, &patch.manifest_hash)?;
+    let manifest_path = out.join("patch_manifest.json");
+    fs::write(&manifest_path, manifest_bytes)?;
+
+    let payload_bytes = client.download_bytes(&patch.payload_url)?;
+    ensure_hash("payload", &payload_bytes, &patch.payload_hash)?;
+    let payload_path = out.join("payload.bin");
+    fs::write(&payload_path, payload_bytes)?;
+
+    Ok((manifest_path, payload_path))
+}
+
+fn ensure_hash(label: &str, bytes: &[u8], expected: &str) -> Result<()> {
+    let actual = crypto::sha256_hex(bytes);
+    if actual != expected {
+        return Err(err(format!(
+            "{label} sha256 mismatch: expected {expected}, got {actual}"
+        )));
+    }
     Ok(())
 }
 
@@ -405,4 +489,15 @@ fn backend_for(config: &FcbConfig, platform: &str) -> String {
         "ios" => config.platforms.ios.backend.clone(),
         _ => config.platforms.android.backend.clone(),
     }
+}
+
+fn object_key(
+    app_id: &str,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+    patch_number: u32,
+    file_name: &str,
+) -> String {
+    format!("patches/{app_id}/{release_version}/{platform}/{arch}/{patch_number}/{file_name}")
 }

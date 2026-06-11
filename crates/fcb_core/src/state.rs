@@ -118,6 +118,28 @@ impl Updater {
 
     pub fn launch_patch(&self) -> Result<Option<InstalledPatch>> {
         let mut state = self.load_state()?;
+        let mut state_changed = false;
+        if matches!(
+            state
+                .last_launch
+                .as_ref()
+                .map(|launch| launch.status.as_str()),
+            Some("pending_success")
+        ) {
+            if let Some(last) = &state.last_launch {
+                if !state.bad_patches.contains(&last.patch_number) {
+                    state.bad_patches.push(last.patch_number);
+                }
+                if state.current_patch_number == last.patch_number {
+                    state.current_patch_number = 0;
+                }
+                if state.pending_patch_number == Some(last.patch_number) {
+                    state.pending_patch_number = None;
+                }
+            }
+            state.last_launch = None;
+            state_changed = true;
+        }
         let Some(patch_number) = state.pending_patch_number.or_else(|| {
             if state.current_patch_number == 0 {
                 None
@@ -125,9 +147,15 @@ impl Updater {
                 Some(state.current_patch_number)
             }
         }) else {
+            if state_changed {
+                self.save_state(&state)?;
+            }
             return Ok(None);
         };
         if state.bad_patches.contains(&patch_number) {
+            if state_changed {
+                self.save_state(&state)?;
+            }
             return Ok(None);
         }
         let installed = state
@@ -141,6 +169,9 @@ impl Updater {
                 status: "pending_success".to_string(),
                 started_at: now_string(),
             });
+            state_changed = true;
+        }
+        if state_changed {
             self.save_state(&state)?;
         }
         Ok(installed)
@@ -223,7 +254,7 @@ fn unique_suffix() -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use super::Updater;
+    use super::{InstalledPatch, LastLaunch, State, Updater};
 
     #[test]
     fn mark_success_requires_last_launch() {
@@ -236,6 +267,43 @@ mod tests {
             .expect_err("missing last_launch should fail");
 
         assert!(err.to_string().contains("no last_launch to mark success"));
+        let _ = std::fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn launch_patch_marks_previous_pending_launch_bad() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let updater = Updater::new(&cache_dir);
+        updater
+            .save_state(&State {
+                schema_version: 1,
+                release_version: "1.0.0+1".to_string(),
+                current_patch_number: 0,
+                pending_patch_number: Some(1),
+                bad_patches: Vec::new(),
+                last_launch: Some(LastLaunch {
+                    patch_number: 1,
+                    status: "pending_success".to_string(),
+                    started_at: "0".to_string(),
+                }),
+                installed: vec![InstalledPatch {
+                    patch_number: 1,
+                    backend: "snapshot_replace".to_string(),
+                    manifest_path: "patches/1/manifest.json".to_string(),
+                    payload_path: "patches/1/payload.bin".to_string(),
+                    installed_at: "0".to_string(),
+                }],
+            })
+            .expect("write state");
+
+        let launch = updater.launch_patch().expect("launch patch");
+        let state = updater.load_state().expect("load state");
+
+        assert!(launch.is_none());
+        assert_eq!(state.bad_patches, vec![1]);
+        assert_eq!(state.pending_patch_number, None);
+        assert!(state.last_launch.is_none());
         let _ = std::fs::remove_dir_all(cache_dir);
     }
 }

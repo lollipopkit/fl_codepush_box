@@ -158,3 +158,87 @@ fn normalize(value: Value) -> Value {
         other => other,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        canonical_json, sign_patch_manifest, verify_patch_manifest, PatchManifest, PatchPolicy,
+        PatchSignature, PayloadManifest,
+    };
+    use crate::crypto;
+    use serde_json::json;
+
+    #[test]
+    fn canonical_json_sorts_object_keys_recursively() {
+        let value = json!({
+            "z": 1,
+            "a": {
+                "b": 2,
+                "a": 1
+            }
+        });
+
+        let bytes = canonical_json(&value).expect("canonical json");
+
+        assert_eq!(
+            std::str::from_utf8(&bytes).expect("utf8"),
+            r#"{"a":{"a":1,"b":2},"z":1}"#
+        );
+    }
+
+    #[test]
+    fn patch_manifest_sign_and_verify_roundtrip() {
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        let mut manifest = test_manifest();
+
+        sign_patch_manifest(&mut manifest, &private_key).expect("sign manifest");
+
+        assert_eq!(manifest.signature.algorithm, "ed25519");
+        assert!(!manifest.signature.value.is_empty());
+        verify_patch_manifest(&manifest, &public_key).expect("verify manifest");
+    }
+
+    #[test]
+    fn sign_patch_manifest_restores_signature_on_failure() {
+        let mut manifest = test_manifest();
+        manifest.signature.algorithm = "custom".to_string();
+        manifest.signature.value = "original".to_string();
+
+        let err =
+            sign_patch_manifest(&mut manifest, "not-base64").expect_err("signing should fail");
+
+        assert!(err.to_string().contains("invalid private key base64"));
+        assert_eq!(manifest.signature.algorithm, "custom");
+        assert_eq!(manifest.signature.value, "original");
+    }
+
+    fn test_manifest() -> PatchManifest {
+        PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number: 1,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "snapshot_replace".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "opaque_payload".to_string(),
+                compression: "none".to_string(),
+                hash: "0".repeat(64),
+                size: 0,
+                download_url: "patches/app/release/payload.bin".to_string(),
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 0,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        }
+    }
+}
