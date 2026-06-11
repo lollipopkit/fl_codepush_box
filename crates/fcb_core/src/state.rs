@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct State {
@@ -63,7 +66,12 @@ impl Updater {
         atomic_write_json(&self.state_path(), state)
     }
 
-    pub fn install_payload(&self, manifest_path: &Path, payload_path: &Path, public_key_b64: &str) -> Result<()> {
+    pub fn install_payload(
+        &self,
+        manifest_path: &Path,
+        payload_path: &Path,
+        public_key_b64: &str,
+    ) -> Result<()> {
         let manifest: PatchManifest = manifest::read_json(manifest_path)?;
         manifest::verify_patch_manifest(&manifest, public_key_b64)?;
         let payload = fs::read(payload_path)?;
@@ -84,7 +92,9 @@ impl Updater {
         state.schema_version = 1;
         state.release_version = manifest.release_version.clone();
         state.pending_patch_number = Some(manifest.patch_number);
-        state.installed.retain(|p| p.patch_number != manifest.patch_number);
+        state
+            .installed
+            .retain(|p| p.patch_number != manifest.patch_number);
         state.installed.push(InstalledPatch {
             patch_number: manifest.patch_number,
             backend: manifest.backend,
@@ -95,7 +105,11 @@ impl Updater {
         state.installed.sort_by_key(|p| p.patch_number);
         while state.installed.len() > 2 {
             if let Some(old) = state.installed.first().cloned() {
-                let _ = fs::remove_dir_all(self.cache_dir.join("patches").join(old.patch_number.to_string()));
+                let _ = fs::remove_dir_all(
+                    self.cache_dir
+                        .join("patches")
+                        .join(old.patch_number.to_string()),
+                );
                 state.installed.remove(0);
             }
         }
@@ -134,11 +148,12 @@ impl Updater {
 
     pub fn mark_success(&self) -> Result<()> {
         let mut state = self.load_state()?;
-        if let Some(last) = &mut state.last_launch {
-            state.current_patch_number = last.patch_number;
-            state.pending_patch_number = None;
-            last.status = "success".to_string();
-        }
+        let Some(last) = &mut state.last_launch else {
+            return Err(err("no last_launch to mark success"));
+        };
+        state.current_patch_number = last.patch_number;
+        state.pending_patch_number = None;
+        last.status = "success".to_string();
         self.save_state(&state)
     }
 
@@ -171,7 +186,15 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("tmp");
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("state");
+    let tmp = path.with_file_name(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        unique_suffix()
+    ));
     {
         let mut file = File::create(&tmp)?;
         file.write_all(bytes)?;
@@ -189,3 +212,30 @@ fn now_string() -> String {
     format!("{secs}")
 }
 
+fn unique_suffix() -> u128 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+    (nanos << 32) | counter
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Updater;
+
+    #[test]
+    fn mark_success_requires_last_launch() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let updater = Updater::new(&cache_dir);
+
+        let err = updater
+            .mark_success()
+            .expect_err("missing last_launch should fail");
+
+        assert!(err.to_string().contains("no last_launch to mark success"));
+        let _ = std::fs::remove_dir_all(cache_dir);
+    }
+}

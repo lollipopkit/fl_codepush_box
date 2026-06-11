@@ -17,6 +17,13 @@ class CounterApp extends StatelessWidget {
           child: FutureBuilder<int?>(
             future: FcbCodePush.instance.currentPatchNumber(),
             builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting ||
+                  snapshot.connectionState == ConnectionState.active) {
+                return const CircularProgressIndicator();
+              }
+              if (snapshot.hasError) {
+                return Text('Counter: 1\nPatch error: ${snapshot.error}');
+              }
               final patch = snapshot.data;
               return Text('Counter: 1\nPatch: ${patch ?? 0}');
             },
@@ -26,4 +33,3 @@ class CounterApp extends StatelessWidget {
     );
   }
 }
-

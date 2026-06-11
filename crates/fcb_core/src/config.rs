@@ -70,8 +70,15 @@ impl FcbConfig {
             .iter()
             .map(|abi| format!("      - {abi}\n"))
             .collect::<String>();
+        let ios_abi = self
+            .platforms
+            .ios
+            .abi
+            .iter()
+            .map(|abi| format!("      - {abi}\n"))
+            .collect::<String>();
         format!(
-            "app_id: \"{}\"\nchannel: \"{}\"\nupdate:\n  check_on_startup: {}\n  activation: \"{}\"\nsecurity:\n  public_key_id: \"{}\"\nplatforms:\n  android:\n    enabled: {}\n    backend: \"{}\"\n    abi:\n{}  ios:\n    enabled: {}\n    backend: \"{}\"\n",
+            "app_id: \"{}\"\nchannel: \"{}\"\nupdate:\n  check_on_startup: {}\n  activation: \"{}\"\nsecurity:\n  public_key_id: \"{}\"\nplatforms:\n  android:\n    enabled: {}\n    backend: \"{}\"\n    abi:\n{}  ios:\n    enabled: {}\n    backend: \"{}\"\n    abi:\n{}",
             self.app_id,
             self.channel,
             self.update.check_on_startup,
@@ -82,6 +89,7 @@ impl FcbConfig {
             android_abi,
             self.platforms.ios.enabled,
             self.platforms.ios.backend,
+            ios_abi,
         )
     }
 
@@ -107,6 +115,7 @@ fn parse_yaml_subset(source: &str) -> Result<FcbConfig> {
     let mut android_abi = Vec::new();
     let mut ios_enabled = Some(true);
     let mut ios_backend = Some("bytecode".to_string());
+    let mut ios_abi = Vec::new();
     let mut section = "";
     let mut platform = "";
 
@@ -121,12 +130,21 @@ fn parse_yaml_subset(source: &str) -> Result<FcbConfig> {
             platform = "";
             continue;
         }
-        if section == "platforms" && raw.starts_with("  ") && !raw.starts_with("    ") && trimmed.ends_with(':') {
+        if section == "platforms"
+            && raw.starts_with("  ")
+            && !raw.starts_with("    ")
+            && trimmed.ends_with(':')
+        {
             platform = trimmed.trim_end_matches(':');
             continue;
         }
-        if trimmed.starts_with("- ") && platform == "android" {
-            android_abi.push(unquote(trimmed.trim_start_matches("- ").trim()));
+        if trimmed.starts_with("- ") {
+            let abi = unquote(trimmed.trim_start_matches("- ").trim());
+            match platform {
+                "android" => android_abi.push(abi),
+                "ios" => ios_abi.push(abi),
+                _ => {}
+            }
             continue;
         }
         let Some((key, value)) = trimmed.split_once(':') else {
@@ -167,7 +185,7 @@ fn parse_yaml_subset(source: &str) -> Result<FcbConfig> {
             ios: PlatformEntry {
                 enabled: ios_enabled.unwrap(),
                 backend: ios_backend.unwrap(),
-                abi: Vec::new(),
+                abi: ios_abi,
             },
         },
     })
@@ -185,3 +203,18 @@ fn parse_bool(value: &str) -> Result<bool> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::FcbConfig;
+
+    #[test]
+    fn yaml_roundtrip_preserves_ios_abi() {
+        let mut config = FcbConfig::new("app".to_string());
+        config.platforms.ios.abi = vec!["ios-arm64".to_string(), "ios-x64".to_string()];
+
+        let parsed = super::parse_yaml_subset(&config.to_yaml()).expect("parse yaml");
+
+        assert_eq!(parsed.platforms.ios.abi, config.platforms.ios.abi);
+        assert_eq!(parsed.platforms.android.abi, config.platforms.android.abi);
+    }
+}

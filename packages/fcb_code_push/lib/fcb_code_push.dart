@@ -1,6 +1,8 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 class FcbCodePush {
   FcbCodePush._();
 
@@ -19,11 +21,17 @@ class FcbCodePush {
   }
 
   Future<UpdateCheckResult> checkForUpdate() async {
-    return const UpdateCheckResult(patchAvailable: false, reason: 'native updater check is not wired in MVP package');
+    return const UpdateCheckResult(
+      patchAvailable: false,
+      reason: 'native updater check is not wired in MVP package',
+    );
   }
 
   Future<DownloadResult> downloadUpdate() async {
-    return const DownloadResult(success: false, reason: 'native updater download is not wired in MVP package');
+    return const DownloadResult(
+      success: false,
+      reason: 'native updater download is not wired in MVP package',
+    );
   }
 
   Future<bool> isNewPatchReadyToInstall() async {
@@ -43,7 +51,11 @@ class FcbCodePush {
     try {
       final lib = _library ??= _openLibrary();
       return lib.lookupFunction<Int32 Function(), int Function()>(symbol);
-    } catch (_) {
+    } catch (error, stack) {
+      if (kDebugMode) {
+        debugPrint('FCB native symbol lookup failed for $symbol: $error');
+        debugPrint('$stack');
+      }
       return null;
     }
   }
@@ -75,12 +87,8 @@ class UpdateCheckResult {
 }
 
 class DownloadResult {
-  const DownloadResult({
-    required this.success,
-    this.reason,
-  });
+  const DownloadResult({required this.success, this.reason});
 
   final bool success;
   final String? reason;
 }
-

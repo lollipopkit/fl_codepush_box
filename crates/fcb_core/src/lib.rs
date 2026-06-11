@@ -27,4 +27,3 @@ pub fn fcb_dir() -> PathBuf {
 pub fn err(message: impl Into<String>) -> Error {
     Error::Message(message.into())
 }
-

@@ -33,19 +33,19 @@ type ReleaseManifest struct {
 }
 
 type PatchManifest struct {
-	SchemaVersion  int              `json:"schema_version"`
-	AppID          string           `json:"app_id"`
-	ReleaseVersion string           `json:"release_version"`
-	PatchNumber    int              `json:"patch_number"`
-	Channel        string           `json:"channel"`
-	CreatedAt      string           `json:"created_at"`
-	Backend        string           `json:"backend"`
-	Platform       string           `json:"platform"`
-	Arch           string           `json:"arch"`
-	Payload        PayloadManifest  `json:"payload"`
-	Policy         PatchPolicy      `json:"policy"`
-	Signature      PatchSignature   `json:"signature"`
-	Active         bool             `json:"active"`
+	SchemaVersion  int             `json:"schema_version"`
+	AppID          string          `json:"app_id"`
+	ReleaseVersion string          `json:"release_version"`
+	PatchNumber    int             `json:"patch_number"`
+	Channel        string          `json:"channel"`
+	CreatedAt      string          `json:"created_at"`
+	Backend        string          `json:"backend"`
+	Platform       string          `json:"platform"`
+	Arch           string          `json:"arch"`
+	Payload        PayloadManifest `json:"payload"`
+	Policy         PatchPolicy     `json:"policy"`
+	Signature      PatchSignature  `json:"signature"`
+	Active         bool            `json:"active"`
 }
 
 type PayloadManifest struct {
@@ -265,7 +265,12 @@ func (s *Server) checkPatch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, CheckResponse{PatchAvailable: false})
 		return
 	}
-	manifestBytes, _ := json.Marshal(best)
+	manifestBytes, err := json.Marshal(best)
+	if err != nil {
+		log.Printf("marshal patch manifest failed: %v", err)
+		http.Error(w, "failed to marshal patch manifest", http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, CheckResponse{
 		PatchAvailable: true,
 		Patch: &PatchCheck{
@@ -342,4 +347,3 @@ func sha256Hex(bytes []byte) string {
 	sum := sha256.Sum256(bytes)
 	return hex.EncodeToString(sum[:])
 }
-

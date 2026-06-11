@@ -55,6 +55,38 @@ pub struct PatchSignature {
     pub value: String,
 }
 
+pub const RELEASE_MANIFEST_REQUIRED: &[&str] = &[
+    "schema_version",
+    "app_id",
+    "release_version",
+    "channel",
+    "platform",
+    "arch",
+    "backend",
+    "artifact_hash",
+    "artifact_size",
+];
+
+pub const PATCH_MANIFEST_REQUIRED: &[&str] = &[
+    "schema_version",
+    "app_id",
+    "release_version",
+    "patch_number",
+    "channel",
+    "created_at",
+    "backend",
+    "platform",
+    "arch",
+    "payload",
+    "policy",
+    "signature",
+];
+
+pub const PAYLOAD_MANIFEST_REQUIRED: &[&str] =
+    &["kind", "compression", "hash", "size", "download_url"];
+pub const PATCH_POLICY_REQUIRED: &[&str] = &["rollout_percentage", "allow_downgrade"];
+pub const PATCH_SIGNATURE_REQUIRED: &[&str] = &["algorithm", "key_id", "value"];
+
 pub fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let value = serde_json::to_value(value)?;
     let normalized = normalize(value);
@@ -62,10 +94,29 @@ pub fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>> {
 }
 
 pub fn sign_patch_manifest(manifest: &mut PatchManifest, private_key_b64: &str) -> Result<()> {
-    manifest.signature.value.clear();
-    let bytes = canonical_json(manifest)?;
-    manifest.signature.value = crypto::sign_b64(private_key_b64, &bytes)?;
-    Ok(())
+    let original_value = manifest.signature.value.clone();
+    let original_algorithm = manifest.signature.algorithm.clone();
+    let result = (|| {
+        let mut unsigned = manifest.clone();
+        unsigned.signature.algorithm = "ed25519".to_string();
+        unsigned.signature.value.clear();
+        let bytes = canonical_json(&unsigned)?;
+        let signed_b64 = crypto::sign_b64(private_key_b64, &bytes)?;
+        Ok(signed_b64)
+    })();
+
+    match result {
+        Ok(signed_b64) => {
+            manifest.signature.algorithm = "ed25519".to_string();
+            manifest.signature.value = signed_b64;
+            Ok(())
+        }
+        Err(e) => {
+            manifest.signature.algorithm = original_algorithm;
+            manifest.signature.value = original_value;
+            Err(e)
+        }
+    }
 }
 
 pub fn verify_patch_manifest(manifest: &PatchManifest, public_key_b64: &str) -> Result<()> {
@@ -107,4 +158,3 @@ fn normalize(value: Value) -> Value {
         other => other,
     }
 }
-

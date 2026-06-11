@@ -1,6 +1,7 @@
 use crate::manifest::{PatchManifest, ReleaseManifest};
 use crate::{err, Error, Result};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAppRequest {
@@ -37,12 +38,18 @@ pub struct PatchCheck {
 #[derive(Debug, Clone)]
 pub struct Client {
     base_url: String,
+    agent: ureq::Agent,
 }
 
 impl Client {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
+            agent: ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(5))
+                .timeout_read(Duration::from_secs(30))
+                .timeout_write(Duration::from_secs(30))
+                .build(),
         }
     }
 
@@ -74,7 +81,9 @@ impl Client {
     ) -> Result<CheckResponse> {
         let url = format!("{}/v1/patches/check", self.base_url);
         let current_patch_number = current_patch_number.to_string();
-        let response = ureq::get(&url)
+        let response = self
+            .agent
+            .get(&url)
             .query("app_id", app_id)
             .query("release_version", release_version)
             .query("platform", platform)
@@ -89,7 +98,10 @@ impl Client {
 
     fn post_json<T: Serialize>(&self, path: &str, value: &T) -> Result<()> {
         let url = format!("{}{}", self.base_url, path);
-        let response = ureq::post(&url).send_json(serde_json::to_value(value)?);
+        let response = self
+            .agent
+            .post(&url)
+            .send_json(serde_json::to_value(value)?);
         match response {
             Ok(resp) if (200..300).contains(&resp.status()) => Ok(()),
             Ok(resp) => Err(err(format!("server returned HTTP {}", resp.status()))),

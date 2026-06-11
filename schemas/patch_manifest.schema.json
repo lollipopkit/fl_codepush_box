@@ -2,6 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "FCB patch manifest",
   "type": "object",
-  "required": ["schema_version", "app_id", "release_version", "patch_number", "payload", "signature"]
+  "required": [
+    "schema_version",
+    "app_id",
+    "release_version",
+    "patch_number",
+    "channel",
+    "created_at",
+    "backend",
+    "platform",
+    "arch",
+    "payload",
+    "policy",
+    "signature"
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": ["kind", "compression", "hash", "size", "download_url"]
+    },
+    "policy": {
+      "type": "object",
+      "required": ["rollout_percentage", "allow_downgrade"]
+    },
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "key_id", "value"]
+    }
+  }
 }
-

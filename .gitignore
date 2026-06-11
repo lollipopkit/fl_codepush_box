@@ -3,3 +3,5 @@
 .fcb/
 fcb.yaml
 *.tmp
+.dart_tool/
+build/

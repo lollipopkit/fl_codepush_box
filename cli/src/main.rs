@@ -11,6 +11,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 #[derive(Parser)]
 #[command(name = "fcb")]
 #[command(about = "Flutter CodePush Box CLI")]
@@ -118,14 +121,27 @@ fn run() -> Result<()> {
             example,
             release_version,
             arch,
-        } => release(&args.server, &platform, example.as_deref(), &release_version, &arch),
+        } => release(
+            &args.server,
+            &platform,
+            example.as_deref(),
+            &release_version,
+            &arch,
+        ),
         Command::Patch {
             platform,
             release_version,
             patch_number,
             arch,
             payload,
-        } => patch(&args.server, &platform, &release_version, patch_number, &arch, payload.as_deref()),
+        } => patch(
+            &args.server,
+            &platform,
+            &release_version,
+            patch_number,
+            &arch,
+            payload.as_deref(),
+        ),
         Command::Promote {
             release_version,
             patch_number,
@@ -133,7 +149,15 @@ fn run() -> Result<()> {
             arch,
             channel,
             rollout_percentage,
-        } => promote(&args.server, &release_version, patch_number, &platform, &arch, &channel, rollout_percentage),
+        } => promote(
+            &args.server,
+            &release_version,
+            patch_number,
+            &platform,
+            &arch,
+            &channel,
+            rollout_percentage,
+        ),
         Command::Check {
             release_version,
             platform,
@@ -141,7 +165,15 @@ fn run() -> Result<()> {
             channel,
             current_patch_number,
             client_id,
-        } => check(&args.server, &release_version, &platform, &arch, &channel, current_patch_number, &client_id),
+        } => check(
+            &args.server,
+            &release_version,
+            &platform,
+            &arch,
+            &channel,
+            current_patch_number,
+            &client_id,
+        ),
         Command::Install {
             manifest,
             payload,
@@ -173,13 +205,22 @@ fn init() -> Result<()> {
     let app_id = Uuid::new_v4().to_string();
     FcbConfig::new(app_id.clone()).write_yaml(Path::new("fcb.yaml"))?;
     let (private_key, public_key) = crypto::generate_keypair_b64();
-    fs::write(fcb_dir().join("keys/dev-ed25519.private"), private_key)?;
+    let private_key_path = fcb_dir().join("keys/dev-ed25519.private");
+    fs::write(&private_key_path, private_key)?;
+    #[cfg(unix)]
+    fs::set_permissions(&private_key_path, fs::Permissions::from_mode(0o600))?;
     fs::write(fcb_dir().join("keys/dev-ed25519.public"), public_key)?;
     println!("created fcb.yaml for app_id {app_id}");
     Ok(())
 }
 
-fn release(server: &str, platform: &str, example: Option<&Path>, release_version: &str, arch: &str) -> Result<()> {
+fn release(
+    server: &str,
+    platform: &str,
+    example: Option<&Path>,
+    release_version: &str,
+    arch: &str,
+) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
     let artifact = release_artifact_bytes(example)?;
     let manifest = ReleaseManifest {
@@ -193,7 +234,11 @@ fn release(server: &str, platform: &str, example: Option<&Path>, release_version
         artifact_hash: crypto::sha256_hex(&artifact),
         artifact_size: artifact.len() as u64,
     };
-    let out = fcb_dir().join("releases").join(release_version).join(platform).join(arch);
+    let out = fcb_dir()
+        .join("releases")
+        .join(release_version)
+        .join(platform)
+        .join(arch);
     fs::create_dir_all(&out)?;
     fs::write(out.join("artifact.bin"), artifact)?;
     manifest::write_json(&out.join("release_manifest.json"), &manifest)?;
@@ -221,20 +266,29 @@ fn patch(
     } else {
         format!("fcb patch {patch_number} for {release_version}\n").into_bytes()
     };
-    let out = fcb_dir().join("patches").join(release_version).join(patch_number.to_string()).join(platform).join(arch);
+    let out = fcb_dir()
+        .join("patches")
+        .join(release_version)
+        .join(patch_number.to_string())
+        .join(platform)
+        .join(arch);
     fs::create_dir_all(&out)?;
     fs::write(out.join("payload.bin"), &payload_bytes)?;
     let payload_hash = crypto::sha256_hex(&payload_bytes);
     let public_key_id = config.security.public_key_id.clone();
-    let private_key = fs::read_to_string(fcb_dir().join("keys").join(format!("{public_key_id}.private")))?;
+    let private_key = fs::read_to_string(
+        fcb_dir()
+            .join("keys")
+            .join(format!("{public_key_id}.private")),
+    )?;
     let mut manifest = PatchManifest {
         schema_version: 1,
-        app_id: config.app_id,
+        app_id: config.app_id.clone(),
         release_version: release_version.to_string(),
         patch_number,
-        channel: config.channel,
+        channel: config.channel.clone(),
         created_at: "dev".to_string(),
-        backend: backend_for(&FcbConfig::read_yaml(Path::new("fcb.yaml"))?, platform),
+        backend: backend_for(&config, platform),
         platform: platform.to_string(),
         arch: arch.to_string(),
         payload: PayloadManifest {
@@ -310,7 +364,11 @@ fn check(
 
 fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let public_key = fs::read_to_string(fcb_dir().join("keys").join(format!("{}.public", config.security.public_key_id)))?;
+    let public_key = fs::read_to_string(
+        fcb_dir()
+            .join("keys")
+            .join(format!("{}.public", config.security.public_key_id)),
+    )?;
     Updater::new(cache_dir).install_payload(manifest_path, payload_path, public_key.trim())?;
     println!("installed patch into {}", cache_dir.display());
     Ok(())
@@ -348,4 +406,3 @@ fn backend_for(config: &FcbConfig, platform: &str) -> String {
         _ => config.platforms.android.backend.clone(),
     }
 }
-

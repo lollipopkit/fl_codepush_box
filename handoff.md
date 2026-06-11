@@ -14,11 +14,15 @@
 - `updater/src/lib.rs` 已导出 `fcb_*` C ABI 基础符号。
 - `server/main.go` 已实现 Go API：apps/releases/patches/promote/rollback/check/events，本地 JSON store。
 - `packages/fcb_code_push` 已有 Dart FFI 壳层；`examples/counter_app` 已有最小 Flutter 示例。
+- 已处理 PR inline review：私钥权限、iOS ABI round-trip、manifest 签名失败恢复、HTTP timeout、atomic temp 文件、mark_success 错误路径、schema required drift 测试、Go marshal 错误处理、FFI panic/poison/range 防护、Flutter 示例状态处理和 debug 日志。
 
 **已验证**
-- `cargo check`: 通过。
+- `cargo test`: 通过。
 - `go test ./...` in `server/`: 通过。
-- `dart analyze packages/fcb_code_push`: 通过。
+- `flutter analyze` in `packages/fcb_code_push`: 通过。
+- `flutter analyze` in `examples/counter_app`: 通过。
+- `cargo fmt --all -- --check`: 通过。
+- `/tmp` 新目录执行 `fcb init` 后，`.fcb/keys/dev-ed25519.private` 权限为 `600`。
 - 本地闭环通过：启动 server 后运行 `fcb init`、`fcb release android --example examples/counter_app --release-version 1.0.0+1`、`fcb patch android --release-version 1.0.0+1 --patch-number 1`、`fcb promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100`、`fcb check --release-version 1.0.0+1`，check 返回 `patch_available: true`。
 - `fcb install` 能验证签名/hash 并写入 `.fcb/cache/state.json`。
 - 篡改 payload 后 `fcb install` 返回 `payload sha256 mismatch`。

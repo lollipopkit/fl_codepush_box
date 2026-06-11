@@ -2,6 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "FCB release manifest",
   "type": "object",
-  "required": ["schema_version", "app_id", "release_version", "platform", "arch", "artifact_hash"]
+  "required": [
+    "schema_version",
+    "app_id",
+    "release_version",
+    "channel",
+    "platform",
+    "arch",
+    "backend",
+    "artifact_hash",
+    "artifact_size"
+  ]
 }
-
