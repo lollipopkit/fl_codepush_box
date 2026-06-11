@@ -1,40 +1,37 @@
 **目标**
-继续按 review comment 逐条验真并最小修复 `fl_codepush_box` MVP。当前约束仍是 `server` 用 Go/Fiber，`cli` 和 `updater` 用 Rust。
+实现 `PLAN.md` 到项目 MVP。当前技术栈：server Go/Fiber，cli/updater Rust，package Dart/FFI。
 
 **硬约束**
-- 先验真再修改；已不存在的问题只在最终说明中标记跳过。
-- 不提交 ignored/generated 产物：`.fcb/`、`fcb.yaml`、`target/`、Flutter `.dart_tool/`、`packages/fcb_code_push/native/`、`android/src/main/jniLibs/`。
-- 当前未 push；如需继续 PR，先看 `git status --short` 和 PR 状态。
+- 不要把 MVP 缩小成纯文档；继续推进可运行闭环。
+- Phase A 已完成闭环；Phase B 需要 Flutter Engine fork，是独立大工程。
+- 不提交 ignored/generated 产物。
 
-**本轮已完成**
-- `packages/fcb_code_push/tool/build_android_native.sh`：`rm -rf` 前校验 `OUT_DIR`/`ABI`/`TARGET`，并使用 `rm -rf -- "$TARGET"`。
-- `updater/src/lib.rs`：配置变更会清空 `runtime.last_check`；`public_key_pem` 支持 PEM/SPKI DER 或 32-byte raw public-key base64 并统一保存为 raw key base64；读写 C 指针的 exported FFI 改为 `pub unsafe extern "C" fn` 并补 `# Safety`。
-- `crates/fcb_core/src/state.rs`：installed 修剪保留 `current_patch_number` 和 `pending_patch_number`，新增回归测试。
-- `server/main.go`：createPatch 校验 payload key 必须等于服务端 canonical key，拒绝覆盖已存在 payload；manifest/payload URL 使用 Host header 保留端口，新增测试。
-- `engine_patch/android/fcb_engine_hook_test.cc`：给测试 linker stub 加注释。
-- `examples/counter_app/lib/main.dart`：示例 counter 改为 state + FAB 递增。
-- `packages/fcb_code_push/android/build.gradle`：移除库模块 buildscript/AGP classpath。
-- `packages/fcb_code_push/lib/fcb_code_push.dart`：configure 前置输入校验；candidate native library paths 增加维护注释和 debug-only logging。
-- `packages/fcb_code_push/test/fcb_code_push_test.dart`：测试 public key 改为合法 32-byte base64。
+**Phase A 已完成（闭环验证）**
+- `fcb init/doctor/release/patch/promote/rollback/check/install/mark-success/mark-failure/inspect` 全部 CLI 命令实现。
+- Go Fiber server：apps/releases/patches/promote/rollback/check/manifest/payload/events。
+- Rust updater：manifest sign/verify、state machine、download/install、crash rollback。
+- Flutter package：configure/checkForUpdate/downloadUpdate/isNewPatchReadyToInstall/currentPatchNumber/markLaunchSuccessful。
+- Counter example：通过 --dart-define 配置，有 Check/Download/Mark success 按钮和 state counter。
+- Engine hook scaffold：fcb_engine_hook.{h,cc} + test。
+- E2E 测试脚本：tests/e2e/test_e2e.sh 覆盖 init→release→patch→promote→check→install→mark-failure→rollback→invalid sig rejection。
+
+**Review 修复已提交**
+- Android build 脚本 rm -rf 安全校验、updater FFI unsafe/panic guard/public key PEM/DER 规范化/last_check 失效、state installed 修剪保留 current/pending、server payload key 校验/Host header 端口保留、Dart configure 输入校验、C++ hook 注释、counter FAB、Gradle buildscript 移除。
 
 **已验证**
-- `cargo test`: 通过。
-- `go test ./...` in `server/`: 通过。
-- `flutter test` in `packages/fcb_code_push`: 通过。
-- `flutter analyze` in `packages/fcb_code_push`: 通过。
-- `flutter analyze` in `examples/counter_app`: 通过。
-- `c++ -std=c++17 -Wall -Wextra -Werror -Iengine_patch/android engine_patch/android/fcb_engine_hook.cc engine_patch/android/fcb_engine_hook_test.cc -o /tmp/fcb_engine_hook_test && /tmp/fcb_engine_hook_test`: 通过。
-- `sh -n packages/fcb_code_push/tool/build_android_native.sh && packages/fcb_code_push/tool/build_android_native.sh arm64-v8a`: 通过。
-- `cargo fmt --all -- --check && git diff --check`: 通过。
+- `cargo test`: 11 passed
+- `go test ./...`: 3 passed (eligible stability, path traversal, create+check)
+- `flutter test/analyze`: passed
+- `c++ hook test`: passed
+- `build_android_native.sh arm64-v8a`: passed
+- E2E script: full pass (init→patch→promote→check→install→failure→rollback→bad sig rejection)
 
-**跳过/已不存在**
-- `server/writeFileAtomic` 已经使用 `os.CreateTemp`、`Sync`、`Close` 和 `Rename`，无需再改。
-- `PLAN.md` line 339-341 当前函数名是普通文本/代码块片段，未见 MD037 所指强调符号空格问题，未修改。
-
-**当前状态**
-- 工作树有本轮源码改动和 `Cargo.lock` 变更，尚未 commit。
-- Android native build 重新生成了 ignored 的 `packages/fcb_code_push/native/android` 和 `android/src/main/jniLibs` 产物；不要提交。
+**Phase B 当前状态**
+- Engine hook 已有 scaffold + test，但需要接入真实 Flutter Engine AOT settings 初始化路径。
+- 需要修改 Engine GN 配置链接 libfcb_updater、在 root isolate 启动前调用 fcb_init/fcb_get_launch_patch、对 Android 设置 patched AOT artifact path。
+- 这是 Engine fork 工作，不在当前 MVP 范围内一键完成。
 
 **下一步**
-1. 如用户要求，审查 `git diff` 后 commit，建议 commit msg：`fix: address updater and server review findings`。
-2. 如继续 PR，push 当前分支并查看 PR checks。
+1. 将 engine_patch 接入真实 Flutter Engine Android embedder 的 AOT loading 路径。
+2. 替换 `fcb-simple-v1` diff 为 bsdiff/zstd。
+3. Phase C: bytecode backend for iOS/Play 合规。
