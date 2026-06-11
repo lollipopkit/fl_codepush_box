@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FCB patch manifest",
+  "type": "object",
+  "required": ["schema_version", "app_id", "release_version", "patch_number", "payload", "signature"]
+}
+

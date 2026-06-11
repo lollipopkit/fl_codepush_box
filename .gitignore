@@ -1,0 +1,5 @@
+/target/
+/server/fcb-server
+.fcb/
+fcb.yaml
+*.tmp
