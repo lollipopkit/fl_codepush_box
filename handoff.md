@@ -15,6 +15,7 @@
 - `server/main.go` 已实现 Go API：apps/releases/patches/promote/rollback/check/events，本地 JSON store。
 - `packages/fcb_code_push` 已有 Dart FFI 壳层；`examples/counter_app` 已有最小 Flutter 示例。
 - 已处理 PR inline review：私钥权限、iOS ABI round-trip、manifest 签名失败恢复、HTTP timeout、atomic temp 文件、mark_success 错误路径、schema required drift 测试、Go marshal 错误处理、FFI panic/poison/range 防护、Flutter 示例状态处理和 debug 日志。
+- 已处理后续 schema review：`patch_manifest.schema.json` 补齐 root/nested properties、types、format/range/pattern、additionalProperties；schema required 测试会验证 required 字段均存在于 properties。
 
 **已验证**
 - `cargo test`: 通过。

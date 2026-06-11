@@ -31,12 +31,19 @@ fn read_schema(path: &str) -> Value {
 }
 
 fn assert_required_eq(schema: &Value, expected: &[&str]) {
+    let properties = schema["properties"].as_object().expect("properties object");
     let mut actual = schema["required"]
         .as_array()
         .expect("required array")
         .iter()
         .map(|value| value.as_str().expect("required string"))
         .collect::<Vec<_>>();
+    for required in &actual {
+        assert!(
+            properties.contains_key(*required),
+            "required field {required} missing from properties"
+        );
+    }
     let mut expected = expected.to_vec();
     actual.sort_unstable();
     expected.sort_unstable();
