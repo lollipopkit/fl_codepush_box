@@ -75,7 +75,7 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 			Compression: "none",
 			Hash:        sha256Hex(payload),
 			Size:        uint64(len(payload)),
-			DownloadURL: "patches/app/1.0.0+1/android/arm64-v8a/1/payload.bin",
+			DownloadURL: patchPayloadKey("00000000-0000-0000-0000-000000000001", "1.0.0+1", "android", "arm64-v8a", 1),
 		},
 		Policy: PatchPolicy{
 			RolloutPercentage: 0,
@@ -111,6 +111,7 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 		"/v1/patches/check?app_id="+manifest.AppID+"&release_version=1.0.0%2B1&platform=android&arch=arm64-v8a&channel=stable&current_patch_number=0&client_id=test",
 		nil,
 	)
+	req.Host = "updates.local:9090"
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +132,9 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 	}
 	if !strings.Contains(check.Patch.ManifestURL, "/v1/patches/manifest?") {
 		t.Fatalf("manifest URL should point at server manifest endpoint: %q", check.Patch.ManifestURL)
+	}
+	if !strings.Contains(check.Patch.PayloadURL, "updates.local:9090") || !strings.Contains(check.Patch.ManifestURL, "updates.local:9090") {
+		t.Fatalf("download URLs should preserve host port: %+v", check.Patch)
 	}
 }
 

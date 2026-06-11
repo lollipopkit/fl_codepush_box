@@ -124,14 +124,19 @@ impl Updater {
         });
         state.installed.sort_by_key(|p| p.patch_number);
         while state.installed.len() > 2 {
-            if let Some(old) = state.installed.first().cloned() {
-                let _ = fs::remove_dir_all(
-                    self.cache_dir
-                        .join("patches")
-                        .join(old.patch_number.to_string()),
-                );
-                state.installed.remove(0);
-            }
+            let current = state.current_patch_number;
+            let pending = state.pending_patch_number;
+            let Some(index) = state.installed.iter().position(|patch| {
+                patch.patch_number != current && Some(patch.patch_number) != pending
+            }) else {
+                break;
+            };
+            let old = state.installed.remove(index);
+            let _ = fs::remove_dir_all(
+                self.cache_dir
+                    .join("patches")
+                    .join(old.patch_number.to_string()),
+            );
         }
         self.save_state(&state)
     }
@@ -483,6 +488,99 @@ mod tests {
             .expect("launch patch")
             .expect("installed patch");
         assert_eq!(launch.artifact_path.as_deref(), Some("patches/2/libapp.so"));
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+        let _ = std::fs::remove_dir_all(input_dir);
+    }
+
+    #[test]
+    fn install_prunes_old_patch_without_removing_current() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let input_dir =
+            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        let updater = Updater::new(&cache_dir);
+        updater
+            .save_state(&State {
+                schema_version: 1,
+                release_version: "1.0.0+1".to_string(),
+                current_patch_number: 1,
+                pending_patch_number: None,
+                bad_patches: Vec::new(),
+                last_launch: None,
+                installed: vec![
+                    InstalledPatch {
+                        patch_number: 1,
+                        backend: "bytecode".to_string(),
+                        manifest_path: "patches/1/manifest.json".to_string(),
+                        payload_path: "patches/1/payload.bin".to_string(),
+                        artifact_path: None,
+                        installed_at: "0".to_string(),
+                    },
+                    InstalledPatch {
+                        patch_number: 2,
+                        backend: "bytecode".to_string(),
+                        manifest_path: "patches/2/manifest.json".to_string(),
+                        payload_path: "patches/2/payload.bin".to_string(),
+                        artifact_path: None,
+                        installed_at: "0".to_string(),
+                    },
+                ],
+            })
+            .expect("write state");
+
+        let payload = b"bytecode payload";
+        let payload_path = input_dir.join("payload.bin");
+        std::fs::write(&payload_path, payload).expect("write payload");
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        let mut patch = PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number: 3,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "bytecode".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "opaque_payload".to_string(),
+                compression: "none".to_string(),
+                hash: crypto::sha256_hex(payload),
+                size: payload.len() as u64,
+                download_url: "patches/app/release/android/arm64-v8a/3/payload.bin".to_string(),
+                diff_algorithm: None,
+                base_hash: None,
+                output_hash: None,
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 100,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        };
+        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
+        let manifest_path = input_dir.join("patch_manifest.json");
+        manifest::write_json(&manifest_path, &patch).expect("write manifest");
+
+        updater
+            .install_payload(&manifest_path, &payload_path, &public_key)
+            .expect("install payload");
+        let state = updater.load_state().expect("load state");
+        let installed: Vec<u32> = state
+            .installed
+            .iter()
+            .map(|patch| patch.patch_number)
+            .collect();
+
+        assert_eq!(installed, vec![1, 3]);
+        assert_eq!(state.current_patch_number, 1);
+        assert_eq!(state.pending_patch_number, Some(3));
 
         let _ = std::fs::remove_dir_all(cache_dir);
         let _ = std::fs::remove_dir_all(input_dir);

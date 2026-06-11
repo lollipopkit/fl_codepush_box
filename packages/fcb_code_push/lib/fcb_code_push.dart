@@ -23,6 +23,21 @@ class FcbCodePush {
     String clientId = 'default',
     String? baselineArtifactPath,
   }) async {
+    final selectedPlatform = platform ?? _defaultPlatform();
+    if (!_isValidConfiguration(
+      appId: appId,
+      releaseVersion: releaseVersion,
+      publicKey: publicKey,
+      serverUrl: serverUrl,
+      platform: selectedPlatform,
+      arch: arch,
+      cacheDir: cacheDir,
+      baselineArtifactPath: baselineArtifactPath,
+      clientId: clientId,
+    )) {
+      return false;
+    }
+
     final init = _lookupInit();
     final setServerUrl = _lookupStringSetter('fcb_set_server_url');
     if (init == null || setServerUrl == null) {
@@ -33,7 +48,7 @@ class FcbCodePush {
     final appIdPtr = appId.toNativeUtf8();
     final channelPtr = channel.toNativeUtf8();
     final releaseVersionPtr = releaseVersion.toNativeUtf8();
-    final platformPtr = (platform ?? _defaultPlatform()).toNativeUtf8();
+    final platformPtr = selectedPlatform.toNativeUtf8();
     final archPtr = arch.toNativeUtf8();
     final cacheDirPtr = cacheDir.toNativeUtf8();
     final publicKeyPtr = publicKey.toNativeUtf8();
@@ -80,6 +95,62 @@ class FcbCodePush {
         calloc.free(baselinePtr);
       }
     }
+  }
+
+  bool _isValidConfiguration({
+    required String appId,
+    required String releaseVersion,
+    required String publicKey,
+    required String serverUrl,
+    required String platform,
+    required String arch,
+    required String cacheDir,
+    required String clientId,
+    required String? baselineArtifactPath,
+  }) {
+    final requiredValues = [
+      appId,
+      releaseVersion,
+      publicKey,
+      serverUrl,
+      clientId
+    ];
+    if (requiredValues.any((value) => value.trim().isEmpty)) {
+      return false;
+    }
+    final uri = Uri.tryParse(serverUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return false;
+    }
+    const platforms = {'android', 'ios', 'macos', 'linux', 'windows'};
+    const arches = {
+      'arm64-v8a',
+      'armeabi-v7a',
+      'x86',
+      'x86_64',
+      'arm64',
+      'amd64'
+    };
+    if (!platforms.contains(platform) || !arches.contains(arch)) {
+      return false;
+    }
+    if (cacheDir.trim().isEmpty) {
+      return false;
+    }
+    final cacheDirectory = Directory(cacheDir);
+    try {
+      if (!cacheDirectory.existsSync()) {
+        cacheDirectory.createSync(recursive: true);
+      }
+    } catch (_) {
+      return false;
+    }
+    if (baselineArtifactPath != null &&
+        baselineArtifactPath.isNotEmpty &&
+        !File(baselineArtifactPath).existsSync()) {
+      return false;
+    }
+    return true;
   }
 
   Future<int?> currentPatchNumber() async {
@@ -219,6 +290,8 @@ class FcbCodePush {
   }
 
   List<String> _candidateLibraryPaths() {
+    // Development-time roots: current package, package when run from repo root,
+    // and package when run from an example app.
     final names = <String>[];
     if (Platform.isMacOS || Platform.isIOS) {
       names.add('libfcb_updater.dylib');
@@ -232,10 +305,18 @@ class FcbCodePush {
       '${Directory.current.path}/packages/fcb_code_push',
       '${Directory.current.path}/../packages/fcb_code_push',
     ];
-    return [
+    // Platform filenames match the artifacts produced by the native build tools.
+    final paths = [
       for (final root in roots)
         for (final name in names) '$root/native/$name',
     ];
+    assert(() {
+      for (final path in paths) {
+        debugPrint('FCB native candidate library path: $path');
+      }
+      return true;
+    }());
+    return paths;
   }
 
   String _defaultPlatform() {

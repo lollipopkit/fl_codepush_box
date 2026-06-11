@@ -23,7 +23,29 @@ if ! command -v cargo-ndk >/dev/null 2>&1; then
 fi
 
 OUT_DIR="$PACKAGE_DIR/native/android"
-rm -rf "$OUT_DIR/$ABI"
+if [ -z "$OUT_DIR" ] || [ -z "$ABI" ]; then
+  echo "OUT_DIR and ABI must be non-empty before removing native output" >&2
+  exit 2
+fi
+
+case "$OUT_DIR" in
+  "$PACKAGE_DIR"/native/android|"$PACKAGE_DIR"/native/android/*)
+    ;;
+  *)
+    echo "refusing to remove unexpected OUT_DIR: $OUT_DIR" >&2
+    exit 2
+    ;;
+esac
+
+TARGET="$OUT_DIR/$ABI"
+case "$TARGET" in
+  ""|"/")
+    echo "refusing to remove unsafe target: $TARGET" >&2
+    exit 2
+    ;;
+esac
+
+rm -rf -- "$TARGET"
 mkdir -p "$OUT_DIR"
 
 cargo ndk \

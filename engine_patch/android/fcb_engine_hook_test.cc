@@ -4,6 +4,7 @@
 #include <cstring>
 
 extern "C" int fcb_get_launch_patch(FcbLaunchPatch* out_patch) {
+  // fcb_get_launch_patch(FcbLaunchPatch*) is a linker/test placeholder that always errors.
   (void)out_patch;
   return -1;
 }

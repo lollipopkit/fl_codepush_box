@@ -12,7 +12,7 @@ void main() {
     final configured = await codePush.configure(
       appId: '00000000-0000-0000-0000-000000000001',
       releaseVersion: '1.0.0+1',
-      publicKey: 'dev-public-key',
+      publicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       serverUrl: 'http://127.0.0.1:8080',
     );
     expect(configured, hasNativeLib);

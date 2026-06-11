@@ -37,6 +37,7 @@ class _CounterAppState extends State<CounterApp> {
   bool _busy = true;
   bool _configured = false;
   int? _currentPatch;
+  int _counter = 1;
   bool _ready = false;
   UpdateCheckResult? _check;
   DownloadResult? _download;
@@ -94,6 +95,12 @@ class _CounterAppState extends State<CounterApp> {
     });
   }
 
+  void _incrementCounter() {
+    setState(() {
+      _counter++;
+    });
+  }
+
   Future<void> _run(Future<void> Function() action) async {
     setState(() {
       _busy = true;
@@ -120,7 +127,7 @@ class _CounterAppState extends State<CounterApp> {
         body: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            Text('Counter: 1',
+            Text('Counter: $_counter',
                 style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 16),
             _StatusTile(label: 'Configured', value: _configured ? 'yes' : 'no'),
@@ -170,6 +177,10 @@ class _CounterAppState extends State<CounterApp> {
                 child: LinearProgressIndicator(),
               ),
           ],
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: _incrementCounter,
+          child: const Icon(Icons.add),
         ),
       ),
     );

@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use fcb_core::server_api::{CheckResponse, Client, PatchCheck};
 use fcb_core::state::Updater;
 use fcb_core::{crypto, err, Error, Result};
@@ -83,13 +85,17 @@ impl Runtime {
 static RUNTIME: OnceLock<Mutex<Runtime>> = OnceLock::new();
 
 #[no_mangle]
-pub extern "C" fn fcb_init(params: *const FcbInitParams) -> c_int {
+/// # Safety
+/// `params` must be null or point to a valid `FcbInitParams` whose C string
+/// fields are null or valid NUL-terminated strings for the duration of the call.
+pub unsafe extern "C" fn fcb_init(params: *const FcbInitParams) -> c_int {
     ffi_guard(-1, |runtime| {
         if params.is_null() {
             return runtime.set_error("params is null");
         }
         // SAFETY: params is checked for null above and is only read for this call.
         let params = unsafe { &*params };
+        runtime.last_check = None;
         match read_cstr(params.cache_dir) {
             Ok(cache_dir) if !cache_dir.is_empty() => {
                 runtime.cache_dir = PathBuf::from(cache_dir);
@@ -123,7 +129,10 @@ pub extern "C" fn fcb_init(params: *const FcbInitParams) -> c_int {
             Err(e) => return runtime.set_error(e),
         }
         match read_cstr(params.public_key_pem) {
-            Ok(value) if !value.is_empty() => runtime.public_key_b64 = value,
+            Ok(value) if !value.is_empty() => match normalize_public_key_b64(&value) {
+                Ok(public_key) => runtime.public_key_b64 = public_key,
+                Err(e) => return runtime.set_error(e),
+            },
             Ok(_) => {}
             Err(e) => return runtime.set_error(e),
         }
@@ -132,10 +141,14 @@ pub extern "C" fn fcb_init(params: *const FcbInitParams) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn fcb_set_server_url(server_url: *const c_char) -> c_int {
+/// # Safety
+/// `server_url` must be null or a valid NUL-terminated C string for the
+/// duration of the call.
+pub unsafe extern "C" fn fcb_set_server_url(server_url: *const c_char) -> c_int {
     ffi_guard(-1, |runtime| match read_cstr(server_url) {
         Ok(value) if !value.is_empty() => {
             runtime.server_url = value;
+            runtime.last_check = None;
             0
         }
         Ok(_) => runtime.set_error("server_url is empty"),
@@ -144,10 +157,14 @@ pub extern "C" fn fcb_set_server_url(server_url: *const c_char) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn fcb_set_client_id(client_id: *const c_char) -> c_int {
+/// # Safety
+/// `client_id` must be null or a valid NUL-terminated C string for the
+/// duration of the call.
+pub unsafe extern "C" fn fcb_set_client_id(client_id: *const c_char) -> c_int {
     ffi_guard(-1, |runtime| match read_cstr(client_id) {
         Ok(value) if !value.is_empty() => {
             runtime.client_id = value;
+            runtime.last_check = None;
             0
         }
         Ok(_) => runtime.set_error("client_id is empty"),
@@ -156,14 +173,19 @@ pub extern "C" fn fcb_set_client_id(client_id: *const c_char) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn fcb_set_baseline_artifact_path(path: *const c_char) -> c_int {
+/// # Safety
+/// `path` must be null or a valid NUL-terminated C string for the duration of
+/// the call.
+pub unsafe extern "C" fn fcb_set_baseline_artifact_path(path: *const c_char) -> c_int {
     ffi_guard(-1, |runtime| match read_cstr(path) {
         Ok(value) if !value.is_empty() => {
             runtime.baseline_artifact_path = Some(PathBuf::from(value));
+            runtime.last_check = None;
             0
         }
         Ok(_) => {
             runtime.baseline_artifact_path = None;
+            runtime.last_check = None;
             0
         }
         Err(e) => runtime.set_error(e),
@@ -171,7 +193,10 @@ pub extern "C" fn fcb_set_baseline_artifact_path(path: *const c_char) -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn fcb_get_launch_patch(out_patch: *mut FcbLaunchPatch) -> c_int {
+/// # Safety
+/// `out_patch` must be null or point to writable memory for a `FcbLaunchPatch`
+/// for the duration of the call.
+pub unsafe extern "C" fn fcb_get_launch_patch(out_patch: *mut FcbLaunchPatch) -> c_int {
     ffi_guard(-1, |runtime| {
         if out_patch.is_null() {
             return runtime.set_error("out_patch is null");
@@ -297,7 +322,13 @@ pub extern "C" fn fcb_mark_launch_success() -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn fcb_mark_launch_failure(patch_number: c_int, reason: *const c_char) -> c_int {
+/// # Safety
+/// `reason` must be null or a valid NUL-terminated C string for the duration of
+/// the call.
+pub unsafe extern "C" fn fcb_mark_launch_failure(
+    patch_number: c_int,
+    reason: *const c_char,
+) -> c_int {
     ffi_guard(-1, |runtime| {
         if patch_number < 0 {
             return runtime.set_error("patch_number must be non-negative");
@@ -343,6 +374,41 @@ fn read_cstr(ptr: *const c_char) -> std::result::Result<String, String> {
         .to_str()
         .map(|s| s.to_string())
         .map_err(|e| e.to_string())
+}
+
+fn normalize_public_key_b64(value: &str) -> std::result::Result<String, String> {
+    if value.contains("-----BEGIN") {
+        let body: String = value
+            .lines()
+            .filter(|line| !line.starts_with("-----"))
+            .map(str::trim)
+            .collect();
+        let der = STANDARD
+            .decode(body)
+            .map_err(|e| format!("invalid public_key_pem: {e}"))?;
+        return public_key_der_to_raw_b64(&der);
+    }
+
+    let raw = STANDARD
+        .decode(value.trim())
+        .map_err(|e| format!("invalid public_key_pem: {e}"))?;
+    public_key_der_to_raw_b64(&raw)
+}
+
+fn public_key_der_to_raw_b64(der: &[u8]) -> std::result::Result<String, String> {
+    if der.len() == 32 {
+        return Ok(STANDARD.encode(der));
+    }
+    if let Some(pos) = der
+        .windows(3)
+        .rposition(|window| window == [0x03, 0x21, 0x00])
+    {
+        let start = pos + 3;
+        if der.len() >= start + 32 {
+            return Ok(STANDARD.encode(&der[start..start + 32]));
+        }
+    }
+    Err("public_key_pem must contain a 32-byte Ed25519 public key".to_string())
 }
 
 fn ffi_guard(default: c_int, f: impl FnOnce(&mut Runtime) -> c_int) -> c_int {
@@ -527,7 +593,7 @@ mod tests {
             public_key_pem: std::ptr::null(),
             check_on_startup: 0,
         };
-        assert_eq!(fcb_init(&params), 0);
+        assert_eq!(unsafe { fcb_init(&params) }, 0);
 
         let mut patch = FcbLaunchPatch {
             has_patch: 0,
@@ -537,7 +603,7 @@ mod tests {
             bytecode_path: std::ptr::null(),
             manifest_path: std::ptr::null(),
         };
-        assert_eq!(fcb_get_launch_patch(&mut patch), 0);
+        assert_eq!(unsafe { fcb_get_launch_patch(&mut patch) }, 0);
         assert_eq!(patch.has_patch, 1);
         assert_eq!(patch.patch_number, 3);
         assert!(patch.bytecode_path.is_null());
@@ -592,7 +658,7 @@ mod tests {
             public_key_pem: std::ptr::null(),
             check_on_startup: 0,
         };
-        assert_eq!(fcb_init(&params), 0);
+        assert_eq!(unsafe { fcb_init(&params) }, 0);
 
         assert_eq!(fcb_is_new_patch_ready_to_install(), 1);
         assert!(updater
@@ -706,8 +772,8 @@ mod tests {
             public_key_pem: public_key_c.as_ptr(),
             check_on_startup: 0,
         };
-        assert_eq!(fcb_init(&params), 0);
-        assert_eq!(fcb_set_server_url(server_url_c.as_ptr()), 0);
+        assert_eq!(unsafe { fcb_init(&params) }, 0);
+        assert_eq!(unsafe { fcb_set_server_url(server_url_c.as_ptr()) }, 0);
         assert_eq!(fcb_check_for_update_async(), 1);
         assert_eq!(fcb_last_check_patch_number(), 9);
         assert_eq!(fcb_download_and_install_blocking(), 1);

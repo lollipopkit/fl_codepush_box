@@ -234,13 +234,22 @@ func (s *Server) createPatch(c *fiber.Ctx) error {
 	if sha256Hex(payload) != manifest.Payload.Hash {
 		return fiber.NewError(fiber.StatusBadRequest, "payload hash mismatch")
 	}
-	objectPath, err := s.objectPath(manifest.Payload.DownloadURL)
+	expectedKey := patchPayloadKey(manifest.AppID, manifest.ReleaseVersion, manifest.Platform, manifest.Arch, manifest.PatchNumber)
+	if manifest.Payload.DownloadURL != expectedKey {
+		return fiber.NewError(fiber.StatusBadRequest, "payload download_url does not match server object key")
+	}
+	objectPath, err := s.objectPath(expectedKey)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := os.Stat(objectPath); err == nil {
+		return fiber.NewError(fiber.StatusConflict, "payload object already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
 	if err := writeFileAtomic(objectPath, payload); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -438,6 +447,10 @@ func patchKey(appID, releaseVersion, platform, arch string, patchNumber int) str
 	return fmt.Sprintf("%s|%s|%s|%s|%d", appID, releaseVersion, platform, arch, patchNumber)
 }
 
+func patchPayloadKey(appID, releaseVersion, platform, arch string, patchNumber int) string {
+	return fmt.Sprintf("patches/%s/%s/%s/%s/%d/payload.bin", appID, releaseVersion, platform, arch, patchNumber)
+}
+
 func eligible(appID, releaseVersion string, patchNumber int, clientID string, rollout int) bool {
 	if rollout <= 0 {
 		return false
@@ -471,13 +484,20 @@ func manifestURL(c *fiber.Ctx, appID, releaseVersion, platform, arch string, pat
 	q.Set("platform", platform)
 	q.Set("arch", arch)
 	q.Set("patch_number", strconv.Itoa(patchNumber))
-	return fmt.Sprintf("%s://%s/v1/patches/manifest?%s", c.Protocol(), c.Hostname(), q.Encode())
+	return fmt.Sprintf("%s://%s/v1/patches/manifest?%s", c.Protocol(), requestHost(c), q.Encode())
 }
 
 func payloadURL(c *fiber.Ctx, key string) string {
 	q := url.Values{}
 	q.Set("key", key)
-	return fmt.Sprintf("%s://%s/v1/patches/payload?%s", c.Protocol(), c.Hostname(), q.Encode())
+	return fmt.Sprintf("%s://%s/v1/patches/payload?%s", c.Protocol(), requestHost(c), q.Encode())
+}
+
+func requestHost(c *fiber.Ctx) string {
+	if host := c.Get("Host"); host != "" {
+		return host
+	}
+	return c.Hostname()
 }
 
 func writeFileAtomic(path string, data []byte) error {
