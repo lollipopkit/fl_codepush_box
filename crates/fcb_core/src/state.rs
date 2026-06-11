@@ -1,3 +1,4 @@
+use crate::diff::{self, SIMPLE_DIFF_ALGORITHM};
 use crate::manifest::{self, PatchManifest};
 use crate::{crypto, err, Result};
 use serde::{Deserialize, Serialize};
@@ -73,6 +74,16 @@ impl Updater {
         payload_path: &Path,
         public_key_b64: &str,
     ) -> Result<()> {
+        self.install_payload_with_baseline(manifest_path, payload_path, public_key_b64, None)
+    }
+
+    pub fn install_payload_with_baseline(
+        &self,
+        manifest_path: &Path,
+        payload_path: &Path,
+        public_key_b64: &str,
+        baseline_artifact_path: Option<&Path>,
+    ) -> Result<()> {
         let manifest: PatchManifest = manifest::read_json(manifest_path)?;
         manifest::verify_patch_manifest(&manifest, public_key_b64)?;
         let payload = fs::read(payload_path)?;
@@ -89,7 +100,8 @@ impl Updater {
         atomic_write_bytes(&patch_dir.join("manifest.json"), &fs::read(manifest_path)?)?;
         atomic_write_bytes(&patch_dir.join("payload.bin"), &payload)?;
         let artifact_path = if manifest.backend == "snapshot_replace" {
-            atomic_write_bytes(&patch_dir.join("libapp.so"), &payload)?;
+            let artifact = snapshot_replace_artifact(&manifest, &payload, baseline_artifact_path)?;
+            atomic_write_bytes(&patch_dir.join("libapp.so"), &artifact)?;
             Some(format!("patches/{}/libapp.so", manifest.patch_number))
         } else {
             None
@@ -216,6 +228,40 @@ impl Updater {
     }
 }
 
+fn snapshot_replace_artifact(
+    manifest: &PatchManifest,
+    payload: &[u8],
+    baseline_artifact_path: Option<&Path>,
+) -> Result<Vec<u8>> {
+    match manifest.payload.kind.as_str() {
+        "snapshot_replace_artifact" | "opaque_payload" => Ok(payload.to_vec()),
+        "binary_diff" => {
+            if manifest.payload.diff_algorithm.as_deref() != Some(SIMPLE_DIFF_ALGORITHM) {
+                return Err(err("unsupported binary diff algorithm"));
+            }
+            let Some(baseline_artifact_path) = baseline_artifact_path else {
+                return Err(err("baseline artifact required for binary diff"));
+            };
+            let baseline = fs::read(baseline_artifact_path)?;
+            if let Some(expected_base_hash) = &manifest.payload.base_hash {
+                let actual_base_hash = crypto::sha256_hex(&baseline);
+                if &actual_base_hash != expected_base_hash {
+                    return Err(err("base artifact sha256 mismatch"));
+                }
+            }
+            let artifact = diff::apply_simple_diff(&baseline, payload)?;
+            if let Some(expected_output_hash) = &manifest.payload.output_hash {
+                let actual_output_hash = crypto::sha256_hex(&artifact);
+                if &actual_output_hash != expected_output_hash {
+                    return Err(err("patched artifact sha256 mismatch"));
+                }
+            }
+            Ok(artifact)
+        }
+        _ => Err(err("unsupported snapshot_replace payload kind")),
+    }
+}
+
 fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value)?;
     atomic_write_bytes(path, &bytes)
@@ -264,6 +310,7 @@ fn unique_suffix() -> u128 {
 mod tests {
     use super::{InstalledPatch, LastLaunch, State, Updater};
     use crate::crypto;
+    use crate::diff::{self, SIMPLE_DIFF_ALGORITHM};
     use crate::manifest::{self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest};
 
     #[test]
@@ -325,9 +372,13 @@ mod tests {
         let input_dir =
             std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
         std::fs::create_dir_all(&input_dir).expect("create input dir");
-        let payload = b"patched aot artifact";
+        let baseline = b"counter: 1; shared suffix";
+        let patched = b"counter: 2; shared suffix";
+        let baseline_path = input_dir.join("baseline.bin");
+        std::fs::write(&baseline_path, baseline).expect("write baseline");
+        let payload = diff::create_simple_diff(baseline, patched).expect("create diff");
         let payload_path = input_dir.join("payload.bin");
-        std::fs::write(&payload_path, payload).expect("write payload");
+        std::fs::write(&payload_path, &payload).expect("write payload");
 
         let (private_key, public_key) = crypto::generate_keypair_b64();
         let mut patch = PatchManifest {
@@ -341,11 +392,14 @@ mod tests {
             platform: "android".to_string(),
             arch: "arm64-v8a".to_string(),
             payload: PayloadManifest {
-                kind: "snapshot_replace_artifact".to_string(),
+                kind: "binary_diff".to_string(),
                 compression: "none".to_string(),
-                hash: crypto::sha256_hex(payload),
+                hash: crypto::sha256_hex(&payload),
                 size: payload.len() as u64,
                 download_url: "patches/app/release/android/arm64-v8a/2/payload.bin".to_string(),
+                diff_algorithm: Some(SIMPLE_DIFF_ALGORITHM.to_string()),
+                base_hash: Some(crypto::sha256_hex(baseline)),
+                output_hash: Some(crypto::sha256_hex(patched)),
             },
             policy: PatchPolicy {
                 rollout_percentage: 100,
@@ -363,13 +417,18 @@ mod tests {
 
         let updater = Updater::new(&cache_dir);
         updater
-            .install_payload(&manifest_path, &payload_path, &public_key)
+            .install_payload_with_baseline(
+                &manifest_path,
+                &payload_path,
+                &public_key,
+                Some(&baseline_path),
+            )
             .expect("install payload");
 
         let artifact_path = cache_dir.join("patches/2/libapp.so");
         assert_eq!(
             std::fs::read(&artifact_path).expect("read artifact"),
-            payload
+            patched
         );
         let launch = updater
             .launch_patch()

@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use fcb_core::config::FcbConfig;
 use fcb_core::crypto;
+use fcb_core::diff::{self, SIMPLE_DIFF_ALGORITHM};
 use fcb_core::manifest::{
     self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest, ReleaseManifest,
 };
@@ -271,11 +272,36 @@ fn patch(
     payload: Option<&Path>,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let payload_bytes = if let Some(path) = payload {
+    let target_artifact = if let Some(path) = payload {
         fs::read(path)?
     } else {
         format!("fcb patch {patch_number} for {release_version}\n").into_bytes()
     };
+    let backend = backend_for(&config, platform);
+    let baseline_path = release_artifact_path(release_version, platform, arch);
+    let baseline = if backend == "snapshot_replace" && baseline_path.exists() {
+        Some(fs::read(&baseline_path)?)
+    } else {
+        None
+    };
+    let (payload_bytes, payload_kind, diff_algorithm, base_hash, output_hash) =
+        if backend == "snapshot_replace" {
+            let Some(base) = baseline.as_deref() else {
+                return Err(err(format!(
+                    "missing baseline artifact for snapshot_replace: {}",
+                    baseline_path.display()
+                )));
+            };
+            (
+                diff::create_simple_diff(base, &target_artifact)?,
+                "binary_diff",
+                Some(SIMPLE_DIFF_ALGORITHM.to_string()),
+                Some(crypto::sha256_hex(base)),
+                Some(crypto::sha256_hex(&target_artifact)),
+            )
+        } else {
+            (target_artifact, "opaque_payload", None, None, None)
+        };
     let out = fcb_dir()
         .join("patches")
         .join(release_version)
@@ -286,7 +312,6 @@ fn patch(
     fs::write(out.join("payload.bin"), &payload_bytes)?;
     let payload_hash = crypto::sha256_hex(&payload_bytes);
     let public_key_id = config.security.public_key_id.clone();
-    let backend = backend_for(&config, platform);
     let private_key = fs::read_to_string(
         fcb_dir()
             .join("keys")
@@ -303,7 +328,7 @@ fn patch(
         platform: platform.to_string(),
         arch: arch.to_string(),
         payload: PayloadManifest {
-            kind: payload_kind_for(&backend).to_string(),
+            kind: payload_kind.to_string(),
             compression: "none".to_string(),
             hash: payload_hash.clone(),
             size: payload_bytes.len() as u64,
@@ -315,6 +340,9 @@ fn patch(
                 patch_number,
                 "payload.bin",
             ),
+            diff_algorithm,
+            base_hash,
+            output_hash,
         },
         policy: PatchPolicy {
             rollout_percentage: 0,
@@ -452,14 +480,6 @@ fn ensure_hash(label: &str, bytes: &[u8], expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn payload_kind_for(backend: &str) -> &'static str {
-    if backend == "snapshot_replace" {
-        "snapshot_replace_artifact"
-    } else {
-        "opaque_payload"
-    }
-}
-
 fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
     let public_key = fs::read_to_string(
@@ -467,9 +487,40 @@ fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Resul
             .join("keys")
             .join(format!("{}.public", config.security.public_key_id)),
     )?;
-    Updater::new(cache_dir).install_payload(manifest_path, payload_path, public_key.trim())?;
+    let manifest: PatchManifest = manifest::read_json(manifest_path)?;
+    let baseline_path = release_artifact_path(
+        &manifest.release_version,
+        &manifest.platform,
+        &manifest.arch,
+    );
+    let baseline = if manifest.payload.kind == "binary_diff" {
+        if !baseline_path.exists() {
+            return Err(err(format!(
+                "missing baseline artifact for binary diff: {}",
+                baseline_path.display()
+            )));
+        }
+        Some(baseline_path.as_path())
+    } else {
+        None
+    };
+    Updater::new(cache_dir).install_payload_with_baseline(
+        manifest_path,
+        payload_path,
+        public_key.trim(),
+        baseline,
+    )?;
     println!("installed patch into {}", cache_dir.display());
     Ok(())
+}
+
+fn release_artifact_path(release_version: &str, platform: &str, arch: &str) -> PathBuf {
+    fcb_dir()
+        .join("releases")
+        .join(release_version)
+        .join(platform)
+        .join(arch)
+        .join("artifact.bin")
 }
 
 fn inspect(kind: &str, path: &Path) -> Result<()> {

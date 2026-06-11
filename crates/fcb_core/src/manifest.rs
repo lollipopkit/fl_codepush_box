@@ -40,6 +40,12 @@ pub struct PayloadManifest {
     pub hash: String,
     pub size: u64,
     pub download_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_algorithm: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +235,9 @@ mod tests {
                 hash: "0".repeat(64),
                 size: 0,
                 download_url: "patches/app/release/payload.bin".to_string(),
+                diff_algorithm: None,
+                base_hash: None,
+                output_hash: None,
             },
             policy: PatchPolicy {
                 rollout_percentage: 0,

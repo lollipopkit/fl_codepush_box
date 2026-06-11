@@ -76,11 +76,14 @@ type PatchManifestWire struct {
 }
 
 type PayloadManifest struct {
-	Kind        string `json:"kind"`
-	Compression string `json:"compression"`
-	Hash        string `json:"hash"`
-	Size        uint64 `json:"size"`
-	DownloadURL string `json:"download_url"`
+	Kind          string `json:"kind"`
+	Compression   string `json:"compression"`
+	Hash          string `json:"hash"`
+	Size          uint64 `json:"size"`
+	DownloadURL   string `json:"download_url"`
+	DiffAlgorithm string `json:"diff_algorithm,omitempty"`
+	BaseHash      string `json:"base_hash,omitempty"`
+	OutputHash    string `json:"output_hash,omitempty"`
 }
 
 type PatchPolicy struct {

@@ -25,6 +25,7 @@
 - Flutter package 的 `checkForUpdate()` / `downloadUpdate()` 已从硬编码未接线改为调用 native updater ABI；缺 native lib 时仍安全降级。`fcb_download_and_install_blocking()` 现在对未配置下载路径返回明确错误，避免 native 存在时误报成功。
 - `.gitignore` 已忽略 Flutter package/example 生成的 `pubspec.lock`。
 - `snapshot_replace` patch manifest 现在标记 `snapshot_replace_artifact`；updater 安装时会把 payload 同步写成 `patches/<n>/libapp.so`，state 记录 `artifact_path`，`fcb_get_launch_patch()` 对 snapshot backend 返回绝对 artifact path。
+- 已实现最小 binary diff/apply：`fcb-simple-v1` 用共同前缀/后缀 + 插入段生成 `binary_diff` payload，manifest 记录 `diff_algorithm/base_hash/output_hash`，updater 使用本地 baseline artifact apply diff 并验证输出 hash 后写入 `libapp.so`。
 
 **已验证**
 - `cargo test`: 通过。
@@ -41,19 +42,22 @@
 - 篡改 payload 后 `fcb install` 返回 `payload sha256 mismatch`。
 - Fiber server + object store 本地闭环通过：`fcb init -> release -> patch -> promote -> check --install`，自动从 server 下载 manifest/payload 到 `.fcb/downloads/...` 并安装到 `.fcb/cache`。
 - 当前代码重建 CLI 后，`snapshot_replace` artifact 闭环通过：临时 Fiber server + `fcb init -> release -> patch --payload patched-libapp.so -> promote -> check --install`，`cmp` 确认 `.fcb/cache/patches/4/libapp.so` 与输入 artifact 一致，`state.json` 记录 `artifact_path = patches/4/libapp.so`。
+- binary diff 闭环通过：临时 Fiber server + `fcb init -> release -> patch --payload patched-libapp.so -> promote -> check --install`，manifest 显示 `payload.kind=binary_diff` / `diff_algorithm=fcb-simple-v1`，`cmp` 确认 apply 后 `.fcb/cache/patches/5/libapp.so` 与目标 artifact 一致。
 
 **当前状态**
 - 当前目录是 git repo，`main` 已包含 PR #1 合并结果。
 - 当前分支 `feat/fiber-server-install-flow` 已有 PR #2；本地提交领先远端，后续需要按需 push 到 PR。
 - 本轮启动的 `127.0.0.1:8080` Fiber server 已结束，端口不再占用。
 - 本轮临时 `127.0.0.1:18080/18081` Fiber server 已结束。
+- 本轮临时 `127.0.0.1:18082` Fiber server 已结束。
 - `fcb.yaml`、`.fcb/`、`target/` 为验证/构建产物，不应作为源码提交。
 
 **下一步**
-1. 继续实现 Android 侧 native Engine hook / launch artifact path 接入，或先实现真实 binary diff/apply。
+1. 继续实现 Android 侧 native Engine hook / launch artifact path 接入。
+2. 将 `fcb-simple-v1` 替换为真正 bsdiff/zstd，或保留为 MVP fallback 并新增 bsdiff backend。
 
 **完整计划仍缺**
-- Android P0 真实 `libapp.so` diff/apply/加载。
+- Android P0 真实 `libapp.so` 加载。
 - iOS/Play 合规 bytecode backend。
 - Dart transformer、HBC compiler/interpreter、Kernel linker。
 - Engine fork 和 VM dispatch。

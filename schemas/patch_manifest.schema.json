@@ -78,6 +78,18 @@
         "download_url": {
           "type": "string",
           "minLength": 1
+        },
+        "diff_algorithm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_hash": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        },
+        "output_hash": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
         }
       }
     },
