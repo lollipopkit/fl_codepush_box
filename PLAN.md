@@ -336,6 +336,9 @@ typedef struct {
   const char* manifest_path;
 } FcbLaunchPatch;
 int fcb_init(const FcbInitParams* params);
+int fcb_set_server_url(const char* server_url);
+int fcb_set_client_id(const char* client_id);
+int fcb_set_baseline_artifact_path(const char* path);
 int fcb_get_launch_patch(FcbLaunchPatch* out_patch);
 int fcb_check_for_update_async(void);
 int fcb_download_and_install_blocking(void);
