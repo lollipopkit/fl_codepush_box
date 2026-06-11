@@ -259,8 +259,11 @@ pub unsafe extern "C" fn fcb_get_launch_patch(out_patch: *mut FcbLaunchPatch) ->
     })
 }
 
+/// # Safety
+/// This function performs a **blocking** HTTP request to the configured server.
+/// Do not call from a UI or main thread that must remain responsive.
 #[no_mangle]
-pub extern "C" fn fcb_check_for_update_async() -> c_int {
+pub extern "C" fn fcb_check_for_update_blocking() -> c_int {
     ffi_guard(-1, |runtime| match check_for_update(runtime) {
         Ok(response) => {
             let available = response.patch_available;
@@ -453,7 +456,7 @@ fn check_for_update(runtime: &Runtime) -> Result<CheckResponse> {
 fn download_and_install(runtime: &mut Runtime) -> Result<bool> {
     ensure_configured(runtime)?;
     if runtime.public_key_b64.is_empty() {
-        return Err(err("public_key_pem is empty"));
+        return Err(err("public_key is not configured"));
     }
     let response = match &runtime.last_check {
         Some(response) => response.clone(),
@@ -538,7 +541,7 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        fcb_check_for_update_async, fcb_download_and_install_blocking, fcb_get_launch_patch,
+        fcb_check_for_update_blocking, fcb_download_and_install_blocking, fcb_get_launch_patch,
         fcb_init, fcb_is_new_patch_ready_to_install, fcb_last_check_patch_number,
         fcb_set_server_url, FcbInitParams, FcbLaunchPatch,
     };
@@ -774,7 +777,7 @@ mod tests {
         };
         assert_eq!(unsafe { fcb_init(&params) }, 0);
         assert_eq!(unsafe { fcb_set_server_url(server_url_c.as_ptr()) }, 0);
-        assert_eq!(fcb_check_for_update_async(), 1);
+        assert_eq!(fcb_check_for_update_blocking(), 1);
         assert_eq!(fcb_last_check_patch_number(), 9);
         assert_eq!(fcb_download_and_install_blocking(), 1);
         assert_eq!(fcb_is_new_patch_ready_to_install(), 1);

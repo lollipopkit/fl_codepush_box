@@ -164,7 +164,7 @@ class FcbCodePush {
   }
 
   Future<UpdateCheckResult> checkForUpdate() async {
-    final result = _callNativeStatus('fcb_check_for_update_async');
+    final result = _callNativeStatus('fcb_check_for_update_blocking');
     if (!result.available) {
       return UpdateCheckResult(patchAvailable: false, reason: result.reason);
     }
