@@ -3,7 +3,13 @@
 `fcb_code_push` is a Flutter plugin on Android so the app can bundle
 `libfcb_updater.so` and load it through Dart FFI.
 
-Prepare a prebuilt updater library per ABI:
+Build and package the updater library for an ABI with `cargo-ndk`:
+
+```sh
+packages/fcb_code_push/tool/build_android_native.sh arm64-v8a
+```
+
+Or copy an already-built updater library per ABI:
 
 ```sh
 packages/fcb_code_push/tool/prepare_android_prebuilt.sh \
@@ -17,5 +23,5 @@ packages/fcb_code_push/android/src/main/jniLibs/<abi>/libfcb_updater.so
 ```
 
 Those copied libraries are generated artifacts and are ignored by git. The
-actual cross-build step can use `cargo-ndk` or the project buildroot; the MVP
-contract here is the stable Flutter/Android packaging location.
+script expects the Rust Android target and Android NDK toolchain to be available
+through `cargo-ndk`.
