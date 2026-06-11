@@ -286,6 +286,7 @@ fn patch(
     fs::write(out.join("payload.bin"), &payload_bytes)?;
     let payload_hash = crypto::sha256_hex(&payload_bytes);
     let public_key_id = config.security.public_key_id.clone();
+    let backend = backend_for(&config, platform);
     let private_key = fs::read_to_string(
         fcb_dir()
             .join("keys")
@@ -298,11 +299,11 @@ fn patch(
         patch_number,
         channel: config.channel.clone(),
         created_at: "1970-01-01T00:00:00Z".to_string(),
-        backend: backend_for(&config, platform),
+        backend: backend.clone(),
         platform: platform.to_string(),
         arch: arch.to_string(),
         payload: PayloadManifest {
-            kind: "opaque_payload".to_string(),
+            kind: payload_kind_for(&backend).to_string(),
             compression: "none".to_string(),
             hash: payload_hash.clone(),
             size: payload_bytes.len() as u64,
@@ -449,6 +450,14 @@ fn ensure_hash(label: &str, bytes: &[u8], expected: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+fn payload_kind_for(backend: &str) -> &'static str {
+    if backend == "snapshot_replace" {
+        "snapshot_replace_artifact"
+    } else {
+        "opaque_payload"
+    }
 }
 
 fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Result<()> {

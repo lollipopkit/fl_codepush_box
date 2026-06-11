@@ -33,6 +33,7 @@ pub struct InstalledPatch {
     pub backend: String,
     pub manifest_path: String,
     pub payload_path: String,
+    pub artifact_path: Option<String>,
     pub installed_at: String,
 }
 
@@ -87,6 +88,12 @@ impl Updater {
         fs::create_dir_all(&patch_dir)?;
         atomic_write_bytes(&patch_dir.join("manifest.json"), &fs::read(manifest_path)?)?;
         atomic_write_bytes(&patch_dir.join("payload.bin"), &payload)?;
+        let artifact_path = if manifest.backend == "snapshot_replace" {
+            atomic_write_bytes(&patch_dir.join("libapp.so"), &payload)?;
+            Some(format!("patches/{}/libapp.so", manifest.patch_number))
+        } else {
+            None
+        };
 
         let mut state = self.load_state()?;
         state.schema_version = 1;
@@ -100,6 +107,7 @@ impl Updater {
             backend: manifest.backend,
             manifest_path: format!("patches/{}/manifest.json", manifest.patch_number),
             payload_path: format!("patches/{}/payload.bin", manifest.patch_number),
+            artifact_path,
             installed_at: now_string(),
         });
         state.installed.sort_by_key(|p| p.patch_number);
@@ -255,6 +263,8 @@ fn unique_suffix() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::{InstalledPatch, LastLaunch, State, Updater};
+    use crate::crypto;
+    use crate::manifest::{self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest};
 
     #[test]
     fn mark_success_requires_last_launch() {
@@ -292,6 +302,7 @@ mod tests {
                     backend: "snapshot_replace".to_string(),
                     manifest_path: "patches/1/manifest.json".to_string(),
                     payload_path: "patches/1/payload.bin".to_string(),
+                    artifact_path: Some("patches/1/libapp.so".to_string()),
                     installed_at: "0".to_string(),
                 }],
             })
@@ -305,5 +316,68 @@ mod tests {
         assert_eq!(state.pending_patch_number, None);
         assert!(state.last_launch.is_none());
         let _ = std::fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn install_snapshot_replace_payload_writes_launch_artifact() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let input_dir =
+            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        let payload = b"patched aot artifact";
+        let payload_path = input_dir.join("payload.bin");
+        std::fs::write(&payload_path, payload).expect("write payload");
+
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        let mut patch = PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number: 2,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "snapshot_replace".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "snapshot_replace_artifact".to_string(),
+                compression: "none".to_string(),
+                hash: crypto::sha256_hex(payload),
+                size: payload.len() as u64,
+                download_url: "patches/app/release/android/arm64-v8a/2/payload.bin".to_string(),
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 100,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        };
+        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
+        let manifest_path = input_dir.join("patch_manifest.json");
+        manifest::write_json(&manifest_path, &patch).expect("write manifest");
+
+        let updater = Updater::new(&cache_dir);
+        updater
+            .install_payload(&manifest_path, &payload_path, &public_key)
+            .expect("install payload");
+
+        let artifact_path = cache_dir.join("patches/2/libapp.so");
+        assert_eq!(
+            std::fs::read(&artifact_path).expect("read artifact"),
+            payload
+        );
+        let launch = updater
+            .launch_patch()
+            .expect("launch patch")
+            .expect("installed patch");
+        assert_eq!(launch.artifact_path.as_deref(), Some("patches/2/libapp.so"));
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+        let _ = std::fs::remove_dir_all(input_dir);
     }
 }

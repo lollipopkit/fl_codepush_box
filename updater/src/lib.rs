@@ -88,14 +88,39 @@ pub extern "C" fn fcb_get_launch_patch(out_patch: *mut FcbLaunchPatch) -> c_int 
                 if patch.patch_number > c_int::MAX as u32 {
                     return runtime.set_error("patch number exceeds c_int range");
                 }
+                let artifact_path = patch
+                    .artifact_path
+                    .as_ref()
+                    .map(|path| runtime.cache_dir.join(path).to_string_lossy().to_string());
+                let bytecode_path = if artifact_path.is_none() {
+                    Some(
+                        runtime
+                            .cache_dir
+                            .join(&patch.payload_path)
+                            .to_string_lossy()
+                            .to_string(),
+                    )
+                } else {
+                    None
+                };
                 // SAFETY: out_patch is checked for null above and points to caller-owned writable memory.
                 unsafe {
                     (*out_patch).has_patch = 1;
                     (*out_patch).patch_number = patch.patch_number as c_int;
                     (*out_patch).backend = runtime.keep(patch.backend);
-                    (*out_patch).artifact_path = std::ptr::null();
-                    (*out_patch).bytecode_path = runtime.keep(patch.payload_path);
-                    (*out_patch).manifest_path = runtime.keep(patch.manifest_path);
+                    (*out_patch).artifact_path = artifact_path
+                        .map(|path| runtime.keep(path))
+                        .unwrap_or(std::ptr::null());
+                    (*out_patch).bytecode_path = bytecode_path
+                        .map(|path| runtime.keep(path))
+                        .unwrap_or(std::ptr::null());
+                    (*out_patch).manifest_path = runtime.keep(
+                        runtime
+                            .cache_dir
+                            .join(patch.manifest_path)
+                            .to_string_lossy()
+                            .to_string(),
+                    );
                 }
                 0
             }
@@ -207,5 +232,76 @@ fn lock_runtime(runtime: &Mutex<Runtime>) -> MutexGuard<'_, Runtime> {
     match runtime.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fcb_get_launch_patch, fcb_init, FcbInitParams, FcbLaunchPatch};
+    use fcb_core::state::{InstalledPatch, State, Updater};
+    use std::ffi::{CStr, CString};
+
+    #[test]
+    fn get_launch_patch_returns_snapshot_artifact_path() {
+        let cache_dir = std::env::temp_dir().join(format!(
+            "fcb-updater-ffi-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let updater = Updater::new(&cache_dir);
+        updater
+            .save_state(&State {
+                schema_version: 1,
+                release_version: "1.0.0+1".to_string(),
+                current_patch_number: 0,
+                pending_patch_number: Some(3),
+                bad_patches: Vec::new(),
+                last_launch: None,
+                installed: vec![InstalledPatch {
+                    patch_number: 3,
+                    backend: "snapshot_replace".to_string(),
+                    manifest_path: "patches/3/manifest.json".to_string(),
+                    payload_path: "patches/3/payload.bin".to_string(),
+                    artifact_path: Some("patches/3/libapp.so".to_string()),
+                    installed_at: "0".to_string(),
+                }],
+            })
+            .expect("write state");
+
+        let cache_dir_c = CString::new(cache_dir.to_string_lossy().as_bytes()).expect("cache dir");
+        let params = FcbInitParams {
+            app_id: std::ptr::null(),
+            channel: std::ptr::null(),
+            release_version: std::ptr::null(),
+            platform: std::ptr::null(),
+            arch: std::ptr::null(),
+            cache_dir: cache_dir_c.as_ptr(),
+            public_key_pem: std::ptr::null(),
+            check_on_startup: 0,
+        };
+        assert_eq!(fcb_init(&params), 0);
+
+        let mut patch = FcbLaunchPatch {
+            has_patch: 0,
+            patch_number: 0,
+            backend: std::ptr::null(),
+            artifact_path: std::ptr::null(),
+            bytecode_path: std::ptr::null(),
+            manifest_path: std::ptr::null(),
+        };
+        assert_eq!(fcb_get_launch_patch(&mut patch), 0);
+        assert_eq!(patch.has_patch, 1);
+        assert_eq!(patch.patch_number, 3);
+        assert!(patch.bytecode_path.is_null());
+        assert_eq!(
+            unsafe { CStr::from_ptr(patch.artifact_path) }
+                .to_string_lossy()
+                .as_ref(),
+            cache_dir.join("patches/3/libapp.so").to_string_lossy()
+        );
+
+        let _ = std::fs::remove_dir_all(cache_dir);
     }
 }
