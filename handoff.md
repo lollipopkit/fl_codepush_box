@@ -31,6 +31,7 @@
 - Rust updater 的 native check/download/install 已接入：`fcb_init` 保存 app/channel/release/platform/arch/cache/public key，新增 `fcb_set_server_url` / `fcb_set_client_id` / `fcb_set_baseline_artifact_path`；`fcb_check_for_update_async()` 调 server check 并缓存结果，`fcb_download_and_install_blocking()` 下载 manifest/payload、校验 hash/signature 并调用 updater install。
 - Flutter package 新增 `FcbCodePush.configure(...)`，通过 Dart FFI 调 `fcb_init` 和 server/client/baseline setters；缺 native lib 时仍返回 `false` 且不崩溃。
 - `examples/counter_app` 已从静态 patch number FutureBuilder 改为可操作 MVP 页面：通过 `--dart-define FCB_*` 配置 native updater，展示 configured/current/ready/check/download 状态，并提供 Check、Download、Mark success 按钮。
+- Flutter package 已有本机 native lib 构建/加载路径：`packages/fcb_code_push/tool/build_native.sh` 构建 `fcb_updater` cdylib 并复制到 ignored 的 `packages/fcb_code_push/native/`；Dart FFI 会优先尝试从该 native 目录加载 `libfcb_updater.*`。
 
 **已验证**
 - `cargo test`: 通过。
@@ -52,11 +53,12 @@
 - ready-check 验证通过：`cargo test` 覆盖 core ready 状态和 FFI ready 状态不污染 `last_launch`；`flutter test` / `flutter analyze` 覆盖 Dart package 缺 native lib 降级行为。
 - native check/download 验证通过：`cargo test -p fcb_updater` 用本地 `TcpListener` 模拟 server，直接调用 FFI 完成 check、manifest/payload 下载、安装并确认 ready。
 - example app 验证通过：`flutter analyze` in `examples/counter_app`。
+- native lib 加载验证通过：运行 `packages/fcb_code_push/tool/build_native.sh` 后，`flutter test` in `packages/fcb_code_push` 在存在 `native/libfcb_updater.dylib` 时通过，且不再依赖系统路径加载。
 
 **当前状态**
 - 当前目录是 git repo，`main` 已包含 PR #1 合并结果。
 - 当前分支 `feat/fiber-server-install-flow` 已有 PR #2；本地提交领先远端，后续需要按需 push 到 PR。
-- example app 仍需要实际打包/加载 `libfcb_updater` native library 后才能在设备上完成 Dart FFI check/download。
+- example app 在本机可通过 package native 目录加载 `libfcb_updater`；Android/iOS 设备打包仍需要平台工程集成 native library。
 - 本轮启动的 `127.0.0.1:8080` Fiber server 已结束，端口不再占用。
 - 本轮临时 `127.0.0.1:18080/18081` Fiber server 已结束。
 - 本轮临时 `127.0.0.1:18082` Fiber server 已结束。
@@ -64,7 +66,8 @@
 
 **下一步**
 1. 将 `engine_patch/android/fcb_engine_hook.cc` 接入真实 Flutter Engine Android AOT settings 初始化路径。
-2. 将 `fcb-simple-v1` 替换为真正 bsdiff/zstd，或保留为 MVP fallback 并新增 bsdiff backend。
+2. 增加 Android/iOS 平台工程，将 `libfcb_updater` 打进 app 并让 Dart FFI/Engine 都能加载。
+3. 将 `fcb-simple-v1` 替换为真正 bsdiff/zstd，或保留为 MVP fallback 并新增 bsdiff backend。
 
 **完整计划仍缺**
 - Android P0 真实 `libapp.so` 加载。

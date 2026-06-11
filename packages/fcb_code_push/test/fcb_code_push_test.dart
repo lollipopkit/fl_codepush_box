@@ -1,20 +1,22 @@
 import 'package:fcb_code_push/fcb_code_push.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:io';
 
 void main() {
   test('native library absence is non-fatal for MVP APIs', () async {
     final codePush = FcbCodePush.instance;
 
-    expect(
-      await codePush.configure(
-        appId: '00000000-0000-0000-0000-000000000001',
-        releaseVersion: '1.0.0+1',
-        publicKey: 'dev-public-key',
-        serverUrl: 'http://127.0.0.1:8080',
-      ),
-      isFalse,
+    final hasNativeLib = File('native/libfcb_updater.dylib').existsSync() ||
+        File('native/libfcb_updater.so').existsSync() ||
+        File('native/fcb_updater.dll').existsSync();
+    final configured = await codePush.configure(
+      appId: '00000000-0000-0000-0000-000000000001',
+      releaseVersion: '1.0.0+1',
+      publicKey: 'dev-public-key',
+      serverUrl: 'http://127.0.0.1:8080',
     );
-    expect(await codePush.currentPatchNumber(), isNull);
+    expect(configured, hasNativeLib);
+    expect(await codePush.currentPatchNumber(), hasNativeLib ? 0 : isNull);
     expect(await codePush.isNewPatchReadyToInstall(), isFalse);
     expect(await codePush.requestRestartToApply(), isFalse);
 

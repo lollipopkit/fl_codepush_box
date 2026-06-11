@@ -6,3 +6,4 @@ fcb.yaml
 .dart_tool/
 build/
 pubspec.lock
+packages/fcb_code_push/native/

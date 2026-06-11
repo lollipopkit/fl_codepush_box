@@ -199,6 +199,13 @@ class FcbCodePush {
   }
 
   DynamicLibrary _openLibrary() {
+    for (final path in _candidateLibraryPaths()) {
+      try {
+        return DynamicLibrary.open(path);
+      } catch (_) {
+        // Keep trying platform loader paths below.
+      }
+    }
     if (Platform.isMacOS || Platform.isIOS) {
       return DynamicLibrary.open('libfcb_updater.dylib');
     }
@@ -209,6 +216,26 @@ class FcbCodePush {
       return DynamicLibrary.open('fcb_updater.dll');
     }
     throw UnsupportedError('unsupported platform');
+  }
+
+  List<String> _candidateLibraryPaths() {
+    final names = <String>[];
+    if (Platform.isMacOS || Platform.isIOS) {
+      names.add('libfcb_updater.dylib');
+    } else if (Platform.isAndroid || Platform.isLinux) {
+      names.add('libfcb_updater.so');
+    } else if (Platform.isWindows) {
+      names.add('fcb_updater.dll');
+    }
+    final roots = <String>[
+      Directory.current.path,
+      '${Directory.current.path}/packages/fcb_code_push',
+      '${Directory.current.path}/../packages/fcb_code_push',
+    ];
+    return [
+      for (final root in roots)
+        for (final name in names) '$root/native/$name',
+    ];
   }
 
   String _defaultPlatform() {
