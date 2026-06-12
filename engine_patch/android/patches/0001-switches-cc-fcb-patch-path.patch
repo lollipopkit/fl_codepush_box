@@ -1,0 +1,32 @@
+--- a/flutter/shell/common/switches.cc	2026-06-12 14:35:20
++++ b/flutter/shell/common/switches.cc	2026-06-12 14:43:50
+@@ -12,6 +12,9 @@
+ #include "flutter/fml/native_library.h"
+ #include "flutter/fml/paths.h"
+ #include "flutter/shell/version/version.h"
++
++// FCB: Include the engine hook header for snapshot_replace path override.
++#include "flutter/shell/platform/android/fcb_engine_hook.h"
+ 
+ // This will include switch_defs.h once to get the default enum definition.
+ #include "flutter/shell/common/switches.h"
+@@ -387,6 +390,19 @@
+   if (!aot_shared_library_name.empty()) {
+     for (std::string_view name : aot_shared_library_name) {
+       settings.application_library_paths.emplace_back(name);
++    }
++
++    // FCB: Check if a snapshot_replace patch is available and, if so,
++    // insert the patched artifact path at the front of
++    // application_library_paths. The SearchMapping function in
++    // dart_snapshot.cc iterates application_library_paths in order and
++    // uses the first library that exports the required Dart symbols,
++    // so the patched path takes precedence over the bundled libapp.so.
++    fcb::EnginePatchDecision fcb_decision = {};
++    if (fcb::ResolveAndroidSnapshotReplace(&fcb_decision) == 1) {
++      settings.application_library_paths.insert(
++          settings.application_library_paths.begin(),
++          std::string(fcb_decision.artifact_path));
+     }
+   } else if (!snapshot_asset_path.empty()) {
+     settings.vm_snapshot_data_path =

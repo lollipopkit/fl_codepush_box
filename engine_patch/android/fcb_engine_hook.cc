@@ -2,9 +2,11 @@
 
 #include <cstring>
 
+namespace fcb {
+
 namespace {
 
-void ClearDecision(FcbEnginePatchDecision* decision) {
+void ClearDecision(EnginePatchDecision* decision) {
   if (decision == nullptr) {
     return;
   }
@@ -21,8 +23,8 @@ bool StringEquals(const char* left, const char* right) {
 
 }  // namespace
 
-int fcb_resolve_engine_patch(FcbGetLaunchPatchFn get_launch_patch,
-                             FcbEnginePatchDecision* out_decision) {
+int ResolveEnginePatch(FcbGetLaunchPatchFn get_launch_patch,
+                       EnginePatchDecision* out_decision) {
   if (get_launch_patch == nullptr || out_decision == nullptr) {
     return -1;
   }
@@ -37,6 +39,7 @@ int fcb_resolve_engine_patch(FcbGetLaunchPatchFn get_launch_patch,
     return 0;
   }
   if (!StringEquals(patch.backend, "snapshot_replace")) {
+    // For bytecode or other backends, no Engine artifact override is needed.
     return 0;
   }
   if (patch.artifact_path == nullptr || patch.artifact_path[0] == '\0') {
@@ -51,7 +54,8 @@ int fcb_resolve_engine_patch(FcbGetLaunchPatchFn get_launch_patch,
   return 1;
 }
 
-int fcb_resolve_android_snapshot_replace(
-    FcbEnginePatchDecision* out_decision) {
-  return fcb_resolve_engine_patch(fcb_get_launch_patch, out_decision);
+int ResolveAndroidSnapshotReplace(EnginePatchDecision* out_decision) {
+  return ResolveEnginePatch(fcb_get_launch_patch, out_decision);
 }
+
+}  // namespace fcb

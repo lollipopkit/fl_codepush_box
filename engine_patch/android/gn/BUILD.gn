@@ -1,0 +1,59 @@
+# FCB Engine integration build configuration.
+#
+# This file provides the GN build targets needed to link the FCB updater
+# (libfcb_updater) into the Flutter Engine for Android snapshot_replace
+# support.
+#
+# Integration steps:
+#   1. Add this directory to the Engine source tree (e.g. under
+#      flutter/shell/platform/android/fcb/).
+#   2. Add the fcb_engine_hook and fcb_updater targets to the appropriate
+#      Android engine BUILD.gn deps.
+#   3. Apply the patches in patches/ to the Engine source.
+#   4. Build the engine normally.
+#
+# The fcb_updater Rust library must be cross-compiled for the target Android
+# architectures and made available as a static library at the paths
+# referenced by fcb_updater_static.
+
+import("//flutter/shell/platform/android/rules.gni")
+
+# C++ adapter between Flutter Engine and the FCB Rust updater FFI.
+# This target compiles fcb_engine_hook.cc which calls fcb_get_launch_patch()
+# via the C ABI and produces fcb::ResolveAndroidSnapshotReplace().
+source_set("fcb_engine_hook") {
+  sources = [
+    "../fcb_engine_hook.cc",
+    "../fcb_engine_hook.h",
+  ]
+  include_dirs = [ ".." ]
+  deps = []
+}
+
+# Static library target for the Rust updater (libfcb_updater.a).
+# This is a pre-built static library cross-compiled from the FCB Rust crate.
+# The actual .a files must be placed at:
+#   out/android_release_arm64/libfcb_updater.a  (arm64-v8a)
+#   out/android_release_arm/libfcb_updater.a      (armeabi-v7a)
+#   out/android_release_x64/libfcb_updater.a      (x86_64)
+#
+# Alternatively, add a rust_static_library() target if the Engine build
+# integrates cargo-ndk or similar.
+source_set("fcb_updater_static") {
+  # This is a stub; in practice you would either:
+  # a) Use a pre-built .a and link directly, or
+  # b) Add a rust_static_library() GN target that builds from the FCB crate.
+  #
+  # For initial integration, the recommended approach is to cross-compile
+  # libfcb_updater.a using the FCB CLI tooling and place it next to the
+  # Engine output directory.
+  sources = []
+}
+
+# Combined target for linking into the Android engine shell.
+group("fcb_android") {
+  deps = [
+    ":fcb_engine_hook",
+    ":fcb_updater_static",
+  ]
+}

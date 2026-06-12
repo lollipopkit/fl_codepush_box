@@ -1,0 +1,43 @@
+--- a/flutter/shell/platform/android/io/flutter/embedding/engine/loader/FlutterLoader.java	2026-06-12 14:35:20
++++ b/flutter/shell/platform/android/io/flutter/embedding/engine/loader/FlutterLoader.java	2026-06-12 14:41:02
+@@ -48,7 +48,30 @@
+   private static final String DEFAULT_LIBRARY = "libflutter.so";
+   private static final String DEFAULT_KERNEL_BLOB = "kernel_blob.bin";
+   private static final String VMSERVICE_SNAPSHOT_LIBRARY = "libvmservice_snapshot.so";
++
++  // FCB: Native method to initialize the FCB updater before Engine startup.
++  // This must be called before nativeInit so that fcb_get_launch_patch()
++  // in switches.cc can find the updater state.
++  private static native int nativeFcbInit(String cacheDir, String publicKey, String serverUrl);
++
++  // FCB: Try to initialize the FCB updater. Best-effort; if the native
++  // library is not present (stock Engine) or init fails, the Engine falls
++  // back to loading the bundled libapp.so with no patch applied.
++  private void tryInitFcb(Context context) {
++    try {
++      java.io.File fcbCacheDir = new java.io.File(context.getCacheDir(), ".fcb/cache");
++      fcbCacheDir.mkdirs();
++      // The public key and server URL are typically configured from the Dart
++      // package, but for Engine-level init we pass empty strings so the updater
++      // can at least read state.json from a previous download.
++      // The Dart package will call fcb_init() again with full config.
++      nativeFcbInit(fcbCacheDir.getAbsolutePath(), "", "");
++    } catch (Throwable t) {
++      Log.w(TAG, "FCB init failed, falling back to bundled artifact", t);
++    }
++  }
+ 
++
+   private static FlutterLoader instance;
+ 
+   private boolean enableSoftwareRendering = false;
+@@ -286,6 +309,9 @@
+     try (TraceSection e = TraceSection.scoped("FlutterLoader#ensureInitializationComplete")) {
+       InitResult result = initResultFuture.get();
+ 
++      // FCB: Initialize the updater so switches.cc can check for a patched libapp.so.
++      tryInitFcb(context);
++
+       List<String> shellArgs = new ArrayList<>();
+ 
+       // Add engine flags for which defaults set internally take precedent.

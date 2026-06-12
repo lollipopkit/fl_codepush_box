@@ -15,33 +15,30 @@
 - Engine hook scaffold：fcb_engine_hook.{h,cc} + test。
 - E2E 测试脚本：tests/e2e/test_e2e.sh 覆盖完整 Phase A 验收标准。
 
-**E2E 测试覆盖**
-1. init → release → patch → promote(100%) → check(patch_available=true)
-2. check --install → 安装到 cache，生成 .fcb/cache/patches/1/libapp.so
-3. mark-failure → state.json 记录 patch_number 1 到 bad_patches
-4. rollback → check 返回 patch_available=false
-5. invalid signature → 拒绝安装
-6. staged rollout 10% → 同一 client_id 两次查询结果一致
-7. rollback → promote(0%) → check(patch_available=false)
-8. promote(100%) → check(patch_available=true)
+**Phase B 当前进度**
+- Flutter 官方 repo（stable/3.44.2）已作为 git submodule 引入到 `third_party/flutter`。
+- Engine patch 文件已创建并通过验证：
+  - `0001-switches-cc-fcb-patch-path.patch`：在 `application_library_paths` 前插入 FCB patched AOT artifact path。
+  - `0002-flutter-loader-java-fcb-init.patch`：在 FlutterLoader.ensureInitializationComplete 中调用 `tryInitFcb()` 初始化 updater。
+- C++ hook 已更新为 `fcb::` namespace：`fcb::ResolveAndroidSnapshotReplace(&decision)` 返回 1/0/-1。
+- JNI 桥接 `fcb_android_jni.cc`：Java `nativeFcbInit()` 调用 Rust `fcb_init()`。
+- `apply_patches.sh` 脚本：apply/reverse patches 到 Engine 源码树。
+- GN BUILD.gn 模板：将 libfcb_updater 链入 Engine。
+- 所有 hook 单元测试通过，所有 Rust 测试通过。
+- Patches 在 Flutter 3.44.2 stable 上 clean apply/reverse 验证通过。
 
-**Review 修复已提交**
-- Android build 脚本 rm -rf 安全校验、updater FFI unsafe/panic guard/public key PEM/DER 规范化/last_check 失效、state installed 修剪保留 current/pending、server payload key 校验/Host header 端口保留、Dart configure 输入校验、C++ hook 注释、counter FAB、Gradle buildscript 移除、导出符号 `fcb_check_for_update_async` 重命名为 `fcb_check_for_update_blocking`（extern "C" 导出）、public_key 错误信息修正、e2e 测试 cleanup/ready poll 修复。
+**Phase B 剩余工作**
+1. 将 libfcb_updater 编译为 Android static library（.a）并集成到 Engine GN 构建。
+2. 修改 Android shell BUILD.gn 添加 fcb_engine_hook 和 fcb_android_jni 依赖。
+3. 构建修改后的 Flutter Engine（android_release_arm64）。
+4. 用修改后的 Engine 构建 counter_app APK 并验证闭环：
+   - build release → upload → patch → download → restart → patched result。
+5. 验证 crash rollback：制造 crash patch → 重启 → 自动回滚到 baseline。
 
 **已验证**
-- `cargo test`: 11 passed
-- `go test ./...`: 3 passed (eligible stability, path traversal, create+check)
+- `cargo test`: 3 passed (updater FFI tests)
+- `go test ./...`: 3 passed
 - `flutter test/analyze`: passed
 - `c++ hook test`: passed
-- `build_android_native.sh arm64-v8a`: passed
-- E2E script: full pass（含 rollout 稳定性、0%/100% 灰度）
-
-**Phase B 当前状态**
-- Engine hook 已有 scaffold + test，但需要接入真实 Flutter Engine AOT settings 初始化路径。
-- 需要修改 Engine GN 配置链接 libfcb_updater、在 root isolate 启动前调用 fcb_init/fcb_get_launch_patch、对 Android 设置 patched AOT artifact path。
-- 这是 Engine fork 工作，不在当前 MVP 范围内一键完成。
-
-**下一步**
-1. 将 engine_patch 接入真实 Flutter Engine Android embedder 的 AOT loading 路径。
-2. 替换 `fcb-simple-v1` diff 为 bsdiff/zstd。
-3. Phase C: bytecode backend for iOS/Play 合规。
+- E2E script: full pass
+- Engine patches: clean apply/reverse on Flutter 3.44.2 stable
