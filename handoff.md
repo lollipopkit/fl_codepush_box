@@ -13,10 +13,20 @@
 - Flutter package：configure/checkForUpdate/downloadUpdate/isNewPatchReadyToInstall/currentPatchNumber/markLaunchSuccessful。
 - Counter example：通过 --dart-define 配置，有 Check/Download/Mark success 按钮和 state counter。
 - Engine hook scaffold：fcb_engine_hook.{h,cc} + test。
-- E2E 测试脚本：tests/e2e/test_e2e.sh 覆盖 init→release→patch→promote→check→install→mark-failure→rollback→invalid sig rejection。
+- E2E 测试脚本：tests/e2e/test_e2e.sh 覆盖完整 Phase A 验收标准。
+
+**E2E 测试覆盖**
+1. init → release → patch → promote → check（找到 patch）
+2. check --install → 安装到 cache，生成 libapp.so
+3. mark-failure → bad_patches 记录
+4. rollback → check 返回 patch_available: false
+5. invalid signature → 拒绝安装
+6. staged rollout: 10% rollout hash stability（同一 client_id 两次结果一致）
+7. 0% rollout → patch 不可见
+8. 100% rollout → patch 可见
 
 **Review 修复已提交**
-- Android build 脚本 rm -rf 安全校验、updater FFI unsafe/panic guard/public key PEM/DER 规范化/last_check 失效、state installed 修剪保留 current/pending、server payload key 校验/Host header 端口保留、Dart configure 输入校验、C++ hook 注释、counter FAB、Gradle buildscript 移除。
+- Android build 脚本 rm -rf 安全校验、updater FFI unsafe/panic guard/public key PEM/DER 规范化/last_check 失效、state installed 修剪保留 current/pending、server payload key 校验/Host header 端口保留、Dart configure 输入校验、C++ hook 注释、counter FAB、Gradle buildscript 移除、fcb_check_for_update_async 重命名为 _blocking、public_key 错误信息修正、e2e 测试 cleanup/ready poll 修复。
 
 **已验证**
 - `cargo test`: 11 passed
@@ -24,7 +34,7 @@
 - `flutter test/analyze`: passed
 - `c++ hook test`: passed
 - `build_android_native.sh arm64-v8a`: passed
-- E2E script: full pass (init→patch→promote→check→install→failure→rollback→bad sig rejection)
+- E2E script: full pass（含 rollout 稳定性、0%/100% 灰度）
 
 **Phase B 当前状态**
 - Engine hook 已有 scaffold + test，但需要接入真实 Flutter Engine AOT settings 初始化路径。
