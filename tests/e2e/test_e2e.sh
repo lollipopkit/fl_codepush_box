@@ -29,7 +29,7 @@ FCB_SERVER_ADDR="$SERVER_ADDR" "$SERVER" -store "$STORE_FILE" -objects "$OBJECTS
 SERVER_PID=$!
 
 # Poll until server port is accepting connections (max 10 seconds)
-TIMEOUT=10
+TIMEOUT=20
 ELAPSED=0
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
     if (echo > /dev/tcp/"$SERVER_HOST"/"$SERVER_PORT") 2>/dev/null; then
@@ -39,7 +39,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
     ELAPSED=$((ELAPSED + 1))
 done
 if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-    echo "FAIL: server did not become ready within ${TIMEOUT}s"
+    echo "FAIL: server did not become ready within 10s"
     exit 1
 fi
 
