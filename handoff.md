@@ -1,47 +1,47 @@
 **目标**
-实现 `PLAN.md` 到项目 MVP。当前技术栈约束：`server` 用 Go，`cli` 和 `updater` 用 Rust。
+实现 `PLAN.md` 到项目 MVP。当前技术栈：server Go/Fiber，cli/updater Rust，package Dart/FFI。
 
 **硬约束**
-- 不要把 MVP 缩小成纯文档；需要继续推进可运行闭环。
-- Engine hook、真实 AOT replacement、bytecode compiler/interpreter 尚未实现。
-- `fcb.yaml` 和 `.fcb/` 是本轮验证生成物，已被 `.gitignore` 忽略。
+- 不要把 MVP 缩小成纯文档；继续推进可运行闭环。
+- Phase A 已完成闭环；Phase B 需要 Flutter Engine fork，是独立大工程。
+- 不提交 ignored/generated 产物。
 
-**已完成**
-- `PLAN.md` 已更新为 `FCB/fcb` 命名，并改为 `cli` Rust、`server` Go、`updater` Rust。
-- 创建 Rust workspace：`crates/fcb_core`、`cli`、`updater`。
-- `cli/src/main.rs` 已实现 `fcb init/release/patch/promote/check/install/mark-success/mark-failure/inspect` MVP。
-- `crates/fcb_core` 已实现 config 解析、manifest canonical JSON、Ed25519 sign/verify、server client、updater state/install。
-- `updater/src/lib.rs` 已导出 `fcb_*` C ABI 基础符号。
-- `server/main.go` 已实现 Go API：apps/releases/patches/promote/rollback/check/events，本地 JSON store。
-- `packages/fcb_code_push` 已有 Dart FFI 壳层；`examples/counter_app` 已有最小 Flutter 示例。
-- 已处理 PR inline review：私钥权限、iOS ABI round-trip、manifest 签名失败恢复、HTTP timeout、atomic temp 文件、mark_success 错误路径、schema required drift 测试、Go marshal 错误处理、FFI panic/poison/range 防护、Flutter 示例状态处理和 debug 日志。
-- 已处理后续 schema review：`patch_manifest.schema.json` 补齐 root/nested properties、types、format/range/pattern、additionalProperties；schema required 测试会验证 required 字段均存在于 properties。
+**Phase A 已完成（闭环验证）**
+- `fcb init/doctor/release/patch/promote/rollback/check/install/mark-success/mark-failure/inspect` 全部 CLI 命令实现。
+- Go Fiber server：apps/releases/patches/promote/rollback/check/manifest/payload/events。
+- Rust updater：manifest sign/verify、state machine、download/install、crash rollback。
+- Flutter package：configure/checkForUpdate/downloadUpdate/isNewPatchReadyToInstall/currentPatchNumber/markLaunchSuccessful。
+- Counter example：通过 --dart-define 配置，有 Check/Download/Mark success 按钮和 state counter。
+- Engine hook scaffold：fcb_engine_hook.{h,cc} + test。
+- E2E 测试脚本：tests/e2e/test_e2e.sh 覆盖完整 Phase A 验收标准。
+
+**E2E 测试覆盖**
+1. init → release → patch → promote(100%) → check(patch_available=true)
+2. check --install → 安装到 cache，生成 .fcb/cache/patches/1/libapp.so
+3. mark-failure → state.json 记录 patch_number 1 到 bad_patches
+4. rollback → check 返回 patch_available=false
+5. invalid signature → 拒绝安装
+6. staged rollout 10% → 同一 client_id 两次查询结果一致
+7. rollback → promote(0%) → check(patch_available=false)
+8. promote(100%) → check(patch_available=true)
+
+**Review 修复已提交**
+- Android build 脚本 rm -rf 安全校验、updater FFI unsafe/panic guard/public key PEM/DER 规范化/last_check 失效、state installed 修剪保留 current/pending、server payload key 校验/Host header 端口保留、Dart configure 输入校验、C++ hook 注释、counter FAB、Gradle buildscript 移除、导出符号 `fcb_check_for_update_async` 重命名为 `fcb_check_for_update_blocking`（extern "C" 导出）、public_key 错误信息修正、e2e 测试 cleanup/ready poll 修复。
 
 **已验证**
-- `cargo test`: 通过。
-- `go test ./...` in `server/`: 通过。
-- `flutter analyze` in `packages/fcb_code_push`: 通过。
-- `flutter analyze` in `examples/counter_app`: 通过。
-- `cargo fmt --all -- --check`: 通过。
-- `/tmp` 新目录执行 `fcb init` 后，`.fcb/keys/dev-ed25519.private` 权限为 `600`。
-- 本地闭环通过：启动 server 后运行 `fcb init`、`fcb release android --example examples/counter_app --release-version 1.0.0+1`、`fcb patch android --release-version 1.0.0+1 --patch-number 1`、`fcb promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100`、`fcb check --release-version 1.0.0+1`，check 返回 `patch_available: true`。
-- `fcb install` 能验证签名/hash 并写入 `.fcb/cache/state.json`。
-- 篡改 payload 后 `fcb install` 返回 `payload sha256 mismatch`。
+- `cargo test`: 11 passed
+- `go test ./...`: 3 passed (eligible stability, path traversal, create+check)
+- `flutter test/analyze`: passed
+- `c++ hook test`: passed
+- `build_android_native.sh arm64-v8a`: passed
+- E2E script: full pass（含 rollout 稳定性、0%/100% 灰度）
 
-**当前状态**
-- 当前目录是 git repo：`No commits yet on main`，所有源码文件均未提交。
-- 本轮启动的 `127.0.0.1:8080` Go server 已结束，端口不再占用。
-- `fcb.yaml`、`.fcb/`、`target/` 为验证/构建产物，不应作为源码提交。
+**Phase B 当前状态**
+- Engine hook 已有 scaffold + test，但需要接入真实 Flutter Engine AOT settings 初始化路径。
+- 需要修改 Engine GN 配置链接 libfcb_updater、在 root isolate 启动前调用 fcb_init/fcb_get_launch_patch、对 Android 设置 patched AOT artifact path。
+- 这是 Engine fork 工作，不在当前 MVP 范围内一键完成。
 
 **下一步**
-1. 增加 Rust/Go 单元测试，覆盖 canonical JSON、签名验签、rollout、state bad patch blocklist。
-2. 让 CLI `check/install` 支持从 server 返回的 manifest/payload URL 自动下载并安装，而不是手动传路径。
-3. 给 Go server 增加 manifest hash 与 payload URL 更真实的 object storage 语义。
-4. 接 Flutter example 的最小 smoke test，确认 package API 在缺 native lib 时行为稳定。
-5. 后续再进入 Android `snapshot_replace` 或 native Engine hook。
-
-**完整计划仍缺**
-- Android P0 真实 `libapp.so` diff/apply/加载。
-- iOS/Play 合规 bytecode backend。
-- Dart transformer、HBC compiler/interpreter、Kernel linker。
-- Engine fork 和 VM dispatch。
+1. 将 engine_patch 接入真实 Flutter Engine Android embedder 的 AOT loading 路径。
+2. 替换 `fcb-simple-v1` diff 为 bsdiff/zstd。
+3. Phase C: bytecode backend for iOS/Play 合规。

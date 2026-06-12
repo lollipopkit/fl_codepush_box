@@ -1,5 +1,6 @@
 pub mod config;
 pub mod crypto;
+pub mod diff;
 pub mod manifest;
 pub mod server_api;
 pub mod state;

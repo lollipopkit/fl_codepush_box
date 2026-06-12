@@ -1,0 +1,20 @@
+group = "dev.fcb.code_push"
+version = "0.1.0"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+
+android {
+    namespace = "dev.fcb.code_push"
+    compileSdk = 35
+
+    defaultConfig {
+        minSdk = 23
+    }
+}

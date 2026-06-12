@@ -91,7 +91,7 @@ Code agent 创建 monorepo：
 
 fcb/
   cli/                         # Rust CLI
-  server/                      # Go API service, DB migration, object storage adapter
+  server/                      # Go Fiber API service, DB migration, object storage adapter
   updater/                     # Rust updater library, C ABI
   engine_patch/                # Flutter Engine fork patch files / patch scripts
   dart_sdk_patch/              # Dart SDK fork patch files, P2 使用
@@ -336,9 +336,14 @@ typedef struct {
   const char* manifest_path;
 } FcbLaunchPatch;
 int fcb_init(const FcbInitParams* params);
+int fcb_set_server_url(const char* server_url);
+int fcb_set_client_id(const char* client_id);
+int fcb_set_baseline_artifact_path(const char* path);
 int fcb_get_launch_patch(FcbLaunchPatch* out_patch);
 int fcb_check_for_update_async(void);
 int fcb_download_and_install_blocking(void);
+int fcb_is_new_patch_ready_to_install(void);
+int fcb_last_check_patch_number(void);
 int fcb_mark_launch_success(void);
 int fcb_mark_launch_failure(int patch_number, const char* reason);
 int fcb_current_patch_number(void);
@@ -931,7 +936,7 @@ Phase A：基础设施闭环
 * 创建 monorepo。
 * 实现 fcb.yaml parser。
 * 实现 Rust CLI skeleton。
-* 实现 Go server API。
+* 实现 Go Fiber server API。
 * 实现 object storage adapter，本地可先用 filesystem。
 * 实现 patch manifest canonical JSON。
 * 实现 Ed25519 sign/verify。
@@ -1053,7 +1058,7 @@ Phase D：P2 Dart VM integrated bytecode
 
 19.2 Integration tests
 
-* 本地 server + local object storage。
+* 本地 Go Fiber server + local object storage。
 * Rust CLI release/patch/check 全流程。
 * Android emulator/device 启动下载 patch。
 * 重启后 patch 生效。

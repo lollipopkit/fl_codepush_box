@@ -312,6 +312,7 @@ dependencies = [
 name = "fcb_updater"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "fcb_core",
  "serde_json",
 ]

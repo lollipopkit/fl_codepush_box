@@ -4,4 +4,8 @@
 fcb.yaml
 *.tmp
 .dart_tool/
+.flutter-plugins-dependencies
 build/
+pubspec.lock
+packages/fcb_code_push/native/
+packages/fcb_code_push/android/src/main/jniLibs/

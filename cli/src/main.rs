@@ -1,10 +1,13 @@
 use clap::{Parser, Subcommand};
 use fcb_core::config::FcbConfig;
 use fcb_core::crypto;
+use fcb_core::diff::{self, SIMPLE_DIFF_ALGORITHM};
 use fcb_core::manifest::{
     self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest, ReleaseManifest,
 };
-use fcb_core::server_api::{Client, CreateAppRequest, PromotePatchRequest};
+use fcb_core::server_api::{
+    CheckResponse, Client, CreateAppRequest, PatchCheck, PromotePatchRequest,
+};
 use fcb_core::state::Updater;
 use fcb_core::{err, fcb_dir, Result};
 use std::fs;
@@ -62,6 +65,16 @@ enum Command {
         #[arg(long, default_value_t = 100)]
         rollout_percentage: u8,
     },
+    Rollback {
+        #[arg(long)]
+        release_version: String,
+        #[arg(long)]
+        patch_number: u32,
+        #[arg(long, default_value = "android")]
+        platform: String,
+        #[arg(long, default_value = "arm64-v8a")]
+        arch: String,
+    },
     Check {
         #[arg(long)]
         release_version: String,
@@ -75,6 +88,10 @@ enum Command {
         current_patch_number: u32,
         #[arg(long, default_value = "dev-client")]
         client_id: String,
+        #[arg(long)]
+        install: bool,
+        #[arg(long, default_value = ".fcb/cache")]
+        cache_dir: PathBuf,
     },
     Install {
         #[arg(long)]
@@ -165,6 +182,8 @@ fn run() -> Result<()> {
             channel,
             current_patch_number,
             client_id,
+            install,
+            cache_dir,
         } => check(
             &args.server,
             &release_version,
@@ -173,6 +192,8 @@ fn run() -> Result<()> {
             &channel,
             current_patch_number,
             &client_id,
+            install,
+            &cache_dir,
         ),
         Command::Install {
             manifest,
@@ -193,6 +214,18 @@ fn run() -> Result<()> {
             println!("patch {patch_number} marked failed");
             Ok(())
         }
+        Command::Rollback {
+            release_version,
+            patch_number,
+            platform,
+            arch,
+        } => rollback(
+            &args.server,
+            &release_version,
+            patch_number,
+            &platform,
+            &arch,
+        ),
         Command::Inspect { kind, path } => inspect(&kind, &path),
     }
 }
@@ -261,11 +294,36 @@ fn patch(
     payload: Option<&Path>,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let payload_bytes = if let Some(path) = payload {
+    let target_artifact = if let Some(path) = payload {
         fs::read(path)?
     } else {
         format!("fcb patch {patch_number} for {release_version}\n").into_bytes()
     };
+    let backend = backend_for(&config, platform);
+    let baseline_path = release_artifact_path(release_version, platform, arch);
+    let baseline = if backend == "snapshot_replace" && baseline_path.exists() {
+        Some(fs::read(&baseline_path)?)
+    } else {
+        None
+    };
+    let (payload_bytes, payload_kind, diff_algorithm, base_hash, output_hash) =
+        if backend == "snapshot_replace" {
+            let Some(base) = baseline.as_deref() else {
+                return Err(err(format!(
+                    "missing baseline artifact for snapshot_replace: {}",
+                    baseline_path.display()
+                )));
+            };
+            (
+                diff::create_simple_diff(base, &target_artifact)?,
+                "binary_diff",
+                Some(SIMPLE_DIFF_ALGORITHM.to_string()),
+                Some(crypto::sha256_hex(base)),
+                Some(crypto::sha256_hex(&target_artifact)),
+            )
+        } else {
+            (target_artifact, "opaque_payload", None, None, None)
+        };
     let out = fcb_dir()
         .join("patches")
         .join(release_version)
@@ -287,16 +345,26 @@ fn patch(
         release_version: release_version.to_string(),
         patch_number,
         channel: config.channel.clone(),
-        created_at: "dev".to_string(),
-        backend: backend_for(&config, platform),
+        created_at: "1970-01-01T00:00:00Z".to_string(),
+        backend: backend.clone(),
         platform: platform.to_string(),
         arch: arch.to_string(),
         payload: PayloadManifest {
-            kind: "opaque_payload".to_string(),
+            kind: payload_kind.to_string(),
             compression: "none".to_string(),
             hash: payload_hash.clone(),
             size: payload_bytes.len() as u64,
-            download_url: out.join("payload.bin").display().to_string(),
+            download_url: object_key(
+                &config.app_id,
+                release_version,
+                platform,
+                arch,
+                patch_number,
+                "payload.bin",
+            ),
+            diff_algorithm,
+            base_hash,
+            output_hash,
         },
         policy: PatchPolicy {
             rollout_percentage: 0,
@@ -310,7 +378,7 @@ fn patch(
     };
     manifest::sign_patch_manifest(&mut manifest, private_key.trim())?;
     manifest::write_json(&out.join("patch_manifest.json"), &manifest)?;
-    Client::new(server).create_patch(&manifest)?;
+    Client::new(server).create_patch(&manifest, &payload_bytes)?;
     println!("{}", out.join("patch_manifest.json").display());
     println!("payload_sha256={payload_hash}");
     Ok(())
@@ -339,6 +407,27 @@ fn promote(
     Ok(())
 }
 
+fn rollback(
+    server: &str,
+    release_version: &str,
+    patch_number: u32,
+    platform: &str,
+    arch: &str,
+) -> Result<()> {
+    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
+    Client::new(server).rollback_patch(&PromotePatchRequest {
+        app_id: config.app_id,
+        release_version: release_version.to_string(),
+        platform: platform.to_string(),
+        arch: arch.to_string(),
+        patch_number,
+        channel: String::new(),
+        rollout_percentage: 0,
+    })?;
+    println!("patch {patch_number} rolled back");
+    Ok(())
+}
+
 fn check(
     server: &str,
     release_version: &str,
@@ -347,9 +436,12 @@ fn check(
     channel: &str,
     current_patch_number: u32,
     client_id: &str,
+    install_patch: bool,
+    cache_dir: &Path,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let response = Client::new(server).check(
+    let client = Client::new(server);
+    let response = client.check(
         &config.app_id,
         release_version,
         platform,
@@ -359,6 +451,75 @@ fn check(
         client_id,
     )?;
     println!("{}", serde_json::to_string_pretty(&response)?);
+    if install_patch {
+        download_and_install(
+            &client,
+            &response,
+            release_version,
+            platform,
+            arch,
+            cache_dir,
+        )?;
+    }
+    Ok(())
+}
+
+fn download_and_install(
+    client: &Client,
+    response: &CheckResponse,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+    cache_dir: &Path,
+) -> Result<()> {
+    let Some(patch) = &response.patch else {
+        if response.patch_available {
+            return Err(err(
+                "server response marked patch_available but omitted patch",
+            ));
+        }
+        return Ok(());
+    };
+    let (manifest_path, payload_path) =
+        download_patch_files(client, patch, release_version, platform, arch)?;
+    install(&manifest_path, &payload_path, cache_dir)
+}
+
+fn download_patch_files(
+    client: &Client,
+    patch: &PatchCheck,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+) -> Result<(PathBuf, PathBuf)> {
+    let out = fcb_dir()
+        .join("downloads")
+        .join(release_version)
+        .join(patch.patch_number.to_string())
+        .join(platform)
+        .join(arch);
+    fs::create_dir_all(&out)?;
+
+    let manifest_bytes = client.download_bytes(&patch.manifest_url)?;
+    ensure_hash("manifest", &manifest_bytes, &patch.manifest_hash)?;
+    let manifest_path = out.join("patch_manifest.json");
+    fs::write(&manifest_path, manifest_bytes)?;
+
+    let payload_bytes = client.download_bytes(&patch.payload_url)?;
+    ensure_hash("payload", &payload_bytes, &patch.payload_hash)?;
+    let payload_path = out.join("payload.bin");
+    fs::write(&payload_path, payload_bytes)?;
+
+    Ok((manifest_path, payload_path))
+}
+
+fn ensure_hash(label: &str, bytes: &[u8], expected: &str) -> Result<()> {
+    let actual = crypto::sha256_hex(bytes);
+    if actual != expected {
+        return Err(err(format!(
+            "{label} sha256 mismatch: expected {expected}, got {actual}"
+        )));
+    }
     Ok(())
 }
 
@@ -369,9 +530,40 @@ fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Resul
             .join("keys")
             .join(format!("{}.public", config.security.public_key_id)),
     )?;
-    Updater::new(cache_dir).install_payload(manifest_path, payload_path, public_key.trim())?;
+    let manifest: PatchManifest = manifest::read_json(manifest_path)?;
+    let baseline_path = release_artifact_path(
+        &manifest.release_version,
+        &manifest.platform,
+        &manifest.arch,
+    );
+    let baseline = if manifest.payload.kind == "binary_diff" {
+        if !baseline_path.exists() {
+            return Err(err(format!(
+                "missing baseline artifact for binary diff: {}",
+                baseline_path.display()
+            )));
+        }
+        Some(baseline_path.as_path())
+    } else {
+        None
+    };
+    Updater::new(cache_dir).install_payload_with_baseline(
+        manifest_path,
+        payload_path,
+        public_key.trim(),
+        baseline,
+    )?;
     println!("installed patch into {}", cache_dir.display());
     Ok(())
+}
+
+fn release_artifact_path(release_version: &str, platform: &str, arch: &str) -> PathBuf {
+    fcb_dir()
+        .join("releases")
+        .join(release_version)
+        .join(platform)
+        .join(arch)
+        .join("artifact.bin")
 }
 
 fn inspect(kind: &str, path: &Path) -> Result<()> {
@@ -405,4 +597,15 @@ fn backend_for(config: &FcbConfig, platform: &str) -> String {
         "ios" => config.platforms.ios.backend.clone(),
         _ => config.platforms.android.backend.clone(),
     }
+}
+
+fn object_key(
+    app_id: &str,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+    patch_number: u32,
+    file_name: &str,
+) -> String {
+    format!("patches/{app_id}/{release_version}/{platform}/{arch}/{patch_number}/{file_name}")
 }
