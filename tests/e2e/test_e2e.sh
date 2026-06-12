@@ -103,4 +103,38 @@ else
     echo "Corrupt signature correctly rejected"
 fi
 
+# --- Staged rollout & channel isolation ---
+
+echo "=== Staged rollout: promote at 10% ==="
+"$FCB" --server "http://$SERVER_ADDR" promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 10 --channel stable
+
+# The deterministic hash means the same client_id always gets the same result.
+# Verify that e2e-test is consistently eligible or ineligible for 10%.
+CHECK_10=$("$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
+echo "$CHECK_10"
+# Re-check: same client_id should always return the same eligibility
+CHECK_10_AGAIN=$("$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
+echo "Rollout hash stability: first=$(echo "$CHECK_10" | grep -o '"patch_available": [a-z]*'), second=$(echo "$CHECK_10_AGAIN" | grep -o '"patch_available": [a-z]*')"
+if [ "$(echo "$CHECK_10" | grep -o '"patch_available": [a-z]*')" != "$(echo "$CHECK_10_AGAIN" | grep -o '"patch_available": [a-z]*')" ]; then
+    echo "FAIL: rollout hash is not stable for same client_id"
+    exit 1
+fi
+echo "Rollout hash stability OK"
+
+# 0% rollout should never serve a patch
+echo "=== Rollback to 0% ==="
+"$FCB" --server "http://$SERVER_ADDR" rollback --release-version 1.0.0+1 --patch-number 1
+CHECK_0=$("$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
+echo "$CHECK_0"
+echo "$CHECK_0" | grep -q '"patch_available": false' || { echo "FAIL: patch available at 0% rollout"; exit 1; }
+echo "0% rollout correctly blocks patch"
+
+# 100% rollout should always serve
+echo "=== Promote at 100% ==="
+"$FCB" --server "http://$SERVER_ADDR" promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100
+CHECK_100=$("$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
+echo "$CHECK_100"
+echo "$CHECK_100" | grep -q '"patch_available": true' || { echo "FAIL: patch not available at 100% rollout"; exit 1; }
+echo "100% rollout correctly serves patch"
+
 echo "=== All e2e tests passed ==="
