@@ -91,16 +91,18 @@ echo "$CHECK2"
 echo "$CHECK2" | grep -q '"patch_available": false' || { echo "FAIL: patch still available after rollback"; exit 1; }
 
 echo "=== Invalid signature rejection ==="
-cp .fcb/cache/patches/1/manifest.json /tmp/corrupt_manifest.json
+CORRUPT_MANIFEST="$WORKDIR/corrupt_manifest.json"
+cp .fcb/cache/patches/1/manifest.json "$CORRUPT_MANIFEST"
 python3 -c "
 import json
-with open('/tmp/corrupt_manifest.json') as f:
+path = '$CORRUPT_MANIFEST'
+with open(path) as f:
     m = json.load(f)
 m['signature']['value'] = 'AAAA' + m['signature']['value'][4:]
-with open('/tmp/corrupt_manifest.json', 'w') as f:
+with open(path, 'w') as f:
     json.dump(m, f)
 "
-if "$FCB" install --manifest /tmp/corrupt_manifest.json --payload .fcb/cache/patches/1/payload.bin --cache-dir .fcb/cache2 2>/dev/null; then
+if "$FCB" install --manifest "$CORRUPT_MANIFEST" --payload .fcb/cache/patches/1/payload.bin --cache-dir .fcb/cache2 2>/dev/null; then
     echo "FAIL: corrupt signature was accepted"
     exit 1
 else
