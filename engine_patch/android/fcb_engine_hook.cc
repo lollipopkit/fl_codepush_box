@@ -51,6 +51,34 @@ int fcb_resolve_engine_patch(FcbGetLaunchPatchFn get_launch_patch,
   return 1;
 }
 
+int fcb_apply_android_snapshot_replace(
+    FcbGetLaunchPatchFn get_launch_patch,
+    FcbSetAotArtifactPathFn set_aot_artifact_path,
+    void* user_data,
+    FcbEnginePatchDecision* out_decision) {
+  if (set_aot_artifact_path == nullptr) {
+    return -1;
+  }
+  FcbEnginePatchDecision decision = {};
+  FcbEnginePatchDecision* target_decision =
+      out_decision == nullptr ? &decision : out_decision;
+  const int rc = fcb_resolve_engine_patch(get_launch_patch, target_decision);
+  if (rc != 1) {
+    return rc;
+  }
+  return set_aot_artifact_path(user_data, target_decision->artifact_path) == 0
+             ? 1
+             : -1;
+}
+
+int fcb_mark_android_launch_success(
+    FcbMarkLaunchSuccessFn mark_launch_success) {
+  if (mark_launch_success == nullptr) {
+    return -1;
+  }
+  return mark_launch_success();
+}
+
 int fcb_resolve_android_snapshot_replace(
     FcbEnginePatchDecision* out_decision) {
   return fcb_resolve_engine_patch(fcb_get_launch_patch, out_decision);

@@ -3,11 +3,15 @@ import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 class FcbCodePush {
   FcbCodePush._();
 
   static final FcbCodePush instance = FcbCodePush._();
+
+  static const MethodChannel _pathsChannel =
+      MethodChannel('dev.fcb.code_push/paths');
 
   DynamicLibrary? _library;
 
@@ -19,11 +23,19 @@ class FcbCodePush {
     String channel = 'stable',
     String? platform,
     String arch = 'arm64-v8a',
-    String cacheDir = '.fcb/cache',
+    String? cacheDir,
     String clientId = 'default',
     String? baselineArtifactPath,
   }) async {
     final selectedPlatform = platform ?? _defaultPlatform();
+    final androidPaths = selectedPlatform == 'android'
+        ? await _androidPaths()
+        : const <String, String>{};
+    final selectedCacheDir = cacheDir ??
+        androidPaths['cacheDir'] ??
+        _defaultCacheDir(selectedPlatform);
+    final selectedBaselineArtifactPath =
+        baselineArtifactPath ?? androidPaths['baselineArtifactPath'];
     if (!_isValidConfiguration(
       appId: appId,
       releaseVersion: releaseVersion,
@@ -31,8 +43,8 @@ class FcbCodePush {
       serverUrl: serverUrl,
       platform: selectedPlatform,
       arch: arch,
-      cacheDir: cacheDir,
-      baselineArtifactPath: baselineArtifactPath,
+      cacheDir: selectedCacheDir,
+      baselineArtifactPath: selectedBaselineArtifactPath,
       clientId: clientId,
     )) {
       return false;
@@ -50,11 +62,11 @@ class FcbCodePush {
     final releaseVersionPtr = releaseVersion.toNativeUtf8();
     final platformPtr = selectedPlatform.toNativeUtf8();
     final archPtr = arch.toNativeUtf8();
-    final cacheDirPtr = cacheDir.toNativeUtf8();
+    final cacheDirPtr = selectedCacheDir.toNativeUtf8();
     final publicKeyPtr = publicKey.toNativeUtf8();
     final serverUrlPtr = serverUrl.toNativeUtf8();
     final clientIdPtr = clientId.toNativeUtf8();
-    final baselinePtr = baselineArtifactPath?.toNativeUtf8();
+    final baselinePtr = selectedBaselineArtifactPath?.toNativeUtf8();
     try {
       params.ref
         ..appId = appIdPtr.cast()
@@ -171,7 +183,7 @@ class FcbCodePush {
     if (result.code < 0) {
       return UpdateCheckResult(
         patchAvailable: false,
-        reason: 'native update check failed with code ${result.code}',
+        reason: _nativeFailureReason('native update check', result.code),
       );
     }
     final patchNumber = result.code > 0 ? _lastCheckPatchNumber() : null;
@@ -190,7 +202,7 @@ class FcbCodePush {
     if (result.code < 0) {
       return DownloadResult(
         success: false,
-        reason: 'native update download failed with code ${result.code}',
+        reason: _nativeFailureReason('native update download', result.code),
       );
     }
     return const DownloadResult(success: true);
@@ -216,6 +228,30 @@ class FcbCodePush {
       return _NativeStatus.unavailable('native symbol $symbol is unavailable');
     }
     return _NativeStatus.available(fn());
+  }
+
+  String _nativeFailureReason(String operation, int code) {
+    final error = _lastError();
+    if (error == null || error.isEmpty) {
+      return '$operation failed with code $code';
+    }
+    return '$operation failed with code $code: $error';
+  }
+
+  String? _lastError() {
+    try {
+      final lib = _library ??= _openLibrary();
+      final fn = lib.lookupFunction<Pointer<Char> Function(),
+          Pointer<Char> Function()>('fcb_last_error');
+      final ptr = fn();
+      if (ptr == nullptr) {
+        return null;
+      }
+      return ptr.cast<Utf8>().toDartString();
+    } catch (error, stack) {
+      _debugLookupError('fcb_last_error', error, stack);
+      return null;
+    }
   }
 
   int Function()? _lookupInt(String symbol) {
@@ -336,6 +372,30 @@ class FcbCodePush {
       return 'windows';
     }
     return 'unknown';
+  }
+
+  Future<Map<String, String>> _androidPaths() async {
+    try {
+      final paths = await _pathsChannel.invokeMapMethod<String, String>(
+        'getPaths',
+      );
+      return paths ?? const <String, String>{};
+    } catch (error, stack) {
+      _debugLookupError('Android paths', error, stack);
+      return const <String, String>{};
+    }
+  }
+
+  String _defaultCacheDir(String platform) {
+    if (platform == 'android') {
+      final temp = Directory.systemTemp.path;
+      final parent = Directory(temp).parent.path;
+      if (temp.endsWith('/cache')) {
+        return '$parent/code_cache/fcb';
+      }
+      return '$temp/fcb';
+    }
+    return '.fcb/cache';
   }
 }
 

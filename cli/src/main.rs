@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use fcb_core::config::FcbConfig;
 use fcb_core::crypto;
-use fcb_core::diff::{self, SIMPLE_DIFF_ALGORITHM};
+use fcb_core::diff::{self, BSDIFF_ZSTD_ALGORITHM};
 use fcb_core::manifest::{
     self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest, ReleaseManifest,
 };
@@ -315,9 +315,9 @@ fn patch(
                 )));
             };
             (
-                diff::create_simple_diff(base, &target_artifact)?,
+                diff::create_bsdiff_zstd(base, &target_artifact)?,
                 "binary_diff",
-                Some(SIMPLE_DIFF_ALGORITHM.to_string()),
+                Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
                 Some(crypto::sha256_hex(base)),
                 Some(crypto::sha256_hex(&target_artifact)),
             )
@@ -584,6 +584,9 @@ fn inspect(kind: &str, path: &Path) -> Result<()> {
 
 fn release_artifact_bytes(example: Option<&Path>) -> Result<Vec<u8>> {
     if let Some(example) = example {
+        if example.is_file() {
+            return Ok(fs::read(example)?);
+        }
         let main = example.join("lib/main.dart");
         if main.exists() {
             return Ok(fs::read(main)?);

@@ -1,0 +1,42 @@
+# Copy this target into a Flutter Engine GN file that is visible to the Android
+# shell/embedder target which configures Dart AOT settings.
+#
+# Required GN args supplied by your Engine checkout/build:
+#
+#   fcb_updater_staticlib =
+#       "/absolute/path/to/libfcb_updater.a"
+#   fcb_engine_patch_dir =
+#       "/absolute/path/to/fl_codepush_box/engine_patch/android"
+#
+# Link the resulting target into the Android engine library that owns root
+# isolate launch settings.
+
+fcb_android_unwind_staticlib = ""
+if (current_cpu == "arm64") {
+  fcb_android_unwind_staticlib =
+      "${android_toolchain_root}/lib/clang/19/lib/linux/aarch64/libunwind.a"
+} else if (current_cpu == "arm") {
+  fcb_android_unwind_staticlib =
+      "${android_toolchain_root}/lib/clang/19/lib/linux/arm/libunwind.a"
+} else if (current_cpu == "x64") {
+  fcb_android_unwind_staticlib =
+      "${android_toolchain_root}/lib/clang/19/lib/linux/x86_64/libunwind.a"
+} else if (current_cpu == "x86") {
+  fcb_android_unwind_staticlib =
+      "${android_toolchain_root}/lib/clang/19/lib/linux/i386/libunwind.a"
+}
+
+source_set("fcb_android_snapshot_replace") {
+  sources = [
+    "$fcb_engine_patch_dir/fcb_engine_hook.cc",
+  ]
+
+  include_dirs = [
+    fcb_engine_patch_dir,
+  ]
+
+  libs = [
+    fcb_updater_staticlib,
+    fcb_android_unwind_staticlib,
+  ]
+}

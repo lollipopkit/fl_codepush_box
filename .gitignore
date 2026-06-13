@@ -1,4 +1,5 @@
 /target/
+.tools/
 /server/fcb-server
 .fcb/
 fcb.yaml

@@ -17,7 +17,6 @@ const _platform =
 const _arch = String.fromEnvironment('FCB_ARCH', defaultValue: 'arm64-v8a');
 const _cacheDir = String.fromEnvironment(
   'FCB_CACHE_DIR',
-  defaultValue: '.fcb/cache',
 );
 const _baselineArtifactPath = String.fromEnvironment('FCB_BASELINE_ARTIFACT');
 
@@ -60,7 +59,7 @@ class _CounterAppState extends State<CounterApp> {
           channel: _channel,
           platform: _platform,
           arch: _arch,
-          cacheDir: _cacheDir,
+          cacheDir: _cacheDir.isEmpty ? null : _cacheDir,
           baselineArtifactPath:
               _baselineArtifactPath.isEmpty ? null : _baselineArtifactPath,
         );

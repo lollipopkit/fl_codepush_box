@@ -1,8 +1,11 @@
 use crate::{crypto, err, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 
+pub const BSDIFF_ZSTD_ALGORITHM: &str = "bsdiff-zstd-v1";
 pub const SIMPLE_DIFF_ALGORITHM: &str = "fcb-simple-v1";
+const ZSTD_LEVEL: i32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimpleBinaryDiff {
@@ -43,6 +46,27 @@ pub fn create_simple_diff(base: &[u8], target: &[u8]) -> Result<Vec<u8>> {
     Ok(serde_json::to_vec(&diff)?)
 }
 
+pub fn create_bsdiff_zstd(base: &[u8], target: &[u8]) -> Result<Vec<u8>> {
+    let mut raw_patch = Vec::new();
+    bsdiff::diff(base, target, &mut raw_patch)?;
+    Ok(zstd::bulk::compress(&raw_patch, ZSTD_LEVEL)?)
+}
+
+pub fn apply_binary_diff(algorithm: &str, base: &[u8], diff_bytes: &[u8]) -> Result<Vec<u8>> {
+    match algorithm {
+        BSDIFF_ZSTD_ALGORITHM => apply_bsdiff_zstd(base, diff_bytes),
+        SIMPLE_DIFF_ALGORITHM => apply_simple_diff(base, diff_bytes),
+        _ => Err(err("unsupported binary diff algorithm")),
+    }
+}
+
+pub fn apply_bsdiff_zstd(base: &[u8], diff_bytes: &[u8]) -> Result<Vec<u8>> {
+    let raw_patch = zstd::decode_all(Cursor::new(diff_bytes))?;
+    let mut output = Vec::new();
+    bsdiff::patch(base, &mut raw_patch.as_slice(), &mut output)?;
+    Ok(output)
+}
+
 pub fn apply_simple_diff(base: &[u8], diff_bytes: &[u8]) -> Result<Vec<u8>> {
     let diff: SimpleBinaryDiff = serde_json::from_slice(diff_bytes)?;
     if diff.algorithm != SIMPLE_DIFF_ALGORITHM {
@@ -73,7 +97,40 @@ pub fn apply_simple_diff(base: &[u8], diff_bytes: &[u8]) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_simple_diff, create_simple_diff};
+    use super::{
+        apply_binary_diff, apply_bsdiff_zstd, apply_simple_diff, create_bsdiff_zstd,
+        create_simple_diff, BSDIFF_ZSTD_ALGORITHM, SIMPLE_DIFF_ALGORITHM,
+    };
+
+    #[test]
+    fn bsdiff_zstd_roundtrip_preserves_target() {
+        let base = b"counter: 1; shared suffix";
+        let target = b"counter: 2; shared suffix";
+
+        let diff = create_bsdiff_zstd(base, target).expect("create diff");
+        let patched = apply_bsdiff_zstd(base, &diff).expect("apply diff");
+
+        assert_eq!(patched, target);
+        assert!(diff.len() < target.len() + 220);
+    }
+
+    #[test]
+    fn binary_diff_dispatch_supports_current_and_legacy_algorithms() {
+        let base = b"counter: 1; shared suffix";
+        let target = b"counter: 2; shared suffix";
+
+        let current = create_bsdiff_zstd(base, target).expect("create bsdiff");
+        let legacy = create_simple_diff(base, target).expect("create simple diff");
+
+        assert_eq!(
+            apply_binary_diff(BSDIFF_ZSTD_ALGORITHM, base, &current).expect("apply bsdiff"),
+            target
+        );
+        assert_eq!(
+            apply_binary_diff(SIMPLE_DIFF_ALGORITHM, base, &legacy).expect("apply simple"),
+            target
+        );
+    }
 
     #[test]
     fn simple_diff_roundtrip_preserves_shared_prefix_and_suffix() {

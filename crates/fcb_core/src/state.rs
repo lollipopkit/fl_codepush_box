@@ -1,4 +1,4 @@
-use crate::diff::{self, SIMPLE_DIFF_ALGORITHM};
+use crate::diff;
 use crate::manifest::{self, PatchManifest};
 use crate::{crypto, err, Result};
 use serde::{Deserialize, Serialize};
@@ -256,9 +256,9 @@ fn snapshot_replace_artifact(
     match manifest.payload.kind.as_str() {
         "snapshot_replace_artifact" | "opaque_payload" => Ok(payload.to_vec()),
         "binary_diff" => {
-            if manifest.payload.diff_algorithm.as_deref() != Some(SIMPLE_DIFF_ALGORITHM) {
-                return Err(err("unsupported binary diff algorithm"));
-            }
+            let Some(diff_algorithm) = manifest.payload.diff_algorithm.as_deref() else {
+                return Err(err("missing binary diff algorithm"));
+            };
             let Some(baseline_artifact_path) = baseline_artifact_path else {
                 return Err(err("baseline artifact required for binary diff"));
             };
@@ -269,7 +269,7 @@ fn snapshot_replace_artifact(
                     return Err(err("base artifact sha256 mismatch"));
                 }
             }
-            let artifact = diff::apply_simple_diff(&baseline, payload)?;
+            let artifact = diff::apply_binary_diff(diff_algorithm, &baseline, payload)?;
             if let Some(expected_output_hash) = &manifest.payload.output_hash {
                 let actual_output_hash = crypto::sha256_hex(&artifact);
                 if &actual_output_hash != expected_output_hash {
@@ -330,7 +330,7 @@ fn unique_suffix() -> u128 {
 mod tests {
     use super::{InstalledPatch, LastLaunch, State, Updater};
     use crate::crypto;
-    use crate::diff::{self, SIMPLE_DIFF_ALGORITHM};
+    use crate::diff::{self, BSDIFF_ZSTD_ALGORITHM};
     use crate::manifest::{self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest};
 
     #[test]
@@ -429,7 +429,7 @@ mod tests {
         let patched = b"counter: 2; shared suffix";
         let baseline_path = input_dir.join("baseline.bin");
         std::fs::write(&baseline_path, baseline).expect("write baseline");
-        let payload = diff::create_simple_diff(baseline, patched).expect("create diff");
+        let payload = diff::create_bsdiff_zstd(baseline, patched).expect("create diff");
         let payload_path = input_dir.join("payload.bin");
         std::fs::write(&payload_path, &payload).expect("write payload");
 
@@ -450,7 +450,7 @@ mod tests {
                 hash: crypto::sha256_hex(&payload),
                 size: payload.len() as u64,
                 download_url: "patches/app/release/android/arm64-v8a/2/payload.bin".to_string(),
-                diff_algorithm: Some(SIMPLE_DIFF_ALGORITHM.to_string()),
+                diff_algorithm: Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
                 base_hash: Some(crypto::sha256_hex(baseline)),
                 output_hash: Some(crypto::sha256_hex(patched)),
             },

@@ -18,6 +18,15 @@ configures Dart AOT artifact settings for root isolate launch. When
 `use_snapshot_artifact == 1`, wire `artifact_path` into the same setting that
 normally points at the bundled `libapp.so`.
 
+`fcb_apply_android_snapshot_replace()` wraps this flow for a real Engine fork:
+it resolves the launch patch and invokes an Engine-provided callback that
+assigns the patched AOT shared library path. After first frame/root isolate
+success, call `fcb_mark_android_launch_success()` so the updater promotes the
+patch from pending to current.
+
+See `ENGINE_INTEGRATION.md` and `BUILD.gn.snippet` for the GN/staticlib and
+runtime wiring expected in the Engine checkout.
+
 Validation:
 
 ```sh

@@ -58,6 +58,10 @@ echo "baseline: counter 1" > baseline.bin
 echo "=== Patch ==="
 echo "patched: counter 2" > patched.bin
 "$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --payload patched.bin
+grep -q '"diff_algorithm"[[:space:]]*:[[:space:]]*"bsdiff-zstd-v1"' .fcb/patches/1.0.0+1/1/android/arm64-v8a/patch_manifest.json || {
+    echo "FAIL: patch did not use bsdiff-zstd-v1"
+    exit 1
+}
 
 echo "=== Promote ==="
 "$FCB" --server "http://$SERVER_ADDR" promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100
