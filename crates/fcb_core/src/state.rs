@@ -1,4 +1,4 @@
-use crate::diff::{self, SIMPLE_DIFF_ALGORITHM};
+use crate::diff::{self, BSDIFF_ZSTD_ALGORITHM, SIMPLE_DIFF_ALGORITHM};
 use crate::manifest::{self, PatchManifest};
 use crate::{crypto, err, Result};
 use serde::{Deserialize, Serialize};
@@ -256,8 +256,13 @@ fn snapshot_replace_artifact(
     match manifest.payload.kind.as_str() {
         "snapshot_replace_artifact" | "opaque_payload" => Ok(payload.to_vec()),
         "binary_diff" => {
-            if manifest.payload.diff_algorithm.as_deref() != Some(SIMPLE_DIFF_ALGORITHM) {
-                return Err(err("unsupported binary diff algorithm"));
+            let algorithm = manifest.payload.diff_algorithm.as_deref();
+            if algorithm != Some(SIMPLE_DIFF_ALGORITHM) && algorithm != Some(BSDIFF_ZSTD_ALGORITHM)
+            {
+                return Err(err(format!(
+                    "unsupported binary diff algorithm: {:?}",
+                    algorithm
+                )));
             }
             let Some(baseline_artifact_path) = baseline_artifact_path else {
                 return Err(err("baseline artifact required for binary diff"));
@@ -269,7 +274,7 @@ fn snapshot_replace_artifact(
                     return Err(err("base artifact sha256 mismatch"));
                 }
             }
-            let artifact = diff::apply_simple_diff(&baseline, payload)?;
+            let artifact = diff::apply_binary_diff(&baseline, payload)?;
             if let Some(expected_output_hash) = &manifest.payload.output_hash {
                 let actual_output_hash = crypto::sha256_hex(&artifact);
                 if &actual_output_hash != expected_output_hash {
@@ -278,7 +283,10 @@ fn snapshot_replace_artifact(
             }
             Ok(artifact)
         }
-        _ => Err(err("unsupported snapshot_replace payload kind")),
+        _ => Err(err(format!(
+            "unsupported snapshot_replace payload kind: {}",
+            manifest.payload.kind
+        ))),
     }
 }
 
@@ -330,7 +338,7 @@ fn unique_suffix() -> u128 {
 mod tests {
     use super::{InstalledPatch, LastLaunch, State, Updater};
     use crate::crypto;
-    use crate::diff::{self, SIMPLE_DIFF_ALGORITHM};
+    use crate::diff::{self, BSDIFF_ZSTD_ALGORITHM, SIMPLE_DIFF_ALGORITHM};
     use crate::manifest::{self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest};
 
     #[test]
@@ -382,6 +390,62 @@ mod tests {
         assert_eq!(state.bad_patches, vec![1]);
         assert_eq!(state.pending_patch_number, None);
         assert!(state.last_launch.is_none());
+        let _ = std::fs::remove_dir_all(cache_dir);
+    }
+
+    #[test]
+    fn launch_patch_rolls_back_crashing_pending_patch_to_active_patch() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let updater = Updater::new(&cache_dir);
+        updater
+            .save_state(&State {
+                schema_version: 1,
+                release_version: "1.0.0+1".to_string(),
+                current_patch_number: 1,
+                pending_patch_number: Some(2),
+                bad_patches: Vec::new(),
+                last_launch: Some(LastLaunch {
+                    patch_number: 2,
+                    status: "pending_success".to_string(),
+                    started_at: "0".to_string(),
+                }),
+                installed: vec![
+                    InstalledPatch {
+                        patch_number: 1,
+                        backend: "snapshot_replace".to_string(),
+                        manifest_path: "patches/1/manifest.json".to_string(),
+                        payload_path: "patches/1/payload.bin".to_string(),
+                        artifact_path: Some("patches/1/libapp.so".to_string()),
+                        installed_at: "0".to_string(),
+                    },
+                    InstalledPatch {
+                        patch_number: 2,
+                        backend: "snapshot_replace".to_string(),
+                        manifest_path: "patches/2/manifest.json".to_string(),
+                        payload_path: "patches/2/payload.bin".to_string(),
+                        artifact_path: Some("patches/2/libapp.so".to_string()),
+                        installed_at: "1".to_string(),
+                    },
+                ],
+            })
+            .expect("write state");
+
+        let launch = updater
+            .launch_patch()
+            .expect("launch rollback patch")
+            .expect("active patch should launch");
+        let state = updater.load_state().expect("load state");
+
+        assert_eq!(launch.patch_number, 1);
+        assert_eq!(launch.artifact_path.as_deref(), Some("patches/1/libapp.so"));
+        assert_eq!(state.bad_patches, vec![2]);
+        assert_eq!(state.current_patch_number, 1);
+        assert_eq!(state.pending_patch_number, None);
+        assert_eq!(
+            state.last_launch.as_ref().map(|launch| launch.patch_number),
+            Some(1)
+        );
         let _ = std::fs::remove_dir_all(cache_dir);
     }
 
@@ -451,6 +515,81 @@ mod tests {
                 size: payload.len() as u64,
                 download_url: "patches/app/release/android/arm64-v8a/2/payload.bin".to_string(),
                 diff_algorithm: Some(SIMPLE_DIFF_ALGORITHM.to_string()),
+                base_hash: Some(crypto::sha256_hex(baseline)),
+                output_hash: Some(crypto::sha256_hex(patched)),
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 100,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        };
+        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
+        let manifest_path = input_dir.join("patch_manifest.json");
+        manifest::write_json(&manifest_path, &patch).expect("write manifest");
+
+        let updater = Updater::new(&cache_dir);
+        updater
+            .install_payload_with_baseline(
+                &manifest_path,
+                &payload_path,
+                &public_key,
+                Some(&baseline_path),
+            )
+            .expect("install payload");
+
+        let artifact_path = cache_dir.join("patches/2/libapp.so");
+        assert_eq!(
+            std::fs::read(&artifact_path).expect("read artifact"),
+            patched
+        );
+        let launch = updater
+            .launch_patch()
+            .expect("launch patch")
+            .expect("installed patch");
+        assert_eq!(launch.artifact_path.as_deref(), Some("patches/2/libapp.so"));
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+        let _ = std::fs::remove_dir_all(input_dir);
+    }
+
+    #[test]
+    fn install_snapshot_replace_bsdiff_zstd_writes_launch_artifact() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let input_dir =
+            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        let baseline = b"counter: 1; shared suffix";
+        let patched = b"counter: 2; shared suffix";
+        let baseline_path = input_dir.join("baseline.bin");
+        std::fs::write(&baseline_path, baseline).expect("write baseline");
+        let payload = diff::create_bsdiff_zstd_diff(baseline, patched).expect("create bsdiff diff");
+        let payload_path = input_dir.join("payload.bin");
+        std::fs::write(&payload_path, &payload).expect("write payload");
+
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        let mut patch = PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number: 2,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "snapshot_replace".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "binary_diff".to_string(),
+                compression: "none".to_string(),
+                hash: crypto::sha256_hex(&payload),
+                size: payload.len() as u64,
+                download_url: "patches/app/release/android/arm64-v8a/2/payload.bin".to_string(),
+                diff_algorithm: Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
                 base_hash: Some(crypto::sha256_hex(baseline)),
                 output_hash: Some(crypto::sha256_hex(patched)),
             },

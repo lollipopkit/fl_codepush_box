@@ -7,6 +7,14 @@ REPO_DIR=$(CDPATH= cd -- "$PACKAGE_DIR/../.." && pwd)
 
 ABI=${1:-arm64-v8a}
 
+if [ "$ABI" = "all" ]; then
+  "$0" arm64-v8a
+  "$0" armeabi-v7a
+  "$0" x86_64
+  "$0" x86
+  exit 0
+fi
+
 case "$ABI" in
   arm64-v8a|armeabi-v7a|x86|x86_64)
     ;;

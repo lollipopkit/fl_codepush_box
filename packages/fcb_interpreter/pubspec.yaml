@@ -1,0 +1,14 @@
+name: fcb_interpreter
+description: FCB restricted bytecode interpreter for hot-patchable Dart functions.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  fcb_annotations:
+    path: ../fcb_annotations
+
+dev_dependencies:
+  test: ^1.24.0

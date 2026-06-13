@@ -11,7 +11,10 @@ dependencies:
     sdk: flutter
   fcb_code_push:
     path: ../../packages/fcb_code_push
+  fcb_annotations:
+    path: ../../packages/fcb_annotations
+  fcb_interpreter:
+    path: ../../packages/fcb_interpreter
 
 flutter:
   uses-material-design: true
-

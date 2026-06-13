@@ -2,14 +2,19 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:fcb_interpreter/fcb_interpreter.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 class FcbCodePush {
   FcbCodePush._();
 
   static final FcbCodePush instance = FcbCodePush._();
+  static const _androidPaths =
+      MethodChannel('dev.fcb.code_push/android_paths');
 
   DynamicLibrary? _library;
+  final FcbDispatcher _bytecodeDispatcher = FcbDispatcher();
 
   Future<bool> configure({
     required String appId,
@@ -24,6 +29,12 @@ class FcbCodePush {
     String? baselineArtifactPath,
   }) async {
     final selectedPlatform = platform ?? _defaultPlatform();
+    final resolvedCacheDir =
+        await _resolveCacheDir(selectedPlatform, cacheDir);
+    final resolvedBaselineArtifactPath = await _resolveBaselineArtifactPath(
+      selectedPlatform,
+      baselineArtifactPath,
+    );
     if (!_isValidConfiguration(
       appId: appId,
       releaseVersion: releaseVersion,
@@ -31,8 +42,8 @@ class FcbCodePush {
       serverUrl: serverUrl,
       platform: selectedPlatform,
       arch: arch,
-      cacheDir: cacheDir,
-      baselineArtifactPath: baselineArtifactPath,
+      cacheDir: resolvedCacheDir,
+      baselineArtifactPath: resolvedBaselineArtifactPath,
       clientId: clientId,
     )) {
       return false;
@@ -50,11 +61,11 @@ class FcbCodePush {
     final releaseVersionPtr = releaseVersion.toNativeUtf8();
     final platformPtr = selectedPlatform.toNativeUtf8();
     final archPtr = arch.toNativeUtf8();
-    final cacheDirPtr = cacheDir.toNativeUtf8();
+    final cacheDirPtr = resolvedCacheDir.toNativeUtf8();
     final publicKeyPtr = publicKey.toNativeUtf8();
     final serverUrlPtr = serverUrl.toNativeUtf8();
     final clientIdPtr = clientId.toNativeUtf8();
-    final baselinePtr = baselineArtifactPath?.toNativeUtf8();
+    final baselinePtr = resolvedBaselineArtifactPath?.toNativeUtf8();
     try {
       params.ref
         ..appId = appIdPtr.cast()
@@ -95,6 +106,43 @@ class FcbCodePush {
         calloc.free(baselinePtr);
       }
     }
+  }
+
+  Future<String> _resolveCacheDir(String platform, String requested) async {
+    if (platform != 'android' || requested != '.fcb/cache') {
+      return requested;
+    }
+    try {
+      final value = await _androidPaths.invokeMethod<String>('getCacheDir');
+      if (value != null && value.isNotEmpty) {
+        return '$value/fcb';
+      }
+    } catch (error, stack) {
+      _debugLookupError('android getCacheDir', error, stack);
+    }
+    return requested;
+  }
+
+  Future<String?> _resolveBaselineArtifactPath(
+    String platform,
+    String? requested,
+  ) async {
+    if (requested != null && requested.isNotEmpty) {
+      return requested;
+    }
+    if (platform != 'android') {
+      return requested;
+    }
+    try {
+      final value =
+          await _androidPaths.invokeMethod<String>('getBaselineArtifactPath');
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    } catch (error, stack) {
+      _debugLookupError('android getBaselineArtifactPath', error, stack);
+    }
+    return requested;
   }
 
   bool _isValidConfiguration({
@@ -208,6 +256,35 @@ class FcbCodePush {
   Future<void> markLaunchSuccessful() async {
     final fn = _lookupInt('fcb_mark_launch_success');
     fn?.call();
+  }
+
+  /// Load a bytecode patch module from the given JSON bytes.
+  /// Returns true if the module was loaded successfully.
+  bool loadBytecodeModule(List<int> bytes) {
+    return _bytecodeDispatcher.loadModule(bytes);
+  }
+
+  /// Clear the currently loaded bytecode module (e.g., after a rollback).
+  void clearBytecodeModule() {
+    _bytecodeDispatcher.clearModule();
+  }
+
+  /// Whether a bytecode patch is currently loaded.
+  bool get hasBytecodePatch => _bytecodeDispatcher.hasPatch;
+
+  /// Call a @hotPatchable function by name through the bytecode dispatcher.
+  /// Returns null if no patch is loaded or the function is not found,
+  /// signaling the caller to fall back to the original AOT implementation.
+  dynamic callBytecode(String functionName, List<dynamic> args) {
+    return _bytecodeDispatcher.call(functionName, args);
+  }
+
+  /// List all patched function names in the currently loaded bytecode module.
+  List<String> get patchedFunctionNames => _bytecodeDispatcher.patchedFunctionNames;
+
+  /// Check if a specific function name has a bytecode patch.
+  bool hasBytecodeFunction(String functionName) {
+    return _bytecodeDispatcher.hasFunction(functionName);
   }
 
   _NativeStatus _callNativeStatus(String symbol) {

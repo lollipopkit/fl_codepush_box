@@ -1,0 +1,7 @@
+name: fcb_annotations
+description: Annotations for Flutter CodePush Box hot-patchable functions.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"

@@ -11,6 +11,8 @@ dependencies:
   ffi: ^2.1.0
   flutter:
     sdk: flutter
+  fcb_interpreter:
+    path: ../fcb_interpreter
 
 dev_dependencies:
   flutter_test:

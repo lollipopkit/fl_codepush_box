@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 base64 = "0.22"
+bsdiff = "0.2"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 hex = "0.4"
 rand = "0.8"
@@ -15,4 +16,4 @@ sha2 = "0.10"
 thiserror = "2"
 ureq = { version = "2", features = ["json"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-
+zstd = "0.13"
