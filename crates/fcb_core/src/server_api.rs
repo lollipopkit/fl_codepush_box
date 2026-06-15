@@ -3,7 +3,6 @@ use crate::{err, Error, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
@@ -48,6 +47,7 @@ pub struct PatchCheck {
 #[derive(Debug, Clone)]
 pub struct Client {
     base_url: String,
+    token: Option<String>,
     agent: ureq::Agent,
 }
 
@@ -55,12 +55,23 @@ impl Client {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            agent: ureq::AgentBuilder::new()
-                .timeout_connect(Duration::from_secs(5))
-                .timeout_read(Duration::from_secs(30))
-                .timeout_write(Duration::from_secs(30))
-                .build(),
+            token: None,
+            agent: ureq::Agent::config_builder()
+                .timeout_connect(Some(Duration::from_secs(5)))
+                .timeout_recv_body(Some(Duration::from_secs(30)))
+                .timeout_send_body(Some(Duration::from_secs(30)))
+                .http_status_as_error(false)
+                .build()
+                .into(),
         }
+    }
+
+    pub fn with_token(mut self, token: impl Into<String>) -> Self {
+        let token = token.into();
+        if !token.trim().is_empty() {
+            self.token = Some(token);
+        }
+        self
     }
 
     pub fn create_app(&self, request: &CreateAppRequest) -> Result<()> {
@@ -113,7 +124,7 @@ impl Client {
             .query("client_id", client_id)
             .call()
             .map_err(Box::new)?;
-        Ok(response.into_json()?)
+        Ok(response.into_body().read_json().map_err(Box::new)?)
     }
 
     /// `download_bytes` fetches `http://` and `https://` URLs over HTTP(S) via
@@ -128,26 +139,29 @@ impl Client {
         if url.starts_with("http://") || url.starts_with("https://") {
             let response = self.agent.get(url).call().map_err(Box::new)?;
             return response
-                .into_reader()
-                .take(64 * 1024 * 1024)
-                .bytes()
-                .collect::<std::io::Result<Vec<_>>>()
-                .map_err(Into::into);
+                .into_body()
+                .into_with_config()
+                .limit(64 * 1024 * 1024)
+                .read_to_vec()
+                .map_err(|e| Error::Http(Box::new(e)));
         }
         Ok(fs::read(Path::new(url))?)
     }
 
     fn post_json<T: Serialize>(&self, path: &str, value: &T) -> Result<()> {
         let url = format!("{}{}", self.base_url, path);
-        let response = self
-            .agent
-            .post(&url)
-            .send_json(serde_json::to_value(value)?);
+        let request = self.agent.post(&url);
+        let request = if let Some(token) = &self.token {
+            request.header("Authorization", &format!("Bearer {token}"))
+        } else {
+            request
+        };
+        let response = request.send_json(serde_json::to_value(value)?);
         match response {
-            Ok(resp) if (200..300).contains(&resp.status()) => Ok(()),
-            Ok(resp) => Err(err(format!("server returned HTTP {}", resp.status()))),
-            Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+            Ok(resp) if resp.status().is_success() => Ok(()),
+            Ok(mut resp) => {
+                let code = resp.status().as_u16();
+                let body = resp.body_mut().read_to_string().unwrap_or_default();
                 Err(err(format!("server returned HTTP {code}: {body}")))
             }
             Err(e) => Err(Error::Http(Box::new(e))),

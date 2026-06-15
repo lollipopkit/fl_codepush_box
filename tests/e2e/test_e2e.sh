@@ -12,6 +12,7 @@ OBJECTS_DIR="$WORKDIR/objects"
 FCB="${FCB_BIN:-fcb}"
 SERVER="${SERVER_BIN:-fcb_server}"
 SERVER_PID=""
+FCB_CLI_TOKEN=""
 
 cleanup() {
     if [ -n "$SERVER_PID" ]; then
@@ -46,10 +47,14 @@ fi
 echo "=== Init ==="
 cd "$WORKDIR"
 "$FCB" init
-APP_ID=$(grep 'app_id' fcb.yaml | sed 's/app_id: "\(.*\)"/\1/')
-curl -s -X POST "http://$SERVER_ADDR/v1/apps" \
+APP_ID=$(grep 'active_app_id:' fcb.yaml | sed 's/active_app_id:[[:space:]]*//; s/"//g')
+
+echo "=== Server setup ==="
+SETUP_RESULT=$(curl -s -X POST "http://$SERVER_ADDR/api/auth/setup" \
     -H 'Content-Type: application/json' \
-    -d "{\"id\":\"$APP_ID\",\"name\":\"E2E Test App\"}"
+    -d '{"username":"admin","password":"e2e-password","token_name":"e2e"}')
+FCB_CLI_TOKEN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"$SETUP_RESULT")
+export FCB_CLI_TOKEN
 
 echo "=== Release ==="
 echo "baseline: counter 1" > baseline.bin
@@ -142,5 +147,20 @@ CHECK_100=$("$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+
 echo "$CHECK_100"
 echo "$CHECK_100" | grep -q '"patch_available": true' || { echo "FAIL: patch not available at 100% rollout"; exit 1; }
 echo "100% rollout correctly serves patch"
+
+echo "=== Multi-app isolation ==="
+SECOND_APP_ID="00000000-0000-0000-0000-0000000000e2"
+"$FCB" app add E2ESecond --id "$SECOND_APP_ID"
+echo "second baseline" > second-baseline.bin
+"$FCB" --server "http://$SERVER_ADDR" release android --release-version 1.0.0+1 --example second-baseline.bin
+echo "second patched" > second-patched.bin
+"$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --payload second-patched.bin
+"$FCB" --server "http://$SERVER_ADDR" promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100
+SECOND_CHECK=$("$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
+echo "$SECOND_CHECK"
+echo "$SECOND_CHECK" | grep -q "$SECOND_APP_ID" || { echo "FAIL: second app check did not use second app id"; exit 1; }
+FIRST_CHECK=$("$FCB" --app "$APP_ID" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
+echo "$FIRST_CHECK"
+echo "$FIRST_CHECK" | grep -q "$APP_ID" || { echo "FAIL: first app check did not stay isolated"; exit 1; }
 
 echo "=== All e2e tests passed ==="

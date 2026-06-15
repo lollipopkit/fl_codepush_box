@@ -1,7 +1,6 @@
 use crate::{err, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -9,7 +8,9 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 pub fn generate_keypair_b64() -> (String, String) {
-    let signing = SigningKey::generate(&mut OsRng);
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).expect("OS random source failed");
+    let signing = SigningKey::from_bytes(&key);
     let verify = signing.verifying_key();
     (
         STANDARD.encode(signing.to_bytes()),

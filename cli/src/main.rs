@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use fcb_bytecode::{compiler, format::BytecodeModule};
-use fcb_core::config::FcbConfig;
+use fcb_core::config::{AppConfig, FcbConfig};
 use fcb_core::crypto;
 use fcb_core::diff::{self, BSDIFF_ZSTD_ALGORITHM};
 use fcb_core::manifest::{
@@ -24,6 +24,10 @@ use std::os::unix::fs::PermissionsExt;
 struct Args {
     #[arg(long, default_value = "http://127.0.0.1:8080")]
     server: String,
+    #[arg(long)]
+    token: Option<String>,
+    #[arg(long)]
+    app: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -32,6 +36,10 @@ struct Args {
 enum Command {
     Init,
     Doctor,
+    App {
+        #[command(subcommand)]
+        command: AppCommand,
+    },
     Release {
         platform: String,
         #[arg(long)]
@@ -119,6 +127,22 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum AppCommand {
+    List,
+    Add {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+    },
+    Use {
+        selector: String,
+    },
+    Remove {
+        selector: String,
+    },
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -134,6 +158,7 @@ fn run() -> Result<()> {
             println!("fcb doctor: ok");
             Ok(())
         }
+        Command::App { command } => app_command(command),
         Command::Release {
             platform,
             example,
@@ -141,6 +166,8 @@ fn run() -> Result<()> {
             arch,
         } => release(
             &args.server,
+            args.token.as_deref(),
+            args.app.as_deref(),
             &platform,
             example.as_deref(),
             &release_version,
@@ -154,6 +181,8 @@ fn run() -> Result<()> {
             payload,
         } => patch(
             &args.server,
+            args.token.as_deref(),
+            args.app.as_deref(),
             &platform,
             &release_version,
             patch_number,
@@ -169,6 +198,8 @@ fn run() -> Result<()> {
             rollout_percentage,
         } => promote(
             &args.server,
+            args.token.as_deref(),
+            args.app.as_deref(),
             &release_version,
             patch_number,
             &platform,
@@ -187,6 +218,7 @@ fn run() -> Result<()> {
             cache_dir,
         } => check(
             &args.server,
+            args.app.as_deref(),
             &release_version,
             &platform,
             &arch,
@@ -222,6 +254,8 @@ fn run() -> Result<()> {
             arch,
         } => rollback(
             &args.server,
+            args.token.as_deref(),
+            args.app.as_deref(),
             &release_version,
             patch_number,
             &platform,
@@ -248,27 +282,82 @@ fn init() -> Result<()> {
     Ok(())
 }
 
+fn app_command(command: AppCommand) -> Result<()> {
+    let path = Path::new("fcb.yaml");
+    let mut config = FcbConfig::read_yaml(path)?;
+    match command {
+        AppCommand::List => {
+            for app in &config.apps {
+                let marker = if app.id == config.active_app_id {
+                    "*"
+                } else {
+                    " "
+                };
+                println!("{marker} {} {}", app.id, app.name);
+            }
+        }
+        AppCommand::Add { name, id } => {
+            let id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
+            if config
+                .apps
+                .iter()
+                .any(|app| app.id == id || app.name == name)
+            {
+                return Err(err("app id or name already exists in fcb.yaml"));
+            }
+            config.apps.push(AppConfig::new(id.clone(), name.clone()));
+            config.active_app_id = id.clone();
+            config.write_yaml(path)?;
+            println!("added app {name} ({id}) and made it active");
+        }
+        AppCommand::Use { selector } => {
+            let app = config.app(&selector)?.clone();
+            config.active_app_id = app.id.clone();
+            config.write_yaml(path)?;
+            println!("active app is now {} ({})", app.name, app.id);
+        }
+        AppCommand::Remove { selector } => {
+            let app = config.app(&selector)?.clone();
+            if config.apps.len() == 1 {
+                return Err(err("cannot remove the only app in fcb.yaml"));
+            }
+            config.apps.retain(|item| item.id != app.id);
+            if config.active_app_id == app.id {
+                config.active_app_id = config.apps[0].id.clone();
+            }
+            config.write_yaml(path)?;
+            println!("removed app {} ({})", app.name, app.id);
+        }
+    }
+    Ok(())
+}
+
 fn release(
     server: &str,
+    token: Option<&str>,
+    app_selector: Option<&str>,
     platform: &str,
     example: Option<&Path>,
     release_version: &str,
     arch: &str,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
+    let app = config.selected_app(app_selector)?;
     let artifact = release_artifact_bytes(example)?;
     let manifest = ReleaseManifest {
         schema_version: 1,
-        app_id: config.app_id.clone(),
+        app_id: app.id.clone(),
         release_version: release_version.to_string(),
-        channel: config.channel.clone(),
+        channel: app.channel.clone(),
         platform: platform.to_string(),
         arch: arch.to_string(),
-        backend: backend_for(&config, platform),
+        backend: backend_for(app, platform),
         artifact_hash: crypto::sha256_hex(&artifact),
         artifact_size: artifact.len() as u64,
     };
     let out = fcb_dir()
+        .join("apps")
+        .join(&app.id)
         .join("releases")
         .join(release_version)
         .join(platform)
@@ -276,10 +365,10 @@ fn release(
     fs::create_dir_all(&out)?;
     fs::write(out.join("artifact.bin"), artifact)?;
     manifest::write_json(&out.join("release_manifest.json"), &manifest)?;
-    let client = Client::new(server);
+    let client = authed_client(server, token)?;
     client.create_app(&CreateAppRequest {
-        id: config.app_id,
-        name: "FCB App".to_string(),
+        id: app.id.clone(),
+        name: app.name.clone(),
     })?;
     client.create_release(&manifest)?;
     println!("{}", out.join("release_manifest.json").display());
@@ -288,6 +377,8 @@ fn release(
 
 fn patch(
     server: &str,
+    token: Option<&str>,
+    app_selector: Option<&str>,
     platform: &str,
     release_version: &str,
     patch_number: u32,
@@ -295,13 +386,14 @@ fn patch(
     payload: Option<&Path>,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
+    let app = config.selected_app(app_selector)?;
     let target_artifact = if let Some(path) = payload {
         fs::read(path)?
     } else {
         format!("fcb patch {patch_number} for {release_version}\n").into_bytes()
     };
-    let backend = backend_for(&config, platform);
-    let baseline_path = release_artifact_path(release_version, platform, arch);
+    let backend = backend_for(app, platform);
+    let baseline_path = release_artifact_path(&app.id, release_version, platform, arch);
     let baseline = if backend == "snapshot_replace" && baseline_path.exists() {
         Some(fs::read(&baseline_path)?)
     } else {
@@ -337,7 +429,7 @@ fn patch(
     fs::create_dir_all(&out)?;
     fs::write(out.join("payload.bin"), &payload_bytes)?;
     let payload_hash = crypto::sha256_hex(&payload_bytes);
-    let public_key_id = config.security.public_key_id.clone();
+    let public_key_id = app.security.public_key_id.clone();
     let private_key = fs::read_to_string(
         fcb_dir()
             .join("keys")
@@ -345,10 +437,10 @@ fn patch(
     )?;
     let mut manifest = PatchManifest {
         schema_version: 1,
-        app_id: config.app_id.clone(),
+        app_id: app.id.clone(),
         release_version: release_version.to_string(),
         patch_number,
-        channel: config.channel.clone(),
+        channel: app.channel.clone(),
         created_at: "1970-01-01T00:00:00Z".to_string(),
         backend: backend.clone(),
         platform: platform.to_string(),
@@ -359,7 +451,7 @@ fn patch(
             hash: payload_hash.clone(),
             size: payload_bytes.len() as u64,
             download_url: object_key(
-                &config.app_id,
+                &app.id,
                 release_version,
                 platform,
                 arch,
@@ -382,7 +474,7 @@ fn patch(
     };
     manifest::sign_patch_manifest(&mut manifest, private_key.trim())?;
     manifest::write_json(&out.join("patch_manifest.json"), &manifest)?;
-    Client::new(server).create_patch(&manifest, &payload_bytes)?;
+    authed_client(server, token)?.create_patch(&manifest, &payload_bytes)?;
     println!("{}", out.join("patch_manifest.json").display());
     println!("payload_sha256={payload_hash}");
     Ok(())
@@ -390,6 +482,8 @@ fn patch(
 
 fn promote(
     server: &str,
+    token: Option<&str>,
+    app_selector: Option<&str>,
     release_version: &str,
     patch_number: u32,
     platform: &str,
@@ -398,8 +492,9 @@ fn promote(
     rollout_percentage: u8,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    Client::new(server).promote_patch(&PromotePatchRequest {
-        app_id: config.app_id,
+    let app = config.selected_app(app_selector)?;
+    authed_client(server, token)?.promote_patch(&PromotePatchRequest {
+        app_id: app.id.clone(),
         release_version: release_version.to_string(),
         platform: platform.to_string(),
         arch: arch.to_string(),
@@ -413,14 +508,17 @@ fn promote(
 
 fn rollback(
     server: &str,
+    token: Option<&str>,
+    app_selector: Option<&str>,
     release_version: &str,
     patch_number: u32,
     platform: &str,
     arch: &str,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    Client::new(server).rollback_patch(&PromotePatchRequest {
-        app_id: config.app_id,
+    let app = config.selected_app(app_selector)?;
+    authed_client(server, token)?.rollback_patch(&PromotePatchRequest {
+        app_id: app.id.clone(),
         release_version: release_version.to_string(),
         platform: platform.to_string(),
         arch: arch.to_string(),
@@ -434,6 +532,7 @@ fn rollback(
 
 fn check(
     server: &str,
+    app_selector: Option<&str>,
     release_version: &str,
     platform: &str,
     arch: &str,
@@ -444,9 +543,10 @@ fn check(
     cache_dir: &Path,
 ) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
+    let app = config.selected_app(app_selector)?;
     let client = Client::new(server);
     let response = client.check(
-        &config.app_id,
+        &app.id,
         release_version,
         platform,
         arch,
@@ -459,6 +559,7 @@ fn check(
         download_and_install(
             &client,
             &response,
+            &app.id,
             release_version,
             platform,
             arch,
@@ -471,6 +572,7 @@ fn check(
 fn download_and_install(
     client: &Client,
     response: &CheckResponse,
+    app_id: &str,
     release_version: &str,
     platform: &str,
     arch: &str,
@@ -485,18 +587,21 @@ fn download_and_install(
         return Ok(());
     };
     let (manifest_path, payload_path) =
-        download_patch_files(client, patch, release_version, platform, arch)?;
+        download_patch_files(client, patch, app_id, release_version, platform, arch)?;
     install(&manifest_path, &payload_path, cache_dir)
 }
 
 fn download_patch_files(
     client: &Client,
     patch: &PatchCheck,
+    app_id: &str,
     release_version: &str,
     platform: &str,
     arch: &str,
 ) -> Result<(PathBuf, PathBuf)> {
     let out = fcb_dir()
+        .join("apps")
+        .join(app_id)
         .join("downloads")
         .join(release_version)
         .join(patch.patch_number.to_string())
@@ -529,13 +634,15 @@ fn ensure_hash(label: &str, bytes: &[u8], expected: &str) -> Result<()> {
 
 fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
+    let app = config.app(&manifest::read_json::<PatchManifest>(manifest_path)?.app_id)?;
     let public_key = fs::read_to_string(
         fcb_dir()
             .join("keys")
-            .join(format!("{}.public", config.security.public_key_id)),
+            .join(format!("{}.public", app.security.public_key_id)),
     )?;
     let manifest: PatchManifest = manifest::read_json(manifest_path)?;
     let baseline_path = release_artifact_path(
+        &manifest.app_id,
         &manifest.release_version,
         &manifest.platform,
         &manifest.arch,
@@ -572,8 +679,15 @@ fn compile_or_read_bytecode_module(bytes: &[u8]) -> Result<BytecodeModule> {
     }
 }
 
-fn release_artifact_path(release_version: &str, platform: &str, arch: &str) -> PathBuf {
+fn release_artifact_path(
+    app_id: &str,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+) -> PathBuf {
     fcb_dir()
+        .join("apps")
+        .join(app_id)
         .join("releases")
         .join(release_version)
         .join(platform)
@@ -610,11 +724,19 @@ fn release_artifact_bytes(example: Option<&Path>) -> Result<Vec<u8>> {
     Ok(b"fcb baseline artifact\n".to_vec())
 }
 
-fn backend_for(config: &FcbConfig, platform: &str) -> String {
+fn backend_for(config: &AppConfig, platform: &str) -> String {
     match platform {
         "ios" => config.platforms.ios.backend.clone(),
         _ => config.platforms.android.backend.clone(),
     }
+}
+
+fn authed_client(server: &str, token: Option<&str>) -> Result<Client> {
+    let token = token
+        .map(str::to_string)
+        .or_else(|| std::env::var("FCB_CLI_TOKEN").ok())
+        .ok_or_else(|| err("CLI token required; pass --token or set FCB_CLI_TOKEN"))?;
+    Ok(Client::new(server).with_token(token))
 }
 
 fn object_key(

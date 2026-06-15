@@ -1,6 +1,8 @@
 /target/
 .tools/
 /server/fcb-server
+/server/webui/node_modules/
+/server/webui/dist/
 .fcb/
 fcb.yaml
 *.tmp

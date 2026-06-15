@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,6 +59,7 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	token := mustToken(t, server)
 	app := buildApp(server)
 	payload := []byte("payload")
 	manifest := PatchManifest{
@@ -91,7 +93,7 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 		Manifest:   manifest,
 		PayloadB64: base64.StdEncoding.EncodeToString(payload),
 	}
-	doJSON(t, app, http.MethodPost, "/v1/patches", createPatch, http.StatusOK)
+	doJSONAuth(t, app, http.MethodPost, "/v1/patches", createPatch, token, http.StatusOK)
 	if _, err := os.Stat(filepath.Join(tempDir, "objects", manifest.Payload.DownloadURL)); err != nil {
 		t.Fatalf("payload object was not written: %v", err)
 	}
@@ -105,7 +107,7 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 		Channel:           "stable",
 		RolloutPercentage: 100,
 	}
-	doJSON(t, app, http.MethodPost, "/v1/patches/promote", promote, http.StatusOK)
+	doJSONAuth(t, app, http.MethodPost, "/v1/patches/promote", promote, token, http.StatusOK)
 	req := httptest.NewRequest(
 		http.MethodGet,
 		"/v1/patches/check?app_id="+manifest.AppID+"&release_version=1.0.0%2B1&platform=android&arch=arm64-v8a&channel=stable&current_patch_number=0&client_id=test",
@@ -141,6 +143,12 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 func doJSON(t *testing.T, app interface {
 	Test(*http.Request, ...int) (*http.Response, error)
 }, method, path string, value any, want int) {
+	doJSONAuth(t, app, method, path, value, "", want)
+}
+
+func doJSONAuth(t *testing.T, app interface {
+	Test(*http.Request, ...int) (*http.Response, error)
+}, method, path string, value any, token string, want int) {
 	t.Helper()
 	body, err := json.Marshal(value)
 	if err != nil {
@@ -148,12 +156,25 @@ func doJSON(t *testing.T, app interface {
 	}
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := app.Test(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != want {
-		t.Fatalf("%s %s returned HTTP %d, want %d", method, path, resp.StatusCode, want)
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("%s %s returned HTTP %d, want %d: %s", method, path, resp.StatusCode, want, string(body))
 	}
+}
+
+func mustToken(t *testing.T, server *Server) string {
+	t.Helper()
+	token, err := server.createToken("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token.Token
 }
