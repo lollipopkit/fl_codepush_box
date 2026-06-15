@@ -222,6 +222,26 @@ class FcbCodePush {
     fn?.call();
   }
 
+  Future<String?> launchBytecodePatchPath() async {
+    final fn = _lookupLaunchPatch();
+    if (fn == null) {
+      return null;
+    }
+    final patch = calloc<_FcbLaunchPatch>();
+    try {
+      if (fn(patch) != 0 || patch.ref.hasPatch == 0) {
+        return null;
+      }
+      final backend = _stringFromCharPointer(patch.ref.backend);
+      if (backend != 'bytecode') {
+        return null;
+      }
+      return _stringFromCharPointer(patch.ref.bytecodePath);
+    } finally {
+      calloc.free(patch);
+    }
+  }
+
   _NativeStatus _callNativeStatus(String symbol) {
     final fn = _lookupInt(symbol);
     if (fn == null) {
@@ -287,6 +307,17 @@ class FcbCodePush {
     }
   }
 
+  int Function(Pointer<_FcbLaunchPatch>)? _lookupLaunchPatch() {
+    try {
+      final lib = _library ??= _openLibrary();
+      return lib.lookupFunction<Int32 Function(Pointer<_FcbLaunchPatch>),
+          int Function(Pointer<_FcbLaunchPatch>)>('fcb_get_launch_patch');
+    } catch (error, stack) {
+      _debugLookupError('fcb_get_launch_patch', error, stack);
+      return null;
+    }
+  }
+
   int Function(Pointer<Char>)? _lookupStringSetter(String symbol) {
     try {
       final lib = _library ??= _openLibrary();
@@ -303,6 +334,13 @@ class FcbCodePush {
       debugPrint('FCB native symbol lookup failed for $symbol: $error');
       debugPrint('$stack');
     }
+  }
+
+  String? _stringFromCharPointer(Pointer<Char> ptr) {
+    if (ptr == nullptr) {
+      return null;
+    }
+    return ptr.cast<Utf8>().toDartString();
   }
 
   DynamicLibrary _openLibrary() {
@@ -410,6 +448,19 @@ final class _FcbInitParams extends Struct {
 
   @Int32()
   external int checkOnStartup;
+}
+
+final class _FcbLaunchPatch extends Struct {
+  @Int32()
+  external int hasPatch;
+
+  @Int32()
+  external int patchNumber;
+
+  external Pointer<Char> backend;
+  external Pointer<Char> artifactPath;
+  external Pointer<Char> bytecodePath;
+  external Pointer<Char> manifestPath;
 }
 
 class _NativeStatus {

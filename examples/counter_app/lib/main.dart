@@ -1,6 +1,8 @@
 import 'package:fcb_code_push/fcb_code_push.dart';
 import 'package:flutter/material.dart';
 
+import 'pricing_source.dart' as direct_source;
+
 const _serverUrl = String.fromEnvironment(
   'FCB_SERVER_URL',
   defaultValue: 'http://127.0.0.1:8080',
@@ -24,6 +26,41 @@ void main() {
   runApp(const CounterApp());
 }
 
+@pragma('vm:never-inline')
+int _phaseDAdjustedInput() {
+  if (DateTime.now().microsecondsSinceEpoch == -1) {
+    return 6;
+  }
+  return 5;
+}
+
+@pragma('vm:never-inline')
+int _phaseDAdjustedCounterValue() =>
+    direct_source.adjustedCounterValue(_phaseDAdjustedInput());
+
+@pragma('vm:never-inline')
+int _phaseDStaticCounterValue() =>
+    direct_source.PricingEngine.staticCounterValue();
+
+@pragma('vm:never-inline')
+String _phaseDStatusLabel() => direct_source.statusLabel();
+
+@pragma('vm:never-inline')
+int _phaseDQuadInput(int value) {
+  if (DateTime.now().microsecondsSinceEpoch == -1) {
+    return value + 1;
+  }
+  return value;
+}
+
+@pragma('vm:never-inline')
+int _phaseDQuadCounterValue() => direct_source.quadCounterValue(
+      _phaseDQuadInput(1),
+      _phaseDQuadInput(2),
+      _phaseDQuadInput(3),
+      _phaseDQuadInput(4),
+    );
+
 class CounterApp extends StatefulWidget {
   const CounterApp({super.key});
 
@@ -37,6 +74,10 @@ class _CounterAppState extends State<CounterApp> {
   bool _configured = false;
   int? _currentPatch;
   int _counter = 1;
+  int _adjustedCounter = 8;
+  int _staticMethodValue = 7;
+  String _statusLabel = 'base';
+  int _quadCounter = 10;
   bool _ready = false;
   UpdateCheckResult? _check;
   DownloadResult? _download;
@@ -64,6 +105,16 @@ class _CounterAppState extends State<CounterApp> {
               _baselineArtifactPath.isEmpty ? null : _baselineArtifactPath,
         );
       }
+      _counter = direct_source.initialCounterValue();
+      _adjustedCounter = _phaseDAdjustedCounterValue();
+      _staticMethodValue = _phaseDStaticCounterValue();
+      _statusLabel = _phaseDStatusLabel();
+      _quadCounter = _phaseDQuadCounterValue();
+      debugPrint('FCB initialCounterValue result: $_counter');
+      debugPrint('FCB adjustedCounterValue result: $_adjustedCounter');
+      debugPrint('FCB staticCounterValue result: $_staticMethodValue');
+      debugPrint('FCB statusLabel result: $_statusLabel');
+      debugPrint('FCB quadCounterValue result: $_quadCounter');
       await _refreshState();
     });
   }
@@ -128,6 +179,14 @@ class _CounterAppState extends State<CounterApp> {
           children: [
             Text('Counter: $_counter',
                 style: Theme.of(context).textTheme.headlineMedium),
+            Text('Adjusted: $_adjustedCounter',
+                style: Theme.of(context).textTheme.titleMedium),
+            Text('Static method: $_staticMethodValue',
+                style: Theme.of(context).textTheme.titleMedium),
+            Text('Status: $_statusLabel',
+                style: Theme.of(context).textTheme.titleMedium),
+            Text('Quad: $_quadCounter',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
             _StatusTile(label: 'Configured', value: _configured ? 'yes' : 'no'),
             _StatusTile(label: 'Current patch', value: '${_currentPatch ?? 0}'),

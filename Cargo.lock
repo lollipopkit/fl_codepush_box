@@ -295,9 +295,19 @@ name = "fcb"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "fcb_bytecode",
  "fcb_core",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "fcb_bytecode"
+version = "0.1.0"
+dependencies = [
+ "fcb_core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

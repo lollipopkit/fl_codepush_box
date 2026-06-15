@@ -47,6 +47,15 @@ int BytecodePatch(FcbLaunchPatch* out_patch) {
   out_patch->patch_number = 8;
   out_patch->backend = "bytecode";
   out_patch->bytecode_path = "/data/user/0/app/cache/fcb/patches/8/payload.bin";
+  out_patch->manifest_path = "/data/user/0/app/cache/fcb/patches/8/manifest.json";
+  return 0;
+}
+
+int BytecodePatchWithoutPayload(FcbLaunchPatch* out_patch) {
+  out_patch->has_patch = 1;
+  out_patch->patch_number = 8;
+  out_patch->backend = "bytecode";
+  out_patch->bytecode_path = nullptr;
   return 0;
 }
 
@@ -64,6 +73,23 @@ int SetAotArtifactPath(void* user_data, const char* artifact_path) {
 int SetAotArtifactPathFails(void* user_data, const char* artifact_path) {
   (void)user_data;
   (void)artifact_path;
+  return -1;
+}
+
+int RegisterVmBytecodePatch(void* user_data,
+                            const char* bytecode_path,
+                            const char* manifest_path) {
+  auto** out_path = static_cast<const char**>(user_data);
+  *out_path = bytecode_path;
+  return manifest_path == nullptr ? -1 : 0;
+}
+
+int RegisterVmBytecodePatchFails(void* user_data,
+                                 const char* bytecode_path,
+                                 const char* manifest_path) {
+  (void)user_data;
+  (void)bytecode_path;
+  (void)manifest_path;
   return -1;
 }
 
@@ -93,10 +119,16 @@ int main() {
   assert(std::strcmp(decision.artifact_path,
                      "/data/user/0/app/cache/fcb/patches/7/libapp.so") == 0);
 
-  assert(fcb_resolve_engine_patch(BytecodePatch, &decision) == 0);
+  assert(fcb_resolve_engine_patch(BytecodePatch, &decision) == 1);
   assert(decision.use_snapshot_artifact == 0);
+  assert(decision.use_vm_bytecode == 1);
+  assert(decision.patch_number == 8);
+  assert(std::strcmp(decision.backend, "bytecode") == 0);
+  assert(std::strcmp(decision.bytecode_path,
+                     "/data/user/0/app/cache/fcb/patches/8/payload.bin") == 0);
 
   assert(fcb_resolve_engine_patch(SnapshotPatchWithoutArtifact, &decision) == -1);
+  assert(fcb_resolve_engine_patch(BytecodePatchWithoutPayload, &decision) == -1);
   assert(fcb_resolve_engine_patch(UpdaterError, &decision) == -1);
 
   const char* applied_path = nullptr;
@@ -112,6 +144,25 @@ int main() {
                                             &applied_path, &decision) == -1);
   assert(fcb_apply_android_snapshot_replace(SnapshotPatch, nullptr,
                                             &applied_path, &decision) == -1);
+  assert(fcb_apply_android_snapshot_replace(BytecodePatch, SetAotArtifactPath,
+                                            &applied_path, &decision) == 0);
+
+  const char* registered_path = nullptr;
+  assert(fcb_apply_android_vm_bytecode_patch(BytecodePatch,
+                                             RegisterVmBytecodePatch,
+                                             &registered_path, &decision) == 1);
+  assert(std::strcmp(registered_path,
+                     "/data/user/0/app/cache/fcb/patches/8/payload.bin") == 0);
+  assert(fcb_apply_android_vm_bytecode_patch(NoPatch, RegisterVmBytecodePatch,
+                                             &registered_path, &decision) == 0);
+  assert(fcb_apply_android_vm_bytecode_patch(SnapshotPatch,
+                                             RegisterVmBytecodePatch,
+                                             &registered_path, &decision) == 0);
+  assert(fcb_apply_android_vm_bytecode_patch(
+             BytecodePatch, RegisterVmBytecodePatchFails, &registered_path,
+             &decision) == -1);
+  assert(fcb_apply_android_vm_bytecode_patch(BytecodePatch, nullptr,
+                                             &registered_path, &decision) == -1);
 
   assert(fcb_mark_android_launch_success(MarkLaunchSuccess) == 0);
   assert(fcb_mark_android_launch_success(MarkLaunchSuccessFails) == -1);

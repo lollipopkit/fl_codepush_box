@@ -96,3 +96,55 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iengine_patch/android \
 Full Phase B validation still requires an Engine fork build because stock
 Flutter Engine never calls `fcb_get_launch_patch()` and therefore cannot load
 the downloaded `patches/<n>/libapp.so`.
+
+## Phase D VM bytecode wiring
+
+For the Dart VM integrated backend, keep the same updater initialization but do
+not override `Settings::application_library_paths`. Instead, resolve the launch
+patch and register the installed bytecode module with the forked VM patch
+runtime before root isolate execution:
+
+```cc
+#include "vm/fcb_patch_api.h"
+
+int RegisterVmBytecodePatch(void* user_data,
+                            const char* bytecode_path,
+                            const char* manifest_path) {
+  (void)user_data;
+  (void)manifest_path;
+  std::string error;
+  return dart::fcb::LoadPatchRuntimeForCurrentIsolateGroup(bytecode_path,
+                                                           &error)
+             ? 0
+             : -1;
+}
+
+FcbEnginePatchDecision decision = {};
+const int rc = fcb_apply_android_vm_bytecode_patch(
+    fcb_get_launch_patch,
+    RegisterVmBytecodePatch,
+    nullptr,
+    &decision);
+```
+
+`manifest_path` remains available to enforce signed manifest/payload binding in
+the final Engine integration; the current VM bridge loads the already installed
+bytecode payload selected by the updater.
+
+The VM fork then consults its patch table from function entry / invocation
+dispatch:
+
+- `OriginalOnly`: continue to original AOT code.
+- `PatchedInterpreted`: enter the VM-adjacent FCB interpreter.
+- `DisabledBadPatch`: fall back to original AOT code and leave rollback state
+  to the updater.
+
+`vendor/flutter/engine/src/flutter/shell/platform/android/fcb/` contains the
+current embedded Engine wiring. It installs a root-isolate callback from
+`FlutterMain::Init()` and marks the launch successful from
+`PlatformViewAndroid::FireFirstFrameCallback()`.
+
+`vendor/sdk/runtime/vm/fcb_patch_api.*` exposes the VM-side registration bridge.
+`fcb_patch_entry.*` and `fcb_patch_runtime.*` contain the current dispatch-table
+and VM-neutral interpreter skeleton that still needs to be adapted to real VM
+types such as `Thread*`, `ObjectPtr`, `ArrayPtr`, and `TypeArgumentsPtr`.

@@ -10,3 +10,9 @@ build/
 pubspec.lock
 packages/fcb_code_push/native/
 packages/fcb_code_push/android/src/main/jniLibs/
+
+vendor/.cache/
+examples/counter_app/android/target
+examples/counter_app/target/fcb/phase-d-android-arm64/
+examples/counter_app/target/fcb/flutter-home/
+examples/counter_app/target/fcb/pub-cache/

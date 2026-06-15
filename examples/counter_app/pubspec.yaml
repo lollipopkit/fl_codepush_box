@@ -12,6 +12,10 @@ dependencies:
   fcb_code_push:
     path: ../../packages/fcb_code_push
 
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
 flutter:
   uses-material-design: true
-

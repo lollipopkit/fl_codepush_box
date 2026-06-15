@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use fcb_bytecode::{compiler, format::BytecodeModule};
 use fcb_core::config::FcbConfig;
 use fcb_core::crypto;
 use fcb_core::diff::{self, BSDIFF_ZSTD_ALGORITHM};
@@ -321,6 +322,9 @@ fn patch(
                 Some(crypto::sha256_hex(base)),
                 Some(crypto::sha256_hex(&target_artifact)),
             )
+        } else if backend == "bytecode" {
+            let module = compile_or_read_bytecode_module(&target_artifact)?;
+            (module.to_vec()?, "bytecode_module", None, None, None)
         } else {
             (target_artifact, "opaque_payload", None, None, None)
         };
@@ -557,6 +561,17 @@ fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Resul
     Ok(())
 }
 
+fn compile_or_read_bytecode_module(bytes: &[u8]) -> Result<BytecodeModule> {
+    match BytecodeModule::from_slice(bytes) {
+        Ok(module) => Ok(module),
+        Err(module_error) => compiler::compile_source_json(bytes).map_err(|source_error| {
+            err(format!(
+                "invalid bytecode payload: not a module ({module_error}) or supported source ({source_error})"
+            ))
+        }),
+    }
+}
+
 fn release_artifact_path(release_version: &str, platform: &str, arch: &str) -> PathBuf {
     fcb_dir()
         .join("releases")
@@ -611,4 +626,45 @@ fn object_key(
     file_name: &str,
 ) -> String {
     format!("patches/{app_id}/{release_version}/{platform}/{arch}/{patch_number}/{file_name}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_or_read_bytecode_module;
+
+    #[test]
+    fn compiles_restricted_bytecode_source_payload() {
+        let module = compile_or_read_bytecode_module(
+            br#"{
+              "functions": [{
+                "name": "pricing.discount",
+                "params": ["subtotal"],
+                "body": {
+                  "if": {"op": ">", "left": {"arg": "subtotal"}, "right": {"int": 100}},
+                  "then": {"int": 90},
+                  "else": {"int": 100}
+                }
+              }]
+            }"#,
+        )
+        .expect("compile bytecode source");
+
+        assert_eq!(module.functions[0].name, "pricing.discount");
+    }
+
+    #[test]
+    fn rejects_unsupported_bytecode_source_payload() {
+        let err = compile_or_read_bytecode_module(
+            br#"{
+              "functions": [{
+                "name": "bad",
+                "params": ["x"],
+                "body": {"op": "%", "left": {"arg": "x"}, "right": {"int": 2}}
+              }]
+            }"#,
+        )
+        .expect_err("unsupported source should fail");
+
+        assert!(err.to_string().contains("invalid bytecode payload"));
+    }
 }

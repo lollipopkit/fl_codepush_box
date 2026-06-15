@@ -1,0 +1,10 @@
+[package]
+name = "fcb_bytecode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fcb_core = { path = "../fcb_core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -98,7 +98,6 @@ fcb/
   linker/                      # Kernel diff, function linker, bytecode compiler
   packages/
     fcb_code_push/             # Flutter/Dart package exposed to app
-    fcb_annotations/           # @hotPatchable 等 annotation
   schemas/
     fcb.yaml.schema.json
     release_manifest.schema.json
@@ -982,36 +981,7 @@ Phase B：Android snapshot_replace backend
 * 删除网络后仍使用本地 active patch。
 * 制造崩溃 patch 后自动回滚到 v1 或上一个 patch。
 
-Phase C：P1 restricted bytecode backend
-
-目标：不下载 native executable，支持受限 Dart 函数补丁。
-
-任务：
-
-* 实现 @hotPatchable annotation。
-* 实现 build transformer/codegen，把 annotated function 包成 dispatch wrapper。
-* 实现 HBC bytecode compiler，先支持：
-    * int/double/bool/string/null
-    * list/map literal
-    * if/else
-    * for/while
-    * local variables
-    * static function call
-    * selected Dart core operations
-* 实现 Dart-level interpreter 或 C++ VM-adjacent interpreter。
-* Rust CLI patch 时只编译 annotated changed functions。
-* iOS/Android 都使用 bytecode backend。
-
-验收：
-
-* 修改 annotated pricing/business 函数后可 patch。
-* iOS 不下载 executable artifact。
-* Android Play backend 不产生 .so patch。
-* unsupported Dart 语法给出明确 compile error。
-* patch 后下次启动生效。
-* 可灰度、可回滚。
-
-Phase D：P2 Dart VM integrated bytecode
+Phase C：P2 Dart VM integrated bytecode
 
 目标：降低业务侵入，接近 Shorebird 模型。
 

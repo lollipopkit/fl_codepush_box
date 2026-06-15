@@ -1,7 +1,8 @@
-# Android snapshot_replace hook
+# Android Engine hook
 
-This directory contains the minimal Engine-side adapter for the FCB P0
-`snapshot_replace` backend.
+This directory contains the minimal Engine-side adapter for FCB Android launch
+patches. It currently covers the P0 `snapshot_replace` backend and the Phase D
+VM bytecode registration decision.
 
 `fcb_engine_hook.cc` does not depend on Flutter Engine headers. It converts the
 Rust updater ABI result from `fcb_get_launch_patch()` into a small
@@ -25,7 +26,9 @@ success, call `fcb_mark_android_launch_success()` so the updater promotes the
 patch from pending to current.
 
 See `ENGINE_INTEGRATION.md` and `BUILD.gn.snippet` for the GN/staticlib and
-runtime wiring expected in the Engine checkout.
+runtime wiring expected in the Engine checkout. For Phase D, wire
+`fcb_apply_android_vm_bytecode_patch()` before root isolate execution and pass
+the installed bytecode payload path to the forked Dart VM patch runtime.
 
 Validation:
 

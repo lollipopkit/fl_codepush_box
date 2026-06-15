@@ -4,9 +4,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val fcbAndroidAbiFilter = findProperty("fcbAndroidAbiFilter") as String?
+    ?: System.getenv("FCB_ANDROID_ABI_FILTER")
+val fcbAndroidAbis = fcbAndroidAbiFilter
+    ?.split(",")
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?: emptyList()
+
 android {
     namespace = "com.example.fcb_counter_app"
     compileSdk = flutter.compileSdkVersion
+    buildToolsVersion = "36.1.0"
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -23,6 +32,25 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        if (fcbAndroidAbis.isNotEmpty()) {
+            ndk {
+                abiFilters.addAll(fcbAndroidAbis)
+            }
+        }
+    }
+
+    if (fcbAndroidAbis.isNotEmpty()) {
+        packaging {
+            jniLibs {
+                val allAndroidAbis = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                excludes.addAll(
+                    allAndroidAbis
+                        .filter { it !in fcbAndroidAbis }
+                        .map { "lib/$it/**" },
+                )
+            }
+        }
     }
 
     buildTypes {

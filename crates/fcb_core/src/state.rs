@@ -2,6 +2,8 @@ use crate::diff;
 use crate::manifest::{self, PatchManifest};
 use crate::{crypto, err, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -91,6 +93,7 @@ impl Updater {
         if hash != manifest.payload.hash {
             return Err(err("payload sha256 mismatch"));
         }
+        validate_payload_contract(&manifest, &payload)?;
 
         let patch_dir = self
             .cache_dir
@@ -248,6 +251,26 @@ impl Updater {
     }
 }
 
+fn validate_payload_contract(manifest: &PatchManifest, payload: &[u8]) -> Result<()> {
+    match manifest.backend.as_str() {
+        "bytecode" => {
+            if manifest.payload.kind != "bytecode_module" {
+                return Err(err("bytecode backend requires bytecode_module payload"));
+            }
+            validate_bytecode_module_payload(payload)
+        }
+        "snapshot_replace" => {
+            if manifest.payload.kind == "bytecode_module" {
+                return Err(err(
+                    "snapshot_replace backend cannot install bytecode_module payload",
+                ));
+            }
+            Ok(())
+        }
+        backend => Err(err(format!("unsupported patch backend {backend}"))),
+    }
+}
+
 fn snapshot_replace_artifact(
     manifest: &PatchManifest,
     payload: &[u8],
@@ -280,6 +303,166 @@ fn snapshot_replace_artifact(
         }
         _ => Err(err("unsupported snapshot_replace payload kind")),
     }
+}
+
+fn validate_bytecode_module_payload(payload: &[u8]) -> Result<()> {
+    let module: Value = serde_json::from_slice(payload)?;
+    let Some(object) = module.as_object() else {
+        return Err(err("bytecode module must be a JSON object"));
+    };
+    let version = object
+        .get("version")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| err("bytecode module version must be an integer"))?;
+    if version != 1 {
+        return Err(err(format!(
+            "unexpected bytecode module version {version}, expected 1"
+        )));
+    }
+    let functions = object
+        .get("functions")
+        .and_then(Value::as_array)
+        .ok_or_else(|| err("bytecode module functions must be a list"))?;
+    if functions.is_empty() {
+        return Err(err("bytecode module must contain at least one function"));
+    }
+
+    let mut names = BTreeSet::new();
+    for function in functions {
+        validate_bytecode_function(function, &mut names)?;
+    }
+    Ok(())
+}
+
+fn validate_bytecode_function(function: &Value, names: &mut BTreeSet<String>) -> Result<()> {
+    let Some(object) = function.as_object() else {
+        return Err(err("bytecode function must be a JSON object"));
+    };
+    let name = object
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| err("bytecode function name must be a string"))?;
+    if name.trim().is_empty() {
+        return Err(err("bytecode function name must not be empty"));
+    }
+    if !names.insert(name.to_string()) {
+        return Err(err(format!("duplicate bytecode function {name}")));
+    }
+    let param_count = read_u8_field(object, "param_count", name)?;
+    let local_count = read_u8_field(object, "local_count", name)?;
+    if local_count < param_count {
+        return Err(err(format!(
+            "function {name} local_count {local_count} is smaller than param_count {param_count}"
+        )));
+    }
+    let constants_len = object
+        .get("constants")
+        .and_then(Value::as_array)
+        .ok_or_else(|| err(format!("constants for {name} must be a list")))?
+        .len();
+    let code_values = object
+        .get("code")
+        .and_then(Value::as_array)
+        .ok_or_else(|| err(format!("code for {name} must be a list")))?;
+    let code = code_values
+        .iter()
+        .map(|value| {
+            let byte = value
+                .as_u64()
+                .ok_or_else(|| err(format!("code for {name} must contain byte integers")))?;
+            u8::try_from(byte).map_err(|_| err(format!("code byte {byte} for {name} exceeds u8")))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    validate_bytecode(name, constants_len, &code)
+}
+
+fn read_u8_field(
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+    function_name: &str,
+) -> Result<u8> {
+    let value = object
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| err(format!("{field} for {function_name} must be an integer")))?;
+    u8::try_from(value).map_err(|_| err(format!("{field} for {function_name} exceeds u8")))
+}
+
+fn validate_bytecode(function_name: &str, constants_len: usize, code: &[u8]) -> Result<()> {
+    if code.is_empty() {
+        return Err(err(format!("function {function_name} has empty bytecode")));
+    }
+
+    let mut starts = BTreeSet::new();
+    let mut pos = 0usize;
+    while pos < code.len() {
+        starts.insert(pos);
+        let opcode = decode_opcode(code[pos]).ok_or_else(|| {
+            err(format!(
+                "invalid opcode 0x{:02x} at offset {pos} in {function_name}",
+                code[pos]
+            ))
+        })?;
+        let operand_start = pos + 1;
+        let next = operand_start + opcode_operand_len(opcode);
+        if next > code.len() {
+            return Err(err(format!(
+                "opcode 0x{opcode:02x} at offset {pos} in {function_name} requires {} operand bytes",
+                opcode_operand_len(opcode)
+            )));
+        }
+        if opcode == 0x01 {
+            let idx = read_u16(code, operand_start) as usize;
+            if idx >= constants_len {
+                return Err(err(format!(
+                    "LoadConst at offset {pos} in {function_name} references missing constant {idx}"
+                )));
+            }
+        }
+        pos = next;
+    }
+
+    pos = 0;
+    while pos < code.len() {
+        let opcode = decode_opcode(code[pos]).expect("validated opcode");
+        let operand_start = pos + 1;
+        if matches!(opcode, 0x30 | 0x31 | 0x32) {
+            let target = read_u16(code, operand_start) as usize;
+            if target >= code.len() {
+                return Err(err(format!(
+                    "opcode 0x{opcode:02x} at offset {pos} in {function_name} targets out-of-range offset {target}"
+                )));
+            }
+            if !starts.contains(&target) {
+                return Err(err(format!(
+                    "opcode 0x{opcode:02x} at offset {pos} in {function_name} targets non-instruction offset {target}"
+                )));
+            }
+        }
+        pos = operand_start + opcode_operand_len(opcode);
+    }
+    Ok(())
+}
+
+fn decode_opcode(byte: u8) -> Option<u8> {
+    match byte {
+        0x01 | 0x02 | 0x03 | 0x04 | 0x10 | 0x11 | 0x12 | 0x13 | 0x20 | 0x21 | 0x30 | 0x31
+        | 0x32 | 0x40 | 0x41 | 0xff => Some(byte),
+        _ => None,
+    }
+}
+
+fn opcode_operand_len(opcode: u8) -> usize {
+    match opcode {
+        0x01 | 0x30 | 0x31 | 0x32 | 0x40 | 0x41 => 2,
+        0x02 | 0x03 | 0x04 => 1,
+        0x10 | 0x11 | 0x12 | 0x13 | 0x20 | 0x21 | 0xff => 0,
+        _ => 0,
+    }
+}
+
+fn read_u16(code: &[u8], pos: usize) -> u16 {
+    u16::from_be_bytes([code[pos], code[pos + 1]])
 }
 
 fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -494,6 +677,78 @@ mod tests {
     }
 
     #[test]
+    fn install_bytecode_payload_launches_payload_without_artifact() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let input_dir =
+            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        let payload = br#"{"version":1,"functions":[{"name":"initialCounterValue","param_count":0,"local_count":0,"constants":[{"type":"Int","value":2}],"code":[1,0,0,255]}]}"#;
+        let payload_path = input_dir.join("payload.bin");
+        std::fs::write(&payload_path, payload).expect("write payload");
+
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        let mut patch = PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number: 4,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "bytecode".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "bytecode_module".to_string(),
+                compression: "none".to_string(),
+                hash: crypto::sha256_hex(payload),
+                size: payload.len() as u64,
+                download_url: "patches/app/release/android/arm64-v8a/4/payload.bin".to_string(),
+                diff_algorithm: None,
+                base_hash: None,
+                output_hash: None,
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 100,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        };
+        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
+        let manifest_path = input_dir.join("patch_manifest.json");
+        manifest::write_json(&manifest_path, &patch).expect("write manifest");
+
+        let updater = Updater::new(&cache_dir);
+        updater
+            .install_payload(&manifest_path, &payload_path, &public_key)
+            .expect("install payload");
+
+        let state = updater.load_state().expect("load state");
+        let installed = state.installed.first().expect("installed patch");
+        assert_eq!(installed.backend, "bytecode");
+        assert_eq!(installed.payload_path, "patches/4/payload.bin");
+        assert!(installed.artifact_path.is_none());
+        assert_eq!(
+            std::fs::read(cache_dir.join(&installed.payload_path)).expect("read payload"),
+            payload
+        );
+
+        let launch = updater
+            .launch_patch()
+            .expect("launch patch")
+            .expect("installed patch");
+        assert_eq!(launch.payload_path, "patches/4/payload.bin");
+        assert!(launch.artifact_path.is_none());
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+        let _ = std::fs::remove_dir_all(input_dir);
+    }
+
+    #[test]
     fn install_prunes_old_patch_without_removing_current() {
         let cache_dir =
             std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
@@ -530,7 +785,7 @@ mod tests {
             })
             .expect("write state");
 
-        let payload = b"bytecode payload";
+        let payload = br#"{"version":1,"functions":[{"name":"initialCounterValue","param_count":0,"local_count":0,"constants":[{"type":"Int","value":3}],"code":[1,0,0,255]}]}"#;
         let payload_path = input_dir.join("payload.bin");
         std::fs::write(&payload_path, payload).expect("write payload");
         let (private_key, public_key) = crypto::generate_keypair_b64();
@@ -545,7 +800,7 @@ mod tests {
             platform: "android".to_string(),
             arch: "arm64-v8a".to_string(),
             payload: PayloadManifest {
-                kind: "opaque_payload".to_string(),
+                kind: "bytecode_module".to_string(),
                 compression: "none".to_string(),
                 hash: crypto::sha256_hex(payload),
                 size: payload.len() as u64,
@@ -581,6 +836,67 @@ mod tests {
         assert_eq!(installed, vec![1, 3]);
         assert_eq!(state.current_patch_number, 1);
         assert_eq!(state.pending_patch_number, Some(3));
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+        let _ = std::fs::remove_dir_all(input_dir);
+    }
+
+    #[test]
+    fn install_rejects_invalid_bytecode_payload_before_writing_state() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let input_dir =
+            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        let payload = br#"{"version":1,"functions":[{"name":"bad","param_count":0,"local_count":0,"constants":[],"code":[1,0,0,255]}]}"#;
+        let payload_path = input_dir.join("payload.bin");
+        std::fs::write(&payload_path, payload).expect("write payload");
+
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        let mut patch = PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number: 5,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "bytecode".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "bytecode_module".to_string(),
+                compression: "none".to_string(),
+                hash: crypto::sha256_hex(payload),
+                size: payload.len() as u64,
+                download_url: "patches/app/release/android/arm64-v8a/5/payload.bin".to_string(),
+                diff_algorithm: None,
+                base_hash: None,
+                output_hash: None,
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 100,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        };
+        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
+        let manifest_path = input_dir.join("patch_manifest.json");
+        manifest::write_json(&manifest_path, &patch).expect("write manifest");
+
+        let updater = Updater::new(&cache_dir);
+        let err = updater
+            .install_payload(&manifest_path, &payload_path, &public_key)
+            .expect_err("invalid bytecode should fail");
+
+        assert!(err.to_string().contains("references missing constant"));
+        assert!(!cache_dir.join("patches/5/payload.bin").exists());
+        let state = updater.load_state().expect("load state");
+        assert!(state.installed.is_empty());
+        assert_eq!(state.pending_patch_number, None);
 
         let _ = std::fs::remove_dir_all(cache_dir);
         let _ = std::fs::remove_dir_all(input_dir);

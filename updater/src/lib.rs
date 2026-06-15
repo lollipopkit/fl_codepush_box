@@ -683,7 +683,7 @@ mod tests {
                 .expect("time")
                 .as_nanos()
         ));
-        let payload = b"bytecode payload";
+        let payload = br#"{"version":1,"functions":[{"name":"initialCounterValue","param_count":0,"local_count":0,"constants":[{"type":"Int","value":2}],"code":[1,0,0,255]}]}"#;
         let (private_key, public_key) = crypto::generate_keypair_b64();
         let mut patch = PatchManifest {
             schema_version: 1,
@@ -696,7 +696,7 @@ mod tests {
             platform: "android".to_string(),
             arch: "arm64-v8a".to_string(),
             payload: PayloadManifest {
-                kind: "opaque_payload".to_string(),
+                kind: "bytecode_module".to_string(),
                 compression: "none".to_string(),
                 hash: crypto::sha256_hex(payload),
                 size: payload.len() as u64,

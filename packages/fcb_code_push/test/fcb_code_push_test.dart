@@ -19,6 +19,7 @@ void main() {
     expect(await codePush.currentPatchNumber(), hasNativeLib ? 0 : isNull);
     expect(await codePush.isNewPatchReadyToInstall(), isFalse);
     expect(await codePush.requestRestartToApply(), isFalse);
+    expect(await codePush.launchBytecodePatchPath(), isNull);
 
     final check = await codePush.checkForUpdate();
     expect(check.patchAvailable, isFalse);
