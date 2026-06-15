@@ -21,10 +21,6 @@ This directory contains local upstream/fork checkouts used by FCB.
   - Required by `build_android_engine.sh`, `bootstrap_engine_min_deps.sh`, and
     `sync_flutter_engine_deps.sh`.
 
-- `flutter/engine/`
-  - Comes from the modern Flutter stable checkout.
-  - Engine C++ sources live under `flutter/engine/src/flutter/`.
-
 ## Sync Dart VM Patch
 
 After making changes to `vendor/sdk`, sync them into the Engine's embedded Dart
