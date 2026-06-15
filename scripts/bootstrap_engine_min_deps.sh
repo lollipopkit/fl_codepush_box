@@ -16,7 +16,7 @@ usage() {
 Usage:
   $0
 
-Bootstraps the minimum Engine dependencies needed for Phase D Android GN smoke
+Bootstraps the minimum Engine dependencies needed for FCB Android GN smoke
 when full gclient sync is blocked by local Engine modifications:
 
   - third_party/skia from the pinned DEPS skia_revision
@@ -438,7 +438,7 @@ main() {
   [ -x "$ENGINE_SRC_DIR/prebuilts/linux-x64/dart-sdk/bin/dart" ] ||
     die "flutter prebuilt Dart SDK failed"
 
-  echo "Phase D minimum Engine dependencies are present:"
+  echo "FCB minimum Engine dependencies are present:"
   echo "  $ENGINE_SRC_DIR/third_party/skia"
   echo "  $ENGINE_SRC_DIR/third_party/vulkan-deps"
   echo "  $ENGINE_SRC_DIR/third_party/gn/gn"

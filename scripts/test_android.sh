@@ -9,7 +9,7 @@ ENGINE_OUT_NAME="${FCB_ENGINE_OUT_NAME:-android_release_arm64}"
 LOCAL_ENGINE_HOST="${FCB_LOCAL_ENGINE_HOST:-host_release}"
 ANDROID_TARGET_PLATFORM="${FCB_ANDROID_TARGET_PLATFORM:-android-arm64}"
 PKG="${FCB_ANDROID_PACKAGE:-com.example.fcb_counter_app}"
-WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/phase-d-android-arm64}"
+WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/android-arm64}"
 case "$WORKDIR" in
   /*) ;;
   *) WORKDIR="$ROOT_DIR/$WORKDIR" ;;
@@ -23,7 +23,7 @@ SKIP_BUILD="${FCB_SKIP_BUILD:-0}"
 SKIP_INSTALL="${FCB_SKIP_INSTALL:-0}"
 FLUTTER_CLEAN="${FCB_FLUTTER_CLEAN:-1}"
 INSTALL_BYTECODE_PATCH="${FCB_INSTALL_BYTECODE_PATCH:-0}"
-INSTALL_PATCH_SCRIPT="${FCB_INSTALL_PATCH_SCRIPT:-$ROOT_DIR/scripts/install_phase_d_android_bytecode_patch.sh}"
+INSTALL_PATCH_SCRIPT="${FCB_INSTALL_PATCH_SCRIPT:-$ROOT_DIR/scripts/install_android_bytecode_patch.sh}"
 EXPECTED_INITIAL_COUNTER="${FCB_EXPECTED_INITIAL_COUNTER:-}"
 EXPECTED_ADJUSTED_COUNTER="${FCB_EXPECTED_ADJUSTED_COUNTER:-}"
 EXPECTED_STATIC_COUNTER="${FCB_EXPECTED_STATIC_COUNTER:-}"
@@ -57,7 +57,7 @@ Environment:
   FCB_SKIP_INSTALL             Skip adb install. Default: 0
   FCB_FLUTTER_CLEAN            Run flutter clean before build. Default: 1
   FCB_INSTALL_BYTECODE_PATCH   Install a manual bytecode launch patch before starting. Default: 0
-  FCB_INSTALL_PATCH_SCRIPT     Patch installer script. Default: scripts/install_phase_d_android_bytecode_patch.sh
+  FCB_INSTALL_PATCH_SCRIPT     Patch installer script. Default: scripts/install_android_bytecode_patch.sh
   FCB_EXPECTED_INITIAL_COUNTER Expected initialCounterValue result. Default: 42 with patch, otherwise 1
   FCB_EXPECTED_ADJUSTED_COUNTER
                               Expected adjustedCounterValue result. Default: 42 with patch, otherwise 8
@@ -69,7 +69,7 @@ Environment:
   FCB_AOT_PROBE_ALLOWLIST      Optional gen_snapshot FCB probe allowlist. Default: unset
   FCB_EXTRA_GEN_SNAPSHOT_OPTIONS
                               Extra gen_snapshot flags. Default: --fcb_enable_aot_dispatch plus FCB_AOT_PROBE_ALLOWLIST when set
-  FCB_WORKDIR                  Per-run state/log directory. Default: target/fcb/phase-d-android-arm64
+  FCB_WORKDIR                  Per-run state/log directory. Default: target/fcb/android-arm64
 USAGE
 }
 

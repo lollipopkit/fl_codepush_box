@@ -18,7 +18,7 @@ STRING_RETURN_VALUE="${FCB_PATCH_STRING_VALUE:-patched}"
 QUAD_FUNCTION_ID="${FCB_QUAD_FUNCTION_ID:-quadCounterValue}"
 INCLUDE_QUAD_FUNCTION_PATCH="${FCB_INCLUDE_QUAD_FUNCTION_PATCH:-1}"
 RELEASE_VERSION="${FCB_RELEASE_VERSION:-1.0.0+1}"
-WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/phase-d-android-arm64}"
+WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/android-arm64}"
 case "$WORKDIR" in
   /*) ;;
   *) WORKDIR="$ROOT_DIR/$WORKDIR" ;;
@@ -51,7 +51,7 @@ Environment:
                            Include quadCounterValue(int,int,int,int) patch. Default: 1
   FCB_QUAD_FUNCTION_ID    Four-arg function id. Default: quadCounterValue
   FCB_RELEASE_VERSION     State release version. Default: 1.0.0+1
-  FCB_WORKDIR             Local temp/log root. Default: target/fcb/phase-d-android-arm64
+  FCB_WORKDIR             Local temp/log root. Default: target/fcb/android-arm64
 USAGE
 }
 
@@ -190,7 +190,7 @@ install_patch() {
   [ -n "$owner" ] || die "cannot determine owner for /data/user/0/$PKG; is the app installed?"
 
   local local_dir="$WORKDIR/manual-bytecode-patch"
-  local remote_dir="/data/local/tmp/fcb_phase_d_patch_$PATCH_NUMBER"
+  local remote_dir="/data/local/tmp/fcb_patch_$PATCH_NUMBER"
   local cache_dir="/data/user/0/$PKG/code_cache/fcb"
 
   rm -rf "$local_dir"

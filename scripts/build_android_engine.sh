@@ -95,11 +95,11 @@ validate_engine_deps() {
 Engine dependencies are incomplete. Populate the embedded Engine checkout before
 running GN, for example:
 
-  scripts/bootstrap_phase_d_engine_min_deps.sh
+  scripts/bootstrap_engine_min_deps.sh
 
 Then rerun:
 
-  scripts/build_phase_d_android_engine.sh
+  scripts/build_android_engine.sh
 EOF
     exit 1
   fi

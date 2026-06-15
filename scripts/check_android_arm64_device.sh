@@ -13,7 +13,7 @@ usage() {
 Usage:
   $0
 
-Checks that the current adb device supports the Phase D Android arm64 target ABI.
+Checks that the current adb device supports the FCB Android arm64 target ABI.
 This is a fast preflight: it does not build, install, or launch the app.
 
 Environment:
@@ -62,7 +62,7 @@ main() {
   fi
 
   if [ "$primary_abi" = "$TARGET_ABI" ]; then
-    echo "Phase D Android arm64 device preflight passed (primary ABI)"
+    echo "FCB Android arm64 device preflight passed (primary ABI)"
     echo "serial: ${serial:-unknown}"
     echo "primary_abi: $primary_abi"
     echo "abilist: ${abi_list:-unknown}"
@@ -70,7 +70,7 @@ main() {
     case ",$abi_list," in
       *",$TARGET_ABI,"*)
         echo "warning: device primary ABI is $primary_abi; $TARGET_ABI present as secondary ABI — native-bridge mode"
-        echo "Phase D Android arm64 device preflight passed (secondary ABI)"
+        echo "FCB Android arm64 device preflight passed (secondary ABI)"
         echo "serial: ${serial:-unknown}"
         echo "primary_abi: $primary_abi"
         echo "abilist: ${abi_list:-unknown}"
@@ -80,7 +80,7 @@ main() {
         ;;
     esac
   else
-    die "device primary ABI is $primary_abi, but Phase D arm64 acceptance requires $TARGET_ABI (serial: ${serial:-unknown}, abilist: ${abi_list:-unknown}); set FCB_ALLOW_SECONDARY_ABI=1 to accept native-bridge mode"
+    die "device primary ABI is $primary_abi, but FCB arm64 acceptance requires $TARGET_ABI (serial: ${serial:-unknown}, abilist: ${abi_list:-unknown}); set FCB_ALLOW_SECONDARY_ABI=1 to accept native-bridge mode"
   fi
 }
 

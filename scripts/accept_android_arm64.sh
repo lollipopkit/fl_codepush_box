@@ -2,15 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEVICE_CHECK_SCRIPT="$ROOT_DIR/scripts/check_phase_d_android_arm64_device.sh"
-TEST_SCRIPT="${FCB_TEST_SCRIPT:-$ROOT_DIR/scripts/test_phase_d_android_arm64.sh}"
+DEVICE_CHECK_SCRIPT="$ROOT_DIR/scripts/check_android_arm64_device.sh"
+TEST_SCRIPT="${FCB_TEST_SCRIPT:-$ROOT_DIR/scripts/test_android_arm64.sh}"
 APP_DIR="${FCB_APP_DIR:-$ROOT_DIR/examples/counter_app}"
 ENGINE_SRC_DIR="${FCB_ENGINE_SRC_DIR:-$ROOT_DIR/vendor/flutter/engine/src}"
 ENGINE_OUT_NAME="${FCB_ENGINE_OUT_NAME:-android_release_arm64}"
 ADB="${FCB_ADB:-$ENGINE_SRC_DIR/flutter/third_party/android_tools/sdk/platform-tools/adb}"
 ADB_TIMEOUT_SECONDS="${FCB_ADB_TIMEOUT_SECONDS:-30}"
 ALLOW_SECONDARY_ABI="${FCB_ALLOW_SECONDARY_ABI:-0}"
-WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/phase-d-android-arm64-acceptance}"
+WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/android-arm64-acceptance}"
 case "$WORKDIR" in
   /*) ;;
   *) WORKDIR="$ROOT_DIR/$WORKDIR" ;;
@@ -21,7 +21,7 @@ usage() {
 Usage:
   $0
 
-Runs the Phase D Android arm64 acceptance suite against the current adb device:
+Runs the FCB Android arm64 acceptance suite against the current adb device:
   1. device primary ABI must be arm64-v8a
   2. no-patch launch must return 1/8/7/base/10
   3. bytecode-patch launch must return 42/42/42/patched/42
@@ -33,7 +33,7 @@ arm64-v8a as a secondary ABI via native-bridge. The functional contracts
 record abi_mode: secondary to distinguish from a real arm64 device.
 
 Environment:
-  FCB_WORKDIR             Acceptance root. Default: target/fcb/phase-d-android-arm64-acceptance
+  FCB_WORKDIR             Acceptance root. Default: target/fcb/android-arm64-acceptance
   FCB_APP_DIR             Flutter app directory. Default: examples/counter_app
   FCB_ENGINE_SRC_DIR      Engine src root. Default: vendor/flutter/engine/src
   FCB_ENGINE_OUT_NAME     Local Engine output. Default: android_release_arm64
@@ -64,7 +64,7 @@ run_phase() {
   local expected_quad="$9"
   local phase_workdir="$WORKDIR/$name"
 
-  echo "== Phase D arm64 acceptance: $name =="
+  echo "== FCB arm64 acceptance: $name =="
   local require_primary=1
   local allow_secondary=0
   if [ "$ALLOW_SECONDARY_ABI" = "1" ]; then
@@ -205,7 +205,7 @@ write_summary() {
   fi
 
   {
-    echo "Phase D Android arm64 acceptance passed"
+    echo "FCB Android arm64 acceptance passed"
     echo "serial: ${serial:-unknown}"
     echo "primary_abi: ${primary_abi:-unknown}"
     echo "abilist: ${abi_list:-unknown}"
@@ -248,7 +248,7 @@ main() {
   assert_phase_result "patch" "patch" "42" "42" "42" "patched" "42"
 
   write_summary
-  echo "Phase D Android arm64 acceptance passed."
+  echo "FCB Android arm64 acceptance passed."
   echo "workdir: $WORKDIR"
 }
 
