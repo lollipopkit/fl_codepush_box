@@ -18,8 +18,6 @@ pub enum Error {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Yaml(#[from] serde_yaml::Error),
-    #[error(transparent)]
     Http(#[from] Box<ureq::Error>),
 }
 

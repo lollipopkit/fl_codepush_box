@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/glebarez/sqlite"
 	"github.com/gofiber/fiber/v2"
-	_ "modernc.org/sqlite"
+	"gorm.io/gorm"
 )
 
 type Server struct {
 	db         *sql.DB
+	gormDB     *gorm.DB
 	objectsDir string
 }
 
@@ -55,7 +57,12 @@ func NewServerWithObjects(path string, objectsDir string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{db: db, objectsDir: objectsDir}
+	gormDB, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	server := &Server{db: db, gormDB: gormDB, objectsDir: objectsDir}
 	if err := server.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -64,6 +71,11 @@ func NewServerWithObjects(path string, objectsDir string) (*Server, error) {
 }
 
 func (s *Server) Close() error {
+	if s.gormDB != nil {
+		if db, err := s.gormDB.DB(); err == nil {
+			_ = db.Close()
+		}
+	}
 	return s.db.Close()
 }
 
@@ -90,6 +102,7 @@ func buildApp(server *Server) *fiber.App {
 	admin.Delete("/tokens/:id", server.adminRevokeToken)
 
 	app.Post("/v1/apps", server.requireBearer, server.createApp)
+	app.Get("/v1/apps/:id", server.requireBearer, server.getAppByID)
 	app.Post("/v1/releases", server.requireBearer, server.createRelease)
 	app.Post("/v1/patches", server.requireBearer, server.createPatch)
 	app.Post("/v1/patches/promote", server.requireBearer, server.promotePatch)

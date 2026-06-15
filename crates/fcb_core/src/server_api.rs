@@ -1,3 +1,4 @@
+use crate::config::RemoteAppConfig;
 use crate::manifest::{PatchManifest, ReleaseManifest};
 use crate::{err, Error, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -10,6 +11,9 @@ use std::time::Duration;
 pub struct CreateAppRequest {
     pub id: String,
     pub name: String,
+    pub channel: String,
+    pub public_key: String,
+    pub platforms: Vec<crate::config::RemotePlatformEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +80,10 @@ impl Client {
 
     pub fn create_app(&self, request: &CreateAppRequest) -> Result<()> {
         self.post_json("/v1/apps", request)
+    }
+
+    pub fn get_app(&self, app_id: &str) -> Result<RemoteAppConfig> {
+        self.get_json(&format!("/v1/apps/{app_id}"))
     }
 
     pub fn create_release(&self, manifest: &ReleaseManifest) -> Result<()> {
@@ -159,6 +167,28 @@ impl Client {
         let response = request.send_json(serde_json::to_value(value)?);
         match response {
             Ok(resp) if resp.status().is_success() => Ok(()),
+            Ok(mut resp) => {
+                let code = resp.status().as_u16();
+                let body = resp.body_mut().read_to_string().unwrap_or_default();
+                Err(err(format!("server returned HTTP {code}: {body}")))
+            }
+            Err(e) => Err(Error::Http(Box::new(e))),
+        }
+    }
+
+    fn get_json<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
+        let url = format!("{}{}", self.base_url, path);
+        let request = self.agent.get(&url);
+        let request = if let Some(token) = &self.token {
+            request.header("Authorization", &format!("Bearer {token}"))
+        } else {
+            request
+        };
+        let response = request.call();
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                Ok(resp.into_body().read_json().map_err(Box::new)?)
+            }
             Ok(mut resp) => {
                 let code = resp.status().as_u16();
                 let body = resp.body_mut().read_to_string().unwrap_or_default();
