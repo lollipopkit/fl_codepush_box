@@ -1,8 +1,11 @@
 package dev.fcb.code_push;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -12,12 +15,15 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 
-public final class FcbCodePushPlugin implements FlutterPlugin, MethodChannel.MethodCallHandler {
+public final class FcbCodePushPlugin implements FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
   private MethodChannel channel;
   private Context applicationContext;
+  @Nullable private Activity activity;
 
   @Override
   public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
@@ -36,7 +42,31 @@ public final class FcbCodePushPlugin implements FlutterPlugin, MethodChannel.Met
   }
 
   @Override
+  public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+    activity = binding.getActivity();
+  }
+
+  @Override
+  public void onDetachedFromActivityForConfigChanges() {
+    activity = null;
+  }
+
+  @Override
+  public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+    activity = binding.getActivity();
+  }
+
+  @Override
+  public void onDetachedFromActivity() {
+    activity = null;
+  }
+
+  @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull MethodChannel.Result result) {
+    if ("restart".equals(call.method)) {
+      restartApp(result);
+      return;
+    }
     if (!"getPaths".equals(call.method)) {
       result.notImplemented();
       return;
@@ -64,6 +94,21 @@ public final class FcbCodePushPlugin implements FlutterPlugin, MethodChannel.Met
       }
     }
     result.success(paths);
+  }
+
+  private void restartApp(@NonNull MethodChannel.Result result) {
+    Context ctx = activity != null ? activity : applicationContext;
+    if (ctx == null) {
+      result.error("unavailable", "No context available for restart", null);
+      return;
+    }
+    result.success(null);
+    Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+    if (intent != null) {
+      intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    }
+    android.os.Process.killProcess(android.os.Process.myPid());
   }
 
   private File extractBaselineLibapp(File fcbCacheDir) {

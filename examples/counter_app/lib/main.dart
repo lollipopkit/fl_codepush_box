@@ -145,6 +145,10 @@ class _CounterAppState extends State<CounterApp> {
     });
   }
 
+  Future<void> _restartApp() async {
+    await _codePush.restartApp();
+  }
+
   void _incrementCounter() {
     setState(() {
       _counter++;
@@ -226,6 +230,10 @@ class _CounterAppState extends State<CounterApp> {
                 OutlinedButton(
                   onPressed: _busy ? null : _markLaunchSuccessful,
                   child: const Text('Mark success'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : _restartApp,
+                  child: const Text('Restart'),
                 ),
               ],
             ),

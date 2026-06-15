@@ -213,13 +213,34 @@ class FcbCodePush {
     return result.available && result.code > 0;
   }
 
-  Future<bool> requestRestartToApply() async {
-    return isNewPatchReadyToInstall();
-  }
-
   Future<void> markLaunchSuccessful() async {
     final fn = _lookupInt('fcb_mark_launch_success');
     fn?.call();
+  }
+
+  Future<void> markLaunchFailure(int patchNumber, String reason) async {
+    try {
+      final lib = _library ??= _openLibrary();
+      final fn = lib.lookupFunction<
+          Int32 Function(Int32, Pointer<Char>),
+          int Function(int, Pointer<Char>)>('fcb_mark_launch_failure');
+      final reasonPtr = reason.toNativeUtf8();
+      try {
+        fn(patchNumber, reasonPtr.cast());
+      } finally {
+        calloc.free(reasonPtr);
+      }
+    } catch (error, stack) {
+      _debugLookupError('fcb_mark_launch_failure', error, stack);
+    }
+  }
+
+  Future<void> restartApp() async {
+    try {
+      await _pathsChannel.invokeMethod<void>('restart');
+    } catch (error, stack) {
+      _debugLookupError('restart', error, stack);
+    }
   }
 
   Future<String?> launchBytecodePatchPath() async {
