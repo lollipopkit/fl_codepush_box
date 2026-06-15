@@ -1,6 +1,6 @@
 # Vendor Checkouts
 
-This directory contains local upstream/fork checkouts used by Phase D.
+This directory contains local upstream/fork checkouts used by FCB.
 
 ## Layout
 
@@ -12,48 +12,38 @@ This directory contains local upstream/fork checkouts used by Phase D.
   - The Engine revision is pinned by `flutter/bin/internal/engine.version`.
 
 - `sdk/`
-  - Remote: `https://github.com/lollipopkit/sdk`
+  - Remote: `https://github.com/lollipopkit/dartsdk`
   - Branch: `stable`
   - This is the Dart SDK checkout. Dart VM changes live under `runtime/vm/`.
 
 - `depot_tools/`
-  - Stale cache from the earlier external Engine checkout attempt.
-  - Not needed for modern Flutter stable monorepo Engine work.
+  - Chromium build toolchain providing `gclient`, `gn`, and `ninja`.
+  - Required by `build_android_engine.sh`, `bootstrap_engine_min_deps.sh`, and
+    `sync_flutter_engine_deps.sh`.
 
 - `flutter/engine/`
   - Comes from the modern Flutter stable checkout.
   - Engine C++ sources live under `flutter/engine/src/flutter/`.
 
-## Sync Flutter Engine
+## Sync Dart VM Patch
 
-Run from the repository root:
-
-```sh
-scripts/sync_flutter_engine.sh
-```
-
-The script validates:
-
-```text
-vendor/flutter/bin/internal/engine.version
-```
-
-and the embedded Engine source under:
-
-```text
-vendor/flutter/engine/src/flutter
-```
-
-To update `vendor/flutter` from official Flutter stable before validation:
+After making changes to `vendor/sdk`, sync them into the Engine's embedded Dart
+SDK checkout:
 
 ```sh
-FCB_FLUTTER_UPDATE=1 scripts/sync_flutter_engine.sh
+scripts/sync_dart_vm_patch.sh
 ```
 
-Use this checkout for Engine C++ work, for example Android embedder changes
-under `vendor/flutter/engine/src/flutter/shell/platform/android/`.
+This runs `git pull origin stable` inside:
 
-## Phase D Android Engine Wiring
+```text
+vendor/flutter/engine/src/flutter/third_party/dart
+```
+
+That directory is a git clone of `vendor/sdk` (local path as origin), so the
+pull fast-forwards it to the latest FCB commit.
+
+## Android Engine FCB Wiring
 
 The active Android Engine integration lives in:
 
@@ -81,40 +71,27 @@ Flutter `DEPS` pins the Engine Dart SDK checkout at:
 vendor/flutter/engine/src/flutter/third_party/dart
 ```
 
-After `gclient sync` has populated that directory, sync the local VM patch from
-`vendor/sdk` into the Engine checkout:
+After `gclient sync` has populated that directory, sync the local VM patch:
 
 ```sh
 scripts/sync_dart_vm_patch.sh
 ```
 
-If only the Dart SDK checkout is missing, create it from the local
-revision-matched fork and apply the overlay in one step:
-
-```sh
-FCB_CREATE_ENGINE_DART=1 scripts/sync_dart_vm_patch.sh
-```
-
-The script verifies that `vendor/sdk` and the Engine Dart SDK checkout both
-match `vendor/flutter/DEPS` `dart_revision` before copying the VM patch files.
-At Flutter `3.44.2`, that revision is
-`d684a576a6aa954ae107a03b2b4e1d61c3bebe93`.
-
-## Build Phase D Android Engine
+## Build Android Engine
 
 Use the repository wrapper instead of invoking `tools/gn` by hand:
 
 ```sh
-scripts/build_phase_d_android_engine.sh
+scripts/build_android_engine.sh
 ```
 
 Before GN can run, the embedded Engine checkout must have its gclient
 dependencies populated. A full `gclient sync` can refuse to continue when the
-embedded Engine checkout contains local VM/Engine edits. For Phase D Android
-validation, use the minimum bootstrap script instead:
+embedded Engine checkout contains local VM/Engine edits. Use the minimum
+bootstrap script instead:
 
 ```sh
-scripts/bootstrap_phase_d_engine_min_deps.sh
+scripts/bootstrap_engine_min_deps.sh
 ```
 
 That script reads the authoritative stable pins from `vendor/flutter/DEPS` and
@@ -137,7 +114,7 @@ That wrapper uses `vendor/depot_tools`, keeps depot/vpython cache under
 Current smoke status:
 
 ```text
-FCB_SKIP_SYNC=1 FCB_SKIP_NINJA=1 scripts/build_phase_d_android_engine.sh
+FCB_SKIP_SYNC=1 FCB_SKIP_NINJA=1 scripts/build_android_engine.sh
 ```
 
 passes GN generation and creates:
@@ -149,7 +126,7 @@ vendor/flutter/engine/src/out/android_release_arm64
 The full Android Engine target also passes:
 
 ```sh
-FCB_SKIP_SYNC=1 scripts/build_phase_d_android_engine.sh
+FCB_SKIP_SYNC=1 scripts/build_android_engine.sh
 ```
 
 It builds:
@@ -163,7 +140,7 @@ The x64 Android Engine target also builds. Use it only for local x86_64
 emulator smoke tests when an arm64 device/emulator is not available:
 
 ```sh
-FCB_ANDROID_CPU=x64 FCB_SKIP_SYNC=1 scripts/build_phase_d_android_engine.sh
+FCB_ANDROID_CPU=x64 FCB_SKIP_SYNC=1 scripts/build_android_engine.sh
 ```
 
 It refreshes the local-engine artifacts needed by Flutter:
@@ -177,7 +154,6 @@ vendor/flutter/engine/src/out/android_release_x64/gen_snapshot
 
 By default the wrapper:
 
-- validates the Flutter embedded Engine checkout;
 - syncs the local Dart VM overlay from `vendor/sdk` into the Engine Dart SDK;
 - builds `libfcb_updater.a` with `cargo-ndk` when
   `FCB_UPDATER_STATICLIB` is not provided;
@@ -192,22 +168,22 @@ Useful variants:
 
 ```sh
 # Generate GN only, useful for checking args/deps before a full Engine build.
-FCB_SKIP_NINJA=1 scripts/build_phase_d_android_engine.sh
+FCB_SKIP_NINJA=1 scripts/build_android_engine.sh
 
 # Build/resolve the updater staticlib and print the Engine output path without GN.
-FCB_SKIP_GN=1 FCB_SKIP_NINJA=1 scripts/build_phase_d_android_engine.sh
+FCB_SKIP_GN=1 FCB_SKIP_NINJA=1 scripts/build_android_engine.sh
 
 # Use an already-built ABI-matching updater static library.
 FCB_UPDATER_STATICLIB=/absolute/path/to/libfcb_updater.a \
-  scripts/build_phase_d_android_engine.sh
+  scripts/build_android_engine.sh
 
 # Use an explicit ABI-matching NDK libunwind.a when auto-detection is wrong.
 FCB_UNWIND_STATICLIB=/absolute/path/to/libunwind.a \
-  scripts/build_phase_d_android_engine.sh
+  scripts/build_android_engine.sh
 
 # Build a different Android CPU/runtime mode.
 FCB_ANDROID_CPU=x64 FCB_RUNTIME_MODE=profile \
-  scripts/build_phase_d_android_engine.sh
+  scripts/build_android_engine.sh
 ```
 
 When the wrapper builds the Rust updater itself, it defaults
@@ -234,7 +210,7 @@ FCB_ENABLE_AOT_DISPATCH=1 vendor/flutter/bin/flutter build apk \
 For arm64 device acceptance, use the checked-in wrapper:
 
 ```sh
-scripts/accept_phase_d_android_arm64.sh
+scripts/accept_android_arm64.sh
 ```
 
 It first verifies that the current adb device primary ABI is `arm64-v8a`, then
@@ -254,7 +230,7 @@ arm64 AOT static-call trampoline path for four positional arguments.
 On success it writes a compact evidence file at:
 
 ```text
-target/fcb/phase-d-android-arm64-acceptance/summary.txt
+target/fcb/android-arm64-acceptance/summary.txt
 ```
 
 The summary records the device ABI, expected and observed no-patch/patch
@@ -264,19 +240,19 @@ SHA-256/file metadata for the APK, `app.so`, and `libflutter.so`.
 To check the connected device before paying the build cost:
 
 ```sh
-scripts/check_phase_d_android_arm64_device.sh
+scripts/check_android_arm64_device.sh
 ```
 
 For debugging a single launch mode, use:
 
 ```sh
-scripts/test_phase_d_android_arm64.sh
+scripts/test_android_arm64.sh
 ```
 
 The shared Android acceptance implementation is:
 
 ```sh
-scripts/test_phase_d_android.sh
+scripts/test_android.sh
 ```
 
 It defaults to `android-arm64` and `android_release_arm64`. The `arm64` and
@@ -284,8 +260,8 @@ It defaults to `android-arm64` and `android_release_arm64`. The `arm64` and
 target ABI.
 
 This requires an adb device whose primary ABI is `arm64-v8a`. An x86_64 emulator
-that lists `arm64-v8a` only as a translated secondary ABI is not a valid Phase D
-runtime acceptance target. `scripts/test_phase_d_android_arm64.sh` sets
+that lists `arm64-v8a` only as a translated secondary ABI is not a valid FCB
+runtime acceptance target. `scripts/test_android_arm64.sh` sets
 `FCB_REQUIRE_PRIMARY_ABI=1` by default and fails fast on translated secondary
 ABI devices.
 
@@ -293,7 +269,7 @@ The shared script can still be forced through native-bridge experiments, but
 that is only a smoke test:
 
 ```sh
-FCB_ALLOW_SECONDARY_ABI=1 scripts/test_phase_d_android.sh
+FCB_ALLOW_SECONDARY_ABI=1 scripts/test_android.sh
 ```
 
 Crashes or success there do not prove arm64 stub correctness; use the arm64
@@ -302,7 +278,7 @@ wrapper on a real `arm64-v8a` device for acceptance.
 For the x64 emulator-only smoke path, use:
 
 ```sh
-scripts/test_phase_d_android_x64.sh
+scripts/test_android_x64.sh
 ```
 
 The wrapper builds `examples/counter_app` with
@@ -312,22 +288,21 @@ crash-like logcat entries, or missing local-engine artifacts. To reuse an
 already-built APK:
 
 ```sh
-FCB_SKIP_BUILD=1 scripts/test_phase_d_android_x64.sh
+FCB_SKIP_BUILD=1 scripts/test_android_x64.sh
 ```
 
 To install a manual bytecode launch patch before starting the app and require
 the Engine bridge to register it with the VM:
 
 ```sh
-FCB_SKIP_BUILD=1 FCB_INSTALL_BYTECODE_PATCH=1 scripts/test_phase_d_android_x64.sh
+FCB_SKIP_BUILD=1 FCB_INSTALL_BYTECODE_PATCH=1 scripts/test_android_x64.sh
 ```
 
 This verifies the updater state, Android Engine bridge, and VM bytecode module
 registration path on a locally runnable emulator ABI. It is not the primary
-Android acceptance target; Phase D runtime acceptance should be done with
-`scripts/test_phase_d_android.sh` or `scripts/test_phase_d_android_arm64.sh` on
-`arm64-v8a`, because current production Android devices are overwhelmingly
-arm64.
+Android acceptance target; runtime acceptance should be done with
+`scripts/test_android.sh` or `scripts/test_android_arm64.sh` on `arm64-v8a`,
+because current production Android devices are overwhelmingly arm64.
 
 The current VM overlay hooks `DartEntry::InvokeFunction()` and dispatches to
 the FCB interpreter when the loaded patch table contains either
@@ -378,7 +353,7 @@ By default, FCB AOT dispatch probes non-SDK, non-Flutter Dart package static
 functions and only enters the interpreter when the installed bytecode patch table
 has a matching function id. `--fcb_aot_probe_allowlist` remains available as an
 optional compile-time narrowing filter for debugging or size experiments, but it
-is no longer required for the Phase D Android acceptance path.
+is no longer required for the Android arm64 acceptance path.
 The VM `Code` object layout and AOT snapshot serializer now keep
 `static_calls_target_table_` in precompiled runtime as well. On Android x64 and
 arm64, selected precompiled call-via-code sites can be patched to the dedicated
