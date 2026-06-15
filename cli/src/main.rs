@@ -607,7 +607,12 @@ fn install(
     if app.public_key.trim().is_empty() {
         return Err(err(format!("app {} has no public_key", manifest.app_id)));
     }
-    ensure_pinned_public_key(cache_dir, &manifest.app_id, app.public_key.trim())?;
+    ensure_pinned_public_key(
+        cache_dir,
+        &context.server,
+        &manifest.app_id,
+        app.public_key.trim(),
+    )?;
     let baseline_path = release_artifact_path(
         &manifest.app_id,
         &manifest.release_version,
@@ -767,10 +772,16 @@ fn resolve_app(client: &Client, context: &ResolvedContext) -> Result<RemoteAppCo
     client.resolve_app(app)
 }
 
-fn ensure_pinned_public_key(cache_dir: &Path, app_id: &str, public_key: &str) -> Result<()> {
+fn ensure_pinned_public_key(
+    cache_dir: &Path,
+    server: &str,
+    app_id: &str,
+    public_key: &str,
+) -> Result<()> {
     let pins_dir = cache_dir.join("trusted_keys");
     fs::create_dir_all(&pins_dir)?;
-    let pin_path = pins_dir.join(format!("{}.sha256", safe_filename(app_id)));
+    let pin_scope = format!("{}__{}", safe_filename(server), safe_filename(app_id));
+    let pin_path = pins_dir.join(format!("{pin_scope}.sha256"));
     let fingerprint = crypto::sha256_hex(public_key.as_bytes());
     if pin_path.exists() {
         let pinned = fs::read_to_string(&pin_path)?;
