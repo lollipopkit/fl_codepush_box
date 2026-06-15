@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use fcb_bytecode::{compiler, format::BytecodeModule};
-use fcb_core::config::{AppConfig, FcbConfig};
+use fcb_core::config::{LocalAppContext, RemoteAppConfig, RemotePlatformEntry};
 use fcb_core::crypto;
 use fcb_core::diff::{self, BSDIFF_ZSTD_ALGORITHM};
 use fcb_core::manifest::{
@@ -22,24 +22,29 @@ use std::os::unix::fs::PermissionsExt;
 #[command(name = "fcb")]
 #[command(about = "Flutter CodePush Box CLI")]
 struct Args {
-    #[arg(long, default_value = "http://127.0.0.1:8080")]
-    server: String,
-    #[arg(long)]
+    #[arg(long, env = "FCB_SERVER")]
+    server: Option<String>,
+    #[arg(long, env = "FCB_CLI_TOKEN")]
     token: Option<String>,
-    #[arg(long)]
+    #[arg(long, env = "FCB_APP")]
     app: Option<String>,
+    #[arg(long, env = "FCB_APP_ID")]
+    app_id: Option<String>,
+    #[arg(long)]
+    key_file: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    Init,
-    Doctor,
-    App {
-        #[command(subcommand)]
-        command: AppCommand,
+    Init {
+        #[arg(long, default_value = "FCB App")]
+        name: String,
+        #[arg(long, default_value = "stable")]
+        channel: String,
     },
+    Doctor,
     Release {
         platform: String,
         #[arg(long)]
@@ -127,22 +132,6 @@ enum Command {
     },
 }
 
-#[derive(Subcommand)]
-enum AppCommand {
-    List,
-    Add {
-        name: String,
-        #[arg(long)]
-        id: Option<String>,
-    },
-    Use {
-        selector: String,
-    },
-    Remove {
-        selector: String,
-    },
-}
-
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -152,22 +141,22 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Args::parse();
+    let config_path = Path::new("fcb.yaml");
+    let local_context = load_local_context(config_path)?;
+    let context = ResolvedContext::new(&args, local_context.as_ref(), config_path);
     match args.command {
-        Command::Init => init(),
+        Command::Init { name, channel } => init(&context, &name, &channel),
         Command::Doctor => {
             println!("fcb doctor: ok");
             Ok(())
         }
-        Command::App { command } => app_command(command),
         Command::Release {
             platform,
             example,
             release_version,
             arch,
         } => release(
-            &args.server,
-            args.token.as_deref(),
-            args.app.as_deref(),
+            &context,
             &platform,
             example.as_deref(),
             &release_version,
@@ -180,9 +169,7 @@ fn run() -> Result<()> {
             arch,
             payload,
         } => patch(
-            &args.server,
-            args.token.as_deref(),
-            args.app.as_deref(),
+            &context,
             &platform,
             &release_version,
             patch_number,
@@ -197,9 +184,7 @@ fn run() -> Result<()> {
             channel,
             rollout_percentage,
         } => promote(
-            &args.server,
-            args.token.as_deref(),
-            args.app.as_deref(),
+            &context,
             &release_version,
             patch_number,
             &platform,
@@ -217,8 +202,7 @@ fn run() -> Result<()> {
             install,
             cache_dir,
         } => check(
-            &args.server,
-            args.app.as_deref(),
+            &context,
             &release_version,
             &platform,
             &arch,
@@ -232,7 +216,7 @@ fn run() -> Result<()> {
             manifest,
             payload,
             cache_dir,
-        } => install(&manifest, &payload, &cache_dir),
+        } => install(&context, &manifest, &payload, &cache_dir),
         Command::MarkSuccess { cache_dir } => {
             Updater::new(cache_dir).mark_success()?;
             println!("launch marked successful");
@@ -252,97 +236,97 @@ fn run() -> Result<()> {
             patch_number,
             platform,
             arch,
-        } => rollback(
-            &args.server,
-            args.token.as_deref(),
-            args.app.as_deref(),
-            &release_version,
-            patch_number,
-            &platform,
-            &arch,
-        ),
+        } => rollback(&context, &release_version, patch_number, &platform, &arch),
         Command::Inspect { kind, path } => inspect(&kind, &path),
     }
 }
 
-fn init() -> Result<()> {
-    if Path::new("fcb.yaml").exists() {
-        return Err(err("fcb.yaml already exists"));
-    }
-    fs::create_dir_all(fcb_dir().join("keys"))?;
-    let app_id = Uuid::new_v4().to_string();
-    FcbConfig::new(app_id.clone()).write_yaml(Path::new("fcb.yaml"))?;
-    let (private_key, public_key) = crypto::generate_keypair_b64();
-    let private_key_path = fcb_dir().join("keys/dev-ed25519.private");
-    fs::write(&private_key_path, private_key)?;
-    #[cfg(unix)]
-    fs::set_permissions(&private_key_path, fs::Permissions::from_mode(0o600))?;
-    fs::write(fcb_dir().join("keys/dev-ed25519.public"), public_key)?;
-    println!("created fcb.yaml for app_id {app_id}");
-    Ok(())
+struct ResolvedContext {
+    server: String,
+    token: Option<String>,
+    app: Option<String>,
+    app_id: Option<String>,
+    key_file: PathBuf,
+    config_path: PathBuf,
 }
 
-fn app_command(command: AppCommand) -> Result<()> {
-    let path = Path::new("fcb.yaml");
-    let mut config = FcbConfig::read_yaml(path)?;
-    match command {
-        AppCommand::List => {
-            for app in &config.apps {
-                let marker = if app.id == config.active_app_id {
-                    "*"
-                } else {
-                    " "
-                };
-                println!("{marker} {} {}", app.id, app.name);
-            }
-        }
-        AppCommand::Add { name, id } => {
-            let id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
-            if config
-                .apps
-                .iter()
-                .any(|app| app.id == id || app.name == name)
-            {
-                return Err(err("app id or name already exists in fcb.yaml"));
-            }
-            config.apps.push(AppConfig::new(id.clone(), name.clone()));
-            config.active_app_id = id.clone();
-            config.write_yaml(path)?;
-            println!("added app {name} ({id}) and made it active");
-        }
-        AppCommand::Use { selector } => {
-            let app = config.app(&selector)?.clone();
-            config.active_app_id = app.id.clone();
-            config.write_yaml(path)?;
-            println!("active app is now {} ({})", app.name, app.id);
-        }
-        AppCommand::Remove { selector } => {
-            let app = config.app(&selector)?.clone();
-            if config.apps.len() == 1 {
-                return Err(err("cannot remove the only app in fcb.yaml"));
-            }
-            config.apps.retain(|item| item.id != app.id);
-            if config.active_app_id == app.id {
-                config.active_app_id = config.apps[0].id.clone();
-            }
-            config.write_yaml(path)?;
-            println!("removed app {} ({})", app.name, app.id);
+impl ResolvedContext {
+    fn new(args: &Args, local: Option<&LocalAppContext>, config_path: &Path) -> Self {
+        let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+        let server = args
+            .server
+            .clone()
+            .or_else(|| local.map(|context| context.server.clone()))
+            .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+        let app = args
+            .app
+            .clone()
+            .or_else(|| local.map(|context| context.app.clone()));
+        let key_file = args
+            .key_file
+            .clone()
+            .or_else(|| local.map(|context| PathBuf::from(&context.key_file)))
+            .unwrap_or_else(|| PathBuf::from(".fcb/private_key"));
+        let key_file = resolve_key_path(config_dir, &key_file);
+        Self {
+            server,
+            token: args.token.clone(),
+            app,
+            app_id: args.app_id.clone(),
+            key_file,
+            config_path: config_path.to_path_buf(),
         }
     }
+}
+
+fn init(context: &ResolvedContext, name: &str, channel: &str) -> Result<()> {
+    if context.config_path.exists() {
+        return Err(err("fcb.yaml already exists"));
+    }
+    let key_file = &context.key_file;
+    if let Some(parent) = key_file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let app_id = Uuid::new_v4().to_string();
+    let public_key = if key_file.exists() {
+        let key_material = fs::read_to_string(key_file)?;
+        crypto::public_key_b64_from_private_key(&key_material)?
+    } else {
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        fs::write(key_file, private_key)?;
+        #[cfg(unix)]
+        fs::set_permissions(key_file, fs::Permissions::from_mode(0o600))?;
+        public_key
+    };
+    authed_client(&context.server, context.token.as_deref())?.create_app(&CreateAppRequest {
+        id: app_id.clone(),
+        name: name.to_string(),
+        channel: channel.to_string(),
+        public_key,
+        platforms: default_platforms(),
+    })?;
+    LocalAppContext {
+        app: name.to_string(),
+        server: context.server.clone(),
+        key_file: path_for_context(&context.config_path, key_file),
+    }
+    .write_yaml(&context.config_path)?;
+    println!("APP_ID={app_id}");
+    println!("app={name}");
+    println!("private_key={}", key_file.display());
     Ok(())
 }
 
 fn release(
-    server: &str,
-    token: Option<&str>,
-    app_selector: Option<&str>,
+    context: &ResolvedContext,
     platform: &str,
     example: Option<&Path>,
     release_version: &str,
     arch: &str,
 ) -> Result<()> {
-    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let app = config.selected_app(app_selector)?;
+    let client = authed_client(&context.server, context.token.as_deref())?;
+    let app = resolve_app(&client, context)?;
+    let backend = backend_for(&app, platform)?;
     let artifact = release_artifact_bytes(example)?;
     let manifest = ReleaseManifest {
         schema_version: 1,
@@ -351,7 +335,7 @@ fn release(
         channel: app.channel.clone(),
         platform: platform.to_string(),
         arch: arch.to_string(),
-        backend: backend_for(app, platform),
+        backend,
         artifact_hash: crypto::sha256_hex(&artifact),
         artifact_size: artifact.len() as u64,
     };
@@ -365,39 +349,31 @@ fn release(
     fs::create_dir_all(&out)?;
     fs::write(out.join("artifact.bin"), artifact)?;
     manifest::write_json(&out.join("release_manifest.json"), &manifest)?;
-    let client = authed_client(server, token)?;
-    client.create_app(&CreateAppRequest {
-        id: app.id.clone(),
-        name: app.name.clone(),
-    })?;
     client.create_release(&manifest)?;
     println!("{}", out.join("release_manifest.json").display());
     Ok(())
 }
 
 fn patch(
-    server: &str,
-    token: Option<&str>,
-    app_selector: Option<&str>,
+    context: &ResolvedContext,
     platform: &str,
     release_version: &str,
     patch_number: u32,
     arch: &str,
     payload: Option<&Path>,
 ) -> Result<()> {
-    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let app = config.selected_app(app_selector)?;
+    let client = authed_client(&context.server, context.token.as_deref())?;
+    let app = resolve_app(&client, context)?;
     let target_artifact = if let Some(path) = payload {
         fs::read(path)?
     } else {
         format!("fcb patch {patch_number} for {release_version}\n").into_bytes()
     };
-    let backend = backend_for(app, platform);
+    let backend = backend_for(&app, platform)?;
     let (payload_bytes, payload_kind, diff_algorithm, base_hash, output_hash) =
         if backend == "snapshot_replace" {
-            let base = snapshot_replace_diff_base(
-                &app.id, release_version, platform, arch, patch_number,
-            )?;
+            let base =
+                snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
             (
                 diff::create_bsdiff_zstd(&base, &target_artifact)?,
                 "binary_diff",
@@ -423,12 +399,7 @@ fn patch(
         fs::write(out.join("artifact.bin"), &target_artifact)?;
     }
     let payload_hash = crypto::sha256_hex(&payload_bytes);
-    let public_key_id = app.security.public_key_id.clone();
-    let private_key = fs::read_to_string(
-        fcb_dir()
-            .join("keys")
-            .join(format!("{public_key_id}.private")),
-    )?;
+    let private_key = load_private_key(&context.key_file)?;
     let mut manifest = PatchManifest {
         schema_version: 1,
         app_id: app.id.clone(),
@@ -462,22 +433,20 @@ fn patch(
         },
         signature: PatchSignature {
             algorithm: "ed25519".to_string(),
-            key_id: public_key_id,
+            key_id: app.id.clone(),
             value: String::new(),
         },
     };
     manifest::sign_patch_manifest(&mut manifest, private_key.trim())?;
     manifest::write_json(&out.join("patch_manifest.json"), &manifest)?;
-    authed_client(server, token)?.create_patch(&manifest, &payload_bytes)?;
+    client.create_patch(&manifest, &payload_bytes)?;
     println!("{}", out.join("patch_manifest.json").display());
     println!("payload_sha256={payload_hash}");
     Ok(())
 }
 
 fn promote(
-    server: &str,
-    token: Option<&str>,
-    app_selector: Option<&str>,
+    context: &ResolvedContext,
     release_version: &str,
     patch_number: u32,
     platform: &str,
@@ -485,10 +454,10 @@ fn promote(
     channel: &str,
     rollout_percentage: u8,
 ) -> Result<()> {
-    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let app = config.selected_app(app_selector)?;
-    authed_client(server, token)?.promote_patch(&PromotePatchRequest {
-        app_id: app.id.clone(),
+    let client = authed_client(&context.server, context.token.as_deref())?;
+    let app = resolve_app(&client, context)?;
+    client.promote_patch(&PromotePatchRequest {
+        app_id: app.id,
         release_version: release_version.to_string(),
         platform: platform.to_string(),
         arch: arch.to_string(),
@@ -501,18 +470,16 @@ fn promote(
 }
 
 fn rollback(
-    server: &str,
-    token: Option<&str>,
-    app_selector: Option<&str>,
+    context: &ResolvedContext,
     release_version: &str,
     patch_number: u32,
     platform: &str,
     arch: &str,
 ) -> Result<()> {
-    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let app = config.selected_app(app_selector)?;
-    authed_client(server, token)?.rollback_patch(&PromotePatchRequest {
-        app_id: app.id.clone(),
+    let client = authed_client(&context.server, context.token.as_deref())?;
+    let app = resolve_app(&client, context)?;
+    client.rollback_patch(&PromotePatchRequest {
+        app_id: app.id,
         release_version: release_version.to_string(),
         platform: platform.to_string(),
         arch: arch.to_string(),
@@ -525,8 +492,7 @@ fn rollback(
 }
 
 fn check(
-    server: &str,
-    app_selector: Option<&str>,
+    context: &ResolvedContext,
     release_version: &str,
     platform: &str,
     arch: &str,
@@ -536,9 +502,9 @@ fn check(
     install_patch: bool,
     cache_dir: &Path,
 ) -> Result<()> {
-    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let app = config.selected_app(app_selector)?;
-    let client = Client::new(server);
+    let authed = authed_client(&context.server, context.token.as_deref())?;
+    let app = resolve_app(&authed, context)?;
+    let client = Client::new(&context.server);
     let response = client.check(
         &app.id,
         release_version,
@@ -551,6 +517,7 @@ fn check(
     println!("{}", serde_json::to_string_pretty(&response)?);
     if install_patch {
         download_and_install(
+            context,
             &client,
             &response,
             &app.id,
@@ -564,6 +531,7 @@ fn check(
 }
 
 fn download_and_install(
+    context: &ResolvedContext,
     client: &Client,
     response: &CheckResponse,
     app_id: &str,
@@ -582,7 +550,7 @@ fn download_and_install(
     };
     let (manifest_path, payload_path) =
         download_patch_files(client, patch, app_id, release_version, platform, arch)?;
-    install(&manifest_path, &payload_path, cache_dir)
+    install(context, &manifest_path, &payload_path, cache_dir)
 }
 
 fn download_patch_files(
@@ -626,14 +594,24 @@ fn ensure_hash(label: &str, bytes: &[u8], expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Result<()> {
-    let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
+fn install(
+    context: &ResolvedContext,
+    manifest_path: &Path,
+    payload_path: &Path,
+    cache_dir: &Path,
+) -> Result<()> {
     let manifest: PatchManifest = manifest::read_json(manifest_path)?;
-    let app = config.app(&manifest.app_id)?;
-    let public_key = fs::read_to_string(
-        fcb_dir()
-            .join("keys")
-            .join(format!("{}.public", app.security.public_key_id)),
+    enforce_secure_server(&context.server)?;
+    let app =
+        authed_client(&context.server, context.token.as_deref())?.get_app(&manifest.app_id)?;
+    if app.public_key.trim().is_empty() {
+        return Err(err(format!("app {} has no public_key", manifest.app_id)));
+    }
+    ensure_pinned_public_key(
+        cache_dir,
+        &context.server,
+        &manifest.app_id,
+        app.public_key.trim(),
     )?;
     let baseline_path = release_artifact_path(
         &manifest.app_id,
@@ -647,7 +625,7 @@ fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Resul
     Updater::new(cache_dir).install_payload_with_baseline(
         manifest_path,
         payload_path,
-        public_key.trim(),
+        app.public_key.trim(),
         baseline,
     )?;
     println!("installed patch into {}", cache_dir.display());
@@ -716,8 +694,13 @@ fn snapshot_replace_diff_base(
     Err(err(format!(
         "missing base artifact for snapshot_replace patch {patch_number}: \
          expected {} or {}",
-        patch_artifact_path(release_version, patch_number.saturating_sub(1), platform, arch)
-            .display(),
+        patch_artifact_path(
+            release_version,
+            patch_number.saturating_sub(1),
+            platform,
+            arch
+        )
+        .display(),
         release.display(),
     )))
 }
@@ -751,11 +734,154 @@ fn release_artifact_bytes(example: Option<&Path>) -> Result<Vec<u8>> {
     Ok(b"fcb baseline artifact\n".to_vec())
 }
 
-fn backend_for(config: &AppConfig, platform: &str) -> String {
-    match platform {
-        "ios" => config.platforms.ios.backend.clone(),
-        _ => config.platforms.android.backend.clone(),
+fn backend_for(config: &RemoteAppConfig, platform: &str) -> Result<String> {
+    let entry = config.platform(platform).ok_or_else(|| {
+        err(format!(
+            "app {} does not define platform {platform}",
+            config.id
+        ))
+    })?;
+    if !entry.enabled {
+        return Err(err(format!(
+            "platform {platform} is disabled for app {}",
+            config.id
+        )));
     }
+    Ok(entry.backend.clone())
+}
+
+fn load_private_key(path: &Path) -> Result<String> {
+    crypto::private_key_seed_b64(&fs::read_to_string(path)?)
+}
+
+fn resolve_app(client: &Client, context: &ResolvedContext) -> Result<RemoteAppConfig> {
+    if let Some(app_id) = context
+        .app_id
+        .as_deref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return client.get_app(app_id);
+    }
+    let app = context
+        .app
+        .as_deref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| err("app required; pass --app, set FCB_APP, or add app to fcb.yaml"))?;
+    client.resolve_app(app)
+}
+
+fn ensure_pinned_public_key(
+    cache_dir: &Path,
+    server: &str,
+    app_id: &str,
+    public_key: &str,
+) -> Result<()> {
+    let pins_dir = cache_dir.join("trusted_keys");
+    fs::create_dir_all(&pins_dir)?;
+    let pin_scope = format!("{}__{}", safe_filename(server), safe_filename(app_id));
+    let pin_path = pins_dir.join(format!("{pin_scope}.sha256"));
+    let fingerprint = crypto::sha256_hex(public_key.as_bytes());
+    if pin_path.exists() {
+        let pinned = fs::read_to_string(&pin_path)?;
+        if pinned.trim() != fingerprint {
+            return Err(err(format!(
+                "public key fingerprint mismatch for app {app_id}; refusing to install"
+            )));
+        }
+        return Ok(());
+    }
+    fs::write(pin_path, format!("{fingerprint}\n"))?;
+    Ok(())
+}
+
+fn enforce_secure_server(server: &str) -> Result<()> {
+    if server.starts_with("https://") {
+        return Ok(());
+    }
+    if let Some(rest) = server.strip_prefix("http://") {
+        let host_port = rest.split('/').next().unwrap_or(rest);
+        let host = host_port
+            .strip_prefix('[')
+            .and_then(|value| value.split(']').next())
+            .unwrap_or_else(|| host_port.split(':').next().unwrap_or(host_port));
+        if matches!(host, "localhost" | "127.0.0.1" | "::1") {
+            return Ok(());
+        }
+    }
+    Err(err(
+        "HTTPS is required when fetching public keys from non-localhost servers",
+    ))
+}
+
+fn safe_filename(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn load_local_context(path: &Path) -> Result<Option<LocalAppContext>> {
+    match LocalAppContext::read_yaml(path) {
+        Ok(context) => Ok(Some(context)),
+        Err(fcb_core::Error::Io(err)) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+fn resolve_key_path(config_dir: &Path, path: &Path) -> PathBuf {
+    let expanded = expand_home(path);
+    if expanded.is_absolute() {
+        expanded
+    } else {
+        config_dir.join(expanded)
+    }
+}
+
+fn expand_home(path: &Path) -> PathBuf {
+    let value = path.to_string_lossy();
+    if value == "~" {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home);
+        }
+    } else if let Some(rest) = value.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
+fn path_for_context(config_path: &Path, path: &Path) -> String {
+    let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+    path.strip_prefix(config_dir)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string()
+}
+
+fn default_platforms() -> Vec<RemotePlatformEntry> {
+    vec![
+        RemotePlatformEntry {
+            platform: "android".to_string(),
+            enabled: true,
+            backend: "snapshot_replace".to_string(),
+            abi: vec!["arm64-v8a".to_string(), "x86_64".to_string()],
+        },
+        RemotePlatformEntry {
+            platform: "ios".to_string(),
+            enabled: true,
+            backend: "bytecode".to_string(),
+            abi: Vec::new(),
+        },
+    ]
 }
 
 fn authed_client(server: &str, token: Option<&str>) -> Result<Client> {

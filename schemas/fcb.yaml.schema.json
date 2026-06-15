@@ -1,85 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "FCB config",
+  "$id": "https://raw.githubusercontent.com/lollipopkit/fl_codepush_box/main/schemas/fcb.yaml.schema.json",
+  "title": "FCB CLI Context",
   "type": "object",
-  "required": ["active_app_id", "apps"],
   "additionalProperties": false,
+  "required": ["app", "server", "key_file"],
   "properties": {
-    "active_app_id": {
-      "type": "string"
+    "app": {
+      "type": "string",
+      "minLength": 1,
+      "description": "App name or app id used by the FCB CLI."
     },
-    "apps": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": ["id", "name", "channel", "update", "security", "platforms"],
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "channel": {
-            "type": "string"
-          },
-          "update": {
-            "type": "object",
-            "required": ["check_on_startup", "activation"],
-            "properties": {
-              "check_on_startup": {
-                "type": "boolean"
-              },
-              "activation": {
-                "type": "string"
-              }
-            }
-          },
-          "security": {
-            "type": "object",
-            "required": ["public_key_id"],
-            "properties": {
-              "public_key_id": {
-                "type": "string"
-              }
-            }
-          },
-          "platforms": {
-            "type": "object",
-            "required": ["android", "ios"],
-            "properties": {
-              "android": {
-                "$ref": "#/$defs/platform"
-              },
-              "ios": {
-                "$ref": "#/$defs/platform"
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "$defs": {
-    "platform": {
-      "type": "object",
-      "required": ["enabled", "backend", "abi"],
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "backend": {
-          "type": "string"
-        },
-        "abi": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
+    "server": {
+      "type": "string",
+      "minLength": 1,
+      "description": "FCB server URL."
+    },
+    "key_file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the local Ed25519 private key, relative to this fcb.yaml unless absolute or ~-prefixed."
     }
   }
 }

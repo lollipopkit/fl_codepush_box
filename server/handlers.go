@@ -249,6 +249,47 @@ func (s *Server) adminGetApp(c *fiber.Ctx) error {
 	return c.JSON(app)
 }
 
+func (s *Server) getAppByID(c *fiber.Ctx) error {
+	app, err := s.getApp(c.Params("id"))
+	if err != nil {
+		if notFound(err) {
+			return fiber.NewError(fiber.StatusNotFound, "app not found")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(app)
+}
+
+func (s *Server) resolveApp(c *fiber.Ctx) error {
+	selector := c.Query("app")
+	if selector == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "missing app")
+	}
+	if app, err := s.getApp(selector); err == nil {
+		return c.JSON(app)
+	} else if !notFound(err) {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	apps, err := s.findAppsByName(selector)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if len(apps) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "app not found")
+	}
+	if len(apps) > 1 {
+		ids := make([]string, 0, len(apps))
+		for _, app := range apps {
+			ids = append(ids, app.ID)
+		}
+		return c.Status(fiber.StatusConflict).JSON(map[string]any{
+			"error": "app name is ambiguous; use --app-id",
+			"ids":   ids,
+		})
+	}
+	return c.JSON(apps[0])
+}
+
 func (s *Server) adminUpdateApp(c *fiber.Ctx) error {
 	var app App
 	if err := c.BodyParser(&app); err != nil {
@@ -341,7 +382,7 @@ func (s *Server) ensureApp(appID string) error {
 	} else if !notFound(err) {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return s.putApp(App{ID: appID, Name: appID, Config: jsonObject{}})
+	return s.putApp(App{ID: appID, Name: appID})
 }
 
 func respondErr(c *fiber.Ctx, err error) error {

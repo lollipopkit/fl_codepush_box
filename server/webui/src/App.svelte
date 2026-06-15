@@ -1,8 +1,17 @@
 <script lang="ts">
+  type AppPlatform = {
+    platform: string;
+    enabled: boolean;
+    backend: string;
+    abi: string[];
+  };
+
   type AppConfig = {
     id: string;
     name: string;
-    config?: Record<string, unknown>;
+    channel: string;
+    public_key: string;
+    platforms?: AppPlatform[];
   };
 
   type ReleaseManifest = {
@@ -59,8 +68,15 @@
   // State for config editor
   let showConfig = false;
   let isEditingConfig = false;
-  let configJsonInput = '{}';
   let appNameInput = '';
+  let channelInput = 'stable';
+  let publicKeyInput = '';
+  let androidEnabled = true;
+  let androidBackend = 'snapshot_replace';
+  let androidAbi = ['arm64-v8a', 'x86_64'];
+  let iosEnabled = true;
+  let iosBackend = 'bytecode';
+  const androidAbiOptions = ['arm64-v8a', 'x86_64', 'armeabi-v7a'];
 
   // State for app deletion confirmation
   let showDeleteConfirmModal = false;
@@ -165,6 +181,7 @@
     }
     const app = apps.find((app) => app.id === selectedAppId);
     appNameInput = app?.name ?? '';
+    hydrateConfigForm(app);
 
     releases =
       (await request<ReleaseManifest[] | null>(`/api/admin/apps/${encodeURIComponent(selectedAppId)}/releases`)) ?? [];
@@ -179,9 +196,6 @@
       }
     });
 
-    if (app) {
-      configJsonInput = JSON.stringify(app.config ?? {}, null, 2);
-    }
   }
 
   async function loadTokens() {
@@ -192,7 +206,13 @@
     await run(async () => {
       await request('/api/admin/apps', {
         method: 'POST',
-        body: JSON.stringify({ id: newAppId, name: newAppName || newAppId, config: {} })
+        body: JSON.stringify({
+          id: newAppId,
+          name: newAppName || newAppId,
+          channel: 'stable',
+          public_key: '',
+          platforms: defaultPlatforms()
+        })
       });
       showToast(`App "${newAppName || newAppId}" created`);
       newAppName = '';
@@ -203,19 +223,18 @@
 
   async function updateAppConfig() {
     await run(async () => {
-      let parsedConfig = {};
-      try {
-        parsedConfig = JSON.parse(configJsonInput);
-      } catch (e) {
-        throw new Error("Invalid JSON in configuration");
-      }
-
       const app = apps.find(a => a.id === selectedAppId);
       const name = appNameInput || app?.name || selectedAppId;
 
       await request(`/api/admin/apps/${encodeURIComponent(selectedAppId)}`, {
         method: 'PUT',
-        body: JSON.stringify({ name, config: parsedConfig })
+        body: JSON.stringify({
+          id: selectedAppId,
+          name,
+          channel: channelInput || 'stable',
+          public_key: publicKeyInput,
+          platforms: formPlatforms()
+        })
       });
 
       isEditingConfig = false;
@@ -300,6 +319,49 @@
     } catch (err) {
       showToast(`Failed to copy ${label}`);
     }
+  }
+
+  function defaultPlatforms(): AppPlatform[] {
+    return [
+      { platform: 'android', enabled: true, backend: 'snapshot_replace', abi: ['arm64-v8a', 'x86_64'] },
+      { platform: 'ios', enabled: true, backend: 'bytecode', abi: [] }
+    ];
+  }
+
+  function platformEntry(app: AppConfig | undefined, name: string): AppPlatform | undefined {
+    return app?.platforms?.find(platform => platform.platform === name);
+  }
+
+  function hydrateConfigForm(app: AppConfig | undefined) {
+    appNameInput = app?.name ?? '';
+    channelInput = app?.channel || 'stable';
+    publicKeyInput = app?.public_key || '';
+    const android = platformEntry(app, 'android') ?? defaultPlatforms()[0];
+    const ios = platformEntry(app, 'ios') ?? defaultPlatforms()[1];
+    androidEnabled = android.enabled;
+    androidBackend = android.backend || 'snapshot_replace';
+    androidAbi = android.abi?.length ? [...android.abi] : ['arm64-v8a', 'x86_64'];
+    iosEnabled = ios.enabled;
+    iosBackend = ios.backend || 'bytecode';
+  }
+
+  function formPlatforms(): AppPlatform[] {
+    return [
+      { platform: 'android', enabled: androidEnabled, backend: androidBackend, abi: androidAbi },
+      { platform: 'ios', enabled: iosEnabled, backend: iosBackend, abi: [] }
+    ];
+  }
+
+  function toggleAndroidAbi(abi: string, checked: boolean) {
+    androidAbi = checked
+      ? Array.from(new Set([...androidAbi, abi]))
+      : androidAbi.filter(item => item !== abi);
+  }
+
+  function shortKey(value: string): string {
+    if (!value) return 'No public key registered';
+    if (value.length <= 24) return value;
+    return `${value.slice(0, 12)}...${value.slice(-8)}`;
   }
 
   function formatBytes(bytes: number): string {
@@ -509,34 +571,81 @@
                   </label>
                 </div>
 
-                <label>
-                  Config JSON
-                  {#if isEditingConfig}
-                    <textarea
-                      bind:value={configJsonInput}
-                      style="font-family: var(--font-mono); font-size: 13px;"
-                      placeholder="&#123;&#125;"
-                    ></textarea>
-                  {:else}
-                    <div class="codeblock-container">
-                      <div class="codeblock-header">
-                        <span>JSON</span>
-                        <button class="copy-icon-btn" title="Copy configuration" on:click={() => copyToClipboard(configJsonInput, 'App Configuration')}>
+                <div class="config-form-grid">
+                  <label>
+                    Channel
+                    <input bind:value={channelInput} disabled={!isEditingConfig} placeholder="stable" />
+                  </label>
+
+                  <label>
+                    Public Key
+                    <div class="copyable-field public-key-field">
+                      <span class="hash-display" title={publicKeyInput}>{shortKey(publicKeyInput)}</span>
+                      {#if publicKeyInput}
+                        <button class="copy-icon-btn" title="Copy public key" on:click={() => copyToClipboard(publicKeyInput, 'Public Key')}>
                           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         </button>
-                      </div>
-                      <pre class="json-code">{configJsonInput}</pre>
+                      {/if}
                     </div>
-                  {/if}
-                </label>
+                  </label>
+                </div>
+
+                <div class="platform-config-grid">
+                  <section class="platform-panel">
+                    <div class="platform-panel-header">
+                      <h3>Android</h3>
+                      <label class="toggle-row">
+                        <input type="checkbox" bind:checked={androidEnabled} disabled={!isEditingConfig} />
+                        Enabled
+                      </label>
+                    </div>
+                    <label>
+                      Backend
+                      <select bind:value={androidBackend} disabled={!isEditingConfig}>
+                        <option value="snapshot_replace">snapshot_replace</option>
+                        <option value="bytecode">bytecode</option>
+                      </select>
+                    </label>
+                    <div class="checkbox-group">
+                      <span>ABI</span>
+                      {#each androidAbiOptions as abi}
+                        <label class="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={androidAbi.includes(abi)}
+                            disabled={!isEditingConfig}
+                            on:change={(e) => toggleAndroidAbi(abi, e.currentTarget.checked)}
+                          />
+                          {abi}
+                        </label>
+                      {/each}
+                    </div>
+                  </section>
+
+                  <section class="platform-panel">
+                    <div class="platform-panel-header">
+                      <h3>iOS</h3>
+                      <label class="toggle-row">
+                        <input type="checkbox" bind:checked={iosEnabled} disabled={!isEditingConfig} />
+                        Enabled
+                      </label>
+                    </div>
+                    <label>
+                      Backend
+                      <select bind:value={iosBackend} disabled={!isEditingConfig}>
+                        <option value="snapshot_replace">snapshot_replace</option>
+                        <option value="bytecode">bytecode</option>
+                      </select>
+                    </label>
+                  </section>
+                </div>
 
                 {#if isEditingConfig}
                   <div class="config-actions">
                     <button class="secondary" on:click={() => {
                       isEditingConfig = false;
                       const app = apps.find(a => a.id === selectedAppId);
-                      appNameInput = app?.name ?? '';
-                      configJsonInput = JSON.stringify(app?.config ?? {}, null, 2);
+                      hydrateConfigForm(app);
                     }}>Cancel</button>
                     <button on:click={updateAppConfig}>Save Changes</button>
                   </div>

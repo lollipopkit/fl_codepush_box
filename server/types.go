@@ -3,14 +3,21 @@ package main
 import "time"
 
 type App struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Config    jsonObject `json:"config,omitempty"`
-	CreatedAt time.Time  `json:"created_at,omitempty"`
-	UpdatedAt time.Time  `json:"updated_at,omitempty"`
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	Channel   string        `json:"channel"`
+	PublicKey string        `json:"public_key"`
+	Platforms []AppPlatform `json:"platforms,omitempty"`
+	CreatedAt time.Time     `json:"created_at,omitempty"`
+	UpdatedAt time.Time     `json:"updated_at,omitempty"`
 }
 
-type jsonObject map[string]any
+type AppPlatform struct {
+	Platform string   `json:"platform"`
+	Enabled  bool     `json:"enabled"`
+	Backend  string   `json:"backend"`
+	ABI      []string `json:"abi"`
+}
 
 type ReleaseManifest struct {
 	SchemaVersion  int    `json:"schema_version"`

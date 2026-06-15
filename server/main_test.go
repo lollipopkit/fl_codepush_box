@@ -59,6 +59,7 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer server.Close()
 	token := mustToken(t, server)
 	app := buildApp(server)
 	payload := []byte("payload")
@@ -137,6 +138,63 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 	}
 	if !strings.Contains(check.Patch.PayloadURL, "updates.local:9090") || !strings.Contains(check.Patch.ManifestURL, "updates.local:9090") {
 		t.Fatalf("download URLs should preserve host port: %+v", check.Patch)
+	}
+}
+
+func TestResolveAppByIDOrName(t *testing.T) {
+	server, err := NewServer(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := mustToken(t, server)
+	app := buildApp(server)
+
+	doJSONAuth(t, app, http.MethodPost, "/v1/apps", App{ID: "app-a", Name: "Counter"}, token, http.StatusOK)
+	doJSONAuth(t, app, http.MethodPost, "/v1/apps", App{ID: "app-b", Name: "Other"}, token, http.StatusOK)
+
+	for _, path := range []string{"/v1/apps/resolve?app=app-a", "/v1/apps/resolve?app=Counter"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("%s returned HTTP %d: %s", path, resp.StatusCode, string(body))
+		}
+		var resolved App
+		if err := json.NewDecoder(resp.Body).Decode(&resolved); err != nil {
+			t.Fatal(err)
+		}
+		if resolved.ID != "app-a" {
+			t.Fatalf("%s resolved %q, want app-a", path, resolved.ID)
+		}
+	}
+
+	doJSONAuth(t, app, http.MethodPost, "/v1/apps", App{ID: "app-c", Name: "Counter"}, token, http.StatusOK)
+	req := httptest.NewRequest(http.MethodGet, "/v1/apps/resolve?app=Counter", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("ambiguous name returned HTTP %d, want 409: %s", resp.StatusCode, string(body))
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/apps/resolve?app=missing", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing app returned HTTP %d, want 404", resp.StatusCode)
 	}
 }
 
