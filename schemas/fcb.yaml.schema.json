@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/fcb.yaml.schema.json",
+  "title": "FCB CLI Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["app", "server", "key_file"],
+  "properties": {
+    "app": {
+      "type": "string",
+      "minLength": 1,
+      "description": "App name or app id used by the FCB CLI."
+    },
+    "server": {
+      "type": "string",
+      "minLength": 1,
+      "description": "FCB server URL."
+    },
+    "key_file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the local Ed25519 private key, relative to this fcb.yaml unless absolute or ~-prefixed."
+    }
+  }
+}

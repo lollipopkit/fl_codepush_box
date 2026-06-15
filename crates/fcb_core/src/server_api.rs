@@ -86,6 +86,28 @@ impl Client {
         self.get_json(&format!("/v1/apps/{app_id}"))
     }
 
+    pub fn resolve_app(&self, selector: &str) -> Result<RemoteAppConfig> {
+        let url = format!("{}/v1/apps/resolve", self.base_url);
+        let request = self.agent.get(&url).query("app", selector);
+        let request = if let Some(token) = &self.token {
+            request.header("Authorization", &format!("Bearer {token}"))
+        } else {
+            request
+        };
+        let response = request.call();
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                Ok(resp.into_body().read_json().map_err(Box::new)?)
+            }
+            Ok(mut resp) => {
+                let code = resp.status().as_u16();
+                let body = resp.body_mut().read_to_string().unwrap_or_default();
+                Err(err(format!("server returned HTTP {code}: {body}")))
+            }
+            Err(e) => Err(Error::Http(Box::new(e))),
+        }
+    }
+
     pub fn create_release(&self, manifest: &ReleaseManifest) -> Result<()> {
         self.post_json("/v1/releases", manifest)
     }

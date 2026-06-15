@@ -309,6 +309,34 @@ func (s *Server) getApp(id string) (App, error) {
 	return app, nil
 }
 
+func (s *Server) findAppsByName(name string) ([]App, error) {
+	rows, err := s.db.Query(`select id from apps where name = ? order by id`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	apps := make([]App, 0, len(ids))
+	for _, id := range ids {
+		app, err := s.getApp(id)
+		if err != nil {
+			return nil, err
+		}
+		apps = append(apps, app)
+	}
+	return apps, nil
+}
+
 func (s *Server) listApps() ([]App, error) {
 	rows, err := s.db.Query(`select id, name, channel, public_key, created_at, updated_at from apps order by name, id`)
 	if err != nil {

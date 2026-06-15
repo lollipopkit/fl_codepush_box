@@ -102,6 +102,7 @@ func buildApp(server *Server) *fiber.App {
 	admin.Delete("/tokens/:id", server.adminRevokeToken)
 
 	app.Post("/v1/apps", server.requireBearer, server.createApp)
+	app.Get("/v1/apps/resolve", server.requireBearer, server.resolveApp)
 	app.Get("/v1/apps/:id", server.requireBearer, server.getAppByID)
 	app.Post("/v1/releases", server.requireBearer, server.createRelease)
 	app.Post("/v1/patches", server.requireBearer, server.createPatch)

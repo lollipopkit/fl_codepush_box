@@ -8,6 +8,7 @@
 /server/webui/dist/
 .fcb/
 fcb.yaml
+!examples/counter_app/fcb.yaml
 *.tmp
 .dart_tool/
 .flutter-plugins-dependencies

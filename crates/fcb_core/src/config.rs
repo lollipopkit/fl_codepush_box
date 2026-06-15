@@ -1,4 +1,43 @@
+use crate::{err, Result};
 use serde::{Deserialize, Serialize};
+use std::{fs, path::Path};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalAppContext {
+    pub app: String,
+    pub server: String,
+    pub key_file: String,
+}
+
+impl LocalAppContext {
+    pub fn read_yaml(path: &Path) -> Result<Self> {
+        let source = fs::read_to_string(path)?;
+        let context: Self = serde_yaml::from_str(&source)?;
+        context.validate()?;
+        Ok(context)
+    }
+
+    pub fn write_yaml(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, serde_yaml::to_string(self)?)?;
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.app.trim().is_empty() {
+            return Err(err("fcb.yaml missing app"));
+        }
+        if self.server.trim().is_empty() {
+            return Err(err("fcb.yaml missing server"));
+        }
+        if self.key_file.trim().is_empty() {
+            return Err(err("fcb.yaml missing key_file"));
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteAppConfig {
@@ -34,7 +73,7 @@ impl RemoteAppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{RemoteAppConfig, RemotePlatformEntry};
+    use super::{LocalAppContext, RemoteAppConfig, RemotePlatformEntry};
 
     #[test]
     fn selects_platforms() {
@@ -64,5 +103,22 @@ mod tests {
             "snapshot_replace"
         );
         assert_eq!(config.enabled_platforms().len(), 1);
+    }
+
+    #[test]
+    fn local_context_yaml_roundtrip() {
+        let context = LocalAppContext {
+            app: "Counter App".to_string(),
+            server: "http://127.0.0.1:8080".to_string(),
+            key_file: "~/.ssh/id_ed25519".to_string(),
+        };
+        let parsed: LocalAppContext =
+            serde_yaml::from_str(&serde_yaml::to_string(&context).expect("serialize"))
+                .expect("parse yaml");
+
+        assert_eq!(parsed.app, context.app);
+        assert_eq!(parsed.server, context.server);
+        assert_eq!(parsed.key_file, context.key_file);
+        parsed.validate().expect("valid context");
     }
 }
