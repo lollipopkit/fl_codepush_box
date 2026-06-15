@@ -393,32 +393,23 @@ fn patch(
         format!("fcb patch {patch_number} for {release_version}\n").into_bytes()
     };
     let backend = backend_for(app, platform);
-    let baseline_path = release_artifact_path(&app.id, release_version, platform, arch);
-    let baseline = if backend == "snapshot_replace" && baseline_path.exists() {
-        Some(fs::read(&baseline_path)?)
-    } else {
-        None
-    };
     let (payload_bytes, payload_kind, diff_algorithm, base_hash, output_hash) =
         if backend == "snapshot_replace" {
-            let Some(base) = baseline.as_deref() else {
-                return Err(err(format!(
-                    "missing baseline artifact for snapshot_replace: {}",
-                    baseline_path.display()
-                )));
-            };
+            let base = snapshot_replace_diff_base(
+                &app.id, release_version, platform, arch, patch_number,
+            )?;
             (
-                diff::create_bsdiff_zstd(base, &target_artifact)?,
+                diff::create_bsdiff_zstd(&base, &target_artifact)?,
                 "binary_diff",
                 Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
-                Some(crypto::sha256_hex(base)),
+                Some(crypto::sha256_hex(&base)),
                 Some(crypto::sha256_hex(&target_artifact)),
             )
         } else if backend == "bytecode" {
             let module = compile_or_read_bytecode_module(&target_artifact)?;
             (module.to_vec()?, "bytecode_module", None, None, None)
         } else {
-            (target_artifact, "opaque_payload", None, None, None)
+            return Err(err(format!("unsupported patch backend: {backend}")));
         };
     let out = fcb_dir()
         .join("patches")
@@ -428,6 +419,9 @@ fn patch(
         .join(arch);
     fs::create_dir_all(&out)?;
     fs::write(out.join("payload.bin"), &payload_bytes)?;
+    if backend == "snapshot_replace" {
+        fs::write(out.join("artifact.bin"), &target_artifact)?;
+    }
     let payload_hash = crypto::sha256_hex(&payload_bytes);
     let public_key_id = app.security.public_key_id.clone();
     let private_key = fs::read_to_string(
@@ -634,30 +628,22 @@ fn ensure_hash(label: &str, bytes: &[u8], expected: &str) -> Result<()> {
 
 fn install(manifest_path: &Path, payload_path: &Path, cache_dir: &Path) -> Result<()> {
     let config = FcbConfig::read_yaml(Path::new("fcb.yaml"))?;
-    let app = config.app(&manifest::read_json::<PatchManifest>(manifest_path)?.app_id)?;
+    let manifest: PatchManifest = manifest::read_json(manifest_path)?;
+    let app = config.app(&manifest.app_id)?;
     let public_key = fs::read_to_string(
         fcb_dir()
             .join("keys")
             .join(format!("{}.public", app.security.public_key_id)),
     )?;
-    let manifest: PatchManifest = manifest::read_json(manifest_path)?;
     let baseline_path = release_artifact_path(
         &manifest.app_id,
         &manifest.release_version,
         &manifest.platform,
         &manifest.arch,
     );
-    let baseline = if manifest.payload.kind == "binary_diff" {
-        if !baseline_path.exists() {
-            return Err(err(format!(
-                "missing baseline artifact for binary diff: {}",
-                baseline_path.display()
-            )));
-        }
-        Some(baseline_path.as_path())
-    } else {
-        None
-    };
+    // Pass the release artifact as fallback baseline when available.
+    // The Updater will check installed patch artifacts first for chained diffs.
+    let baseline = baseline_path.exists().then_some(baseline_path.as_path());
     Updater::new(cache_dir).install_payload_with_baseline(
         manifest_path,
         payload_path,
@@ -693,6 +679,47 @@ fn release_artifact_path(
         .join(platform)
         .join(arch)
         .join("artifact.bin")
+}
+
+fn patch_artifact_path(
+    release_version: &str,
+    patch_number: u32,
+    platform: &str,
+    arch: &str,
+) -> PathBuf {
+    fcb_dir()
+        .join("patches")
+        .join(release_version)
+        .join(patch_number.to_string())
+        .join(platform)
+        .join(arch)
+        .join("artifact.bin")
+}
+
+fn snapshot_replace_diff_base(
+    app_id: &str,
+    release_version: &str,
+    platform: &str,
+    arch: &str,
+    patch_number: u32,
+) -> Result<Vec<u8>> {
+    if patch_number > 1 {
+        let prev = patch_artifact_path(release_version, patch_number - 1, platform, arch);
+        if prev.exists() {
+            return Ok(fs::read(&prev)?);
+        }
+    }
+    let release = release_artifact_path(app_id, release_version, platform, arch);
+    if release.exists() {
+        return Ok(fs::read(&release)?);
+    }
+    Err(err(format!(
+        "missing base artifact for snapshot_replace patch {patch_number}: \
+         expected {} or {}",
+        patch_artifact_path(release_version, patch_number.saturating_sub(1), platform, arch)
+            .display(),
+        release.display(),
+    )))
 }
 
 fn inspect(kind: &str, path: &Path) -> Result<()> {

@@ -47,7 +47,7 @@ fi
 echo "=== Init ==="
 cd "$WORKDIR"
 "$FCB" init
-APP_ID=$(grep 'active_app_id:' fcb.yaml | sed 's/active_app_id:[[:space:]]*//; s/"//g')
+APP_ID=$(awk -F':[[:space:]]*' '$1 == "app_id" { print $2; found=1; exit } $1 == "active_app_id" { fallback=$2 } END { if (!found && fallback != "") print fallback }' fcb.yaml | tr -d '"')
 
 echo "=== Server setup ==="
 SETUP_RESULT=$(curl -s -X POST "http://$SERVER_ADDR/api/auth/setup" \

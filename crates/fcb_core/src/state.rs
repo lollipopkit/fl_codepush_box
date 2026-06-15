@@ -102,15 +102,21 @@ impl Updater {
         fs::create_dir_all(&patch_dir)?;
         atomic_write_bytes(&patch_dir.join("manifest.json"), &fs::read(manifest_path)?)?;
         atomic_write_bytes(&patch_dir.join("payload.bin"), &payload)?;
+
+        let mut state = self.load_state()?;
         let artifact_path = if manifest.backend == "snapshot_replace" {
-            let artifact = snapshot_replace_artifact(&manifest, &payload, baseline_artifact_path)?;
+            let artifact = snapshot_replace_chained_diff(
+                &manifest,
+                &payload,
+                &state.installed,
+                &self.cache_dir,
+                baseline_artifact_path,
+            )?;
             atomic_write_bytes(&patch_dir.join("libapp.so"), &artifact)?;
             Some(format!("patches/{}/libapp.so", manifest.patch_number))
         } else {
             None
         };
-
-        let mut state = self.load_state()?;
         state.schema_version = 1;
         state.release_version = manifest.release_version.clone();
         state.pending_patch_number = Some(manifest.patch_number);
@@ -260,10 +266,17 @@ fn validate_payload_contract(manifest: &PatchManifest, payload: &[u8]) -> Result
             validate_bytecode_module_payload(payload)
         }
         "snapshot_replace" => {
-            if manifest.payload.kind == "bytecode_module" {
-                return Err(err(
-                    "snapshot_replace backend cannot install bytecode_module payload",
-                ));
+            if manifest.payload.kind != "binary_diff" {
+                return Err(err("snapshot_replace backend requires binary_diff payload"));
+            }
+            if manifest.payload.diff_algorithm.is_none() {
+                return Err(err("snapshot_replace binary_diff requires diff_algorithm"));
+            }
+            if manifest.payload.base_hash.is_none() {
+                return Err(err("snapshot_replace binary_diff requires base_hash"));
+            }
+            if manifest.payload.output_hash.is_none() {
+                return Err(err("snapshot_replace binary_diff requires output_hash"));
             }
             Ok(())
         }
@@ -271,38 +284,65 @@ fn validate_payload_contract(manifest: &PatchManifest, payload: &[u8]) -> Result
     }
 }
 
-fn snapshot_replace_artifact(
+fn snapshot_replace_chained_diff(
     manifest: &PatchManifest,
     payload: &[u8],
+    installed: &[InstalledPatch],
+    cache_dir: &Path,
     baseline_artifact_path: Option<&Path>,
 ) -> Result<Vec<u8>> {
-    match manifest.payload.kind.as_str() {
-        "snapshot_replace_artifact" | "opaque_payload" => Ok(payload.to_vec()),
-        "binary_diff" => {
-            let Some(diff_algorithm) = manifest.payload.diff_algorithm.as_deref() else {
-                return Err(err("missing binary diff algorithm"));
-            };
-            let Some(baseline_artifact_path) = baseline_artifact_path else {
-                return Err(err("baseline artifact required for binary diff"));
-            };
-            let baseline = fs::read(baseline_artifact_path)?;
-            if let Some(expected_base_hash) = &manifest.payload.base_hash {
-                let actual_base_hash = crypto::sha256_hex(&baseline);
-                if &actual_base_hash != expected_base_hash {
-                    return Err(err("base artifact sha256 mismatch"));
-                }
-            }
-            let artifact = diff::apply_binary_diff(diff_algorithm, &baseline, payload)?;
-            if let Some(expected_output_hash) = &manifest.payload.output_hash {
-                let actual_output_hash = crypto::sha256_hex(&artifact);
-                if &actual_output_hash != expected_output_hash {
-                    return Err(err("patched artifact sha256 mismatch"));
-                }
-            }
-            Ok(artifact)
+    let diff_algorithm = manifest
+        .payload
+        .diff_algorithm
+        .as_deref()
+        .ok_or_else(|| err("missing binary diff algorithm"))?;
+    let expected_base_hash = manifest
+        .payload
+        .base_hash
+        .as_deref()
+        .ok_or_else(|| err("snapshot_replace binary_diff requires base_hash"))?;
+
+    let base = find_diff_base(expected_base_hash, installed, cache_dir, baseline_artifact_path)?;
+    let artifact = diff::apply_binary_diff(diff_algorithm, &base, payload)?;
+
+    if let Some(expected_output_hash) = &manifest.payload.output_hash {
+        let actual_output_hash = crypto::sha256_hex(&artifact);
+        if actual_output_hash != *expected_output_hash {
+            return Err(err("patched artifact sha256 mismatch"));
         }
-        _ => Err(err("unsupported snapshot_replace payload kind")),
     }
+    Ok(artifact)
+}
+
+fn find_diff_base(
+    expected_hash: &str,
+    installed: &[InstalledPatch],
+    cache_dir: &Path,
+    baseline_artifact_path: Option<&Path>,
+) -> Result<Vec<u8>> {
+    for patch in installed.iter().rev() {
+        let Some(artifact_rel) = &patch.artifact_path else {
+            continue;
+        };
+        let Ok(candidate) = fs::read(cache_dir.join(artifact_rel)) else {
+            continue;
+        };
+        if crypto::sha256_hex(&candidate) == expected_hash {
+            return Ok(candidate);
+        }
+    }
+    let Some(baseline_path) = baseline_artifact_path else {
+        return Err(err(
+            "no installed patch artifact matches base_hash and no baseline artifact provided",
+        ));
+    };
+    let baseline = fs::read(baseline_path)?;
+    if crypto::sha256_hex(&baseline) != expected_hash {
+        return Err(err(
+            "baseline artifact sha256 does not match manifest base_hash",
+        ));
+    }
+    Ok(baseline)
 }
 
 fn validate_bytecode_module_payload(payload: &[u8]) -> Result<()> {
@@ -671,6 +711,171 @@ mod tests {
             .expect("launch patch")
             .expect("installed patch");
         assert_eq!(launch.artifact_path.as_deref(), Some("patches/2/libapp.so"));
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+        let _ = std::fs::remove_dir_all(input_dir);
+    }
+
+    #[test]
+    fn install_snapshot_replace_chained_uses_previous_patch_artifact() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let input_dir =
+            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+
+        let baseline = b"v0";
+        let v1 = b"v0v1";
+        let v2 = b"v0v1v2";
+        let baseline_path = input_dir.join("baseline.bin");
+        std::fs::write(&baseline_path, baseline).expect("write baseline");
+
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+
+        // Install patch 1: diff from baseline -> v1
+        let diff1 = diff::create_bsdiff_zstd(baseline, v1).expect("diff1");
+        let mut patch1 = make_snapshot_patch(
+            &private_key, 1,
+            crypto::sha256_hex(baseline),
+            crypto::sha256_hex(v1),
+            &diff1,
+        );
+        manifest::sign_patch_manifest(&mut patch1, &private_key).expect("sign1");
+        let manifest1_path = input_dir.join("m1.json");
+        let payload1_path = input_dir.join("p1.bin");
+        manifest::write_json(&manifest1_path, &patch1).expect("write manifest1");
+        std::fs::write(&payload1_path, &diff1).expect("write payload1");
+
+        let updater = Updater::new(&cache_dir);
+        updater
+            .install_payload_with_baseline(&manifest1_path, &payload1_path, &public_key, Some(&baseline_path))
+            .expect("install patch 1");
+
+        assert_eq!(
+            std::fs::read(cache_dir.join("patches/1/libapp.so")).expect("v1 artifact"),
+            v1
+        );
+
+        // Install patch 2: diff from v1 -> v2 (no baseline_path needed; uses patch 1 artifact)
+        let diff2 = diff::create_bsdiff_zstd(v1, v2).expect("diff2");
+        let mut patch2 = make_snapshot_patch(
+            &private_key, 2,
+            crypto::sha256_hex(v1),
+            crypto::sha256_hex(v2),
+            &diff2,
+        );
+        manifest::sign_patch_manifest(&mut patch2, &private_key).expect("sign2");
+        let manifest2_path = input_dir.join("m2.json");
+        let payload2_path = input_dir.join("p2.bin");
+        manifest::write_json(&manifest2_path, &patch2).expect("write manifest2");
+        std::fs::write(&payload2_path, &diff2).expect("write payload2");
+
+        updater
+            .install_payload_with_baseline(&manifest2_path, &payload2_path, &public_key, None)
+            .expect("install patch 2");
+
+        assert_eq!(
+            std::fs::read(cache_dir.join("patches/2/libapp.so")).expect("v2 artifact"),
+            v2
+        );
+        let state = updater.load_state().expect("load state");
+        assert_eq!(state.pending_patch_number, Some(2));
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+        let _ = std::fs::remove_dir_all(input_dir);
+    }
+
+    fn make_snapshot_patch(
+        _private_key: &str,
+        patch_number: u32,
+        base_hash: String,
+        output_hash: String,
+        payload: &[u8],
+    ) -> PatchManifest {
+        use crate::diff::BSDIFF_ZSTD_ALGORITHM;
+        PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "snapshot_replace".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "binary_diff".to_string(),
+                compression: "none".to_string(),
+                hash: crypto::sha256_hex(payload),
+                size: payload.len() as u64,
+                download_url: format!("patches/app/release/android/arm64-v8a/{patch_number}/payload.bin"),
+                diff_algorithm: Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
+                base_hash: Some(base_hash),
+                output_hash: Some(output_hash),
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 100,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn install_snapshot_replace_rejects_non_binary_diff_payload() {
+        let cache_dir =
+            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
+        let input_dir =
+            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
+        std::fs::create_dir_all(&input_dir).expect("create input dir");
+        let payload = b"raw artifact";
+        let payload_path = input_dir.join("payload.bin");
+        std::fs::write(&payload_path, payload).expect("write payload");
+
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        let mut patch = PatchManifest {
+            schema_version: 1,
+            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            release_version: "1.0.0+1".to_string(),
+            patch_number: 1,
+            channel: "stable".to_string(),
+            created_at: "1970-01-01T00:00:00Z".to_string(),
+            backend: "snapshot_replace".to_string(),
+            platform: "android".to_string(),
+            arch: "arm64-v8a".to_string(),
+            payload: PayloadManifest {
+                kind: "opaque_payload".to_string(),
+                compression: "none".to_string(),
+                hash: crypto::sha256_hex(payload),
+                size: payload.len() as u64,
+                download_url: "patches/app/1/payload.bin".to_string(),
+                diff_algorithm: None,
+                base_hash: None,
+                output_hash: None,
+            },
+            policy: PatchPolicy {
+                rollout_percentage: 100,
+                allow_downgrade: false,
+            },
+            signature: PatchSignature {
+                algorithm: "ed25519".to_string(),
+                key_id: "dev".to_string(),
+                value: String::new(),
+            },
+        };
+        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign");
+        let manifest_path = input_dir.join("m.json");
+        manifest::write_json(&manifest_path, &patch).expect("write manifest");
+
+        let err = Updater::new(&cache_dir)
+            .install_payload(&manifest_path, &payload_path, &public_key)
+            .expect_err("opaque_payload should be rejected");
+
+        assert!(err.to_string().contains("requires binary_diff payload"), "{err}");
 
         let _ = std::fs::remove_dir_all(cache_dir);
         let _ = std::fs::remove_dir_all(input_dir);
