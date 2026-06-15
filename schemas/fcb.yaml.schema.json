@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.com/fcb.yaml.schema.json",
+  "$id": "https://raw.githubusercontent.com/lollipopkit/fl_codepush_box/main/schemas/fcb.yaml.schema.json",
   "title": "FCB CLI Context",
   "type": "object",
   "additionalProperties": false,

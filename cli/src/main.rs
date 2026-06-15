@@ -601,11 +601,13 @@ fn install(
     cache_dir: &Path,
 ) -> Result<()> {
     let manifest: PatchManifest = manifest::read_json(manifest_path)?;
+    enforce_secure_server(&context.server)?;
     let app =
         authed_client(&context.server, context.token.as_deref())?.get_app(&manifest.app_id)?;
     if app.public_key.trim().is_empty() {
         return Err(err(format!("app {} has no public_key", manifest.app_id)));
     }
+    ensure_pinned_public_key(cache_dir, &manifest.app_id, app.public_key.trim())?;
     let baseline_path = release_artifact_path(
         &manifest.app_id,
         &manifest.release_version,
@@ -751,16 +753,68 @@ fn resolve_app(client: &Client, context: &ResolvedContext) -> Result<RemoteAppCo
     if let Some(app_id) = context
         .app_id
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
     {
         return client.get_app(app_id);
     }
     let app = context
         .app
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
         .ok_or_else(|| err("app required; pass --app, set FCB_APP, or add app to fcb.yaml"))?;
     client.resolve_app(app)
+}
+
+fn ensure_pinned_public_key(cache_dir: &Path, app_id: &str, public_key: &str) -> Result<()> {
+    let pins_dir = cache_dir.join("trusted_keys");
+    fs::create_dir_all(&pins_dir)?;
+    let pin_path = pins_dir.join(format!("{}.sha256", safe_filename(app_id)));
+    let fingerprint = crypto::sha256_hex(public_key.as_bytes());
+    if pin_path.exists() {
+        let pinned = fs::read_to_string(&pin_path)?;
+        if pinned.trim() != fingerprint {
+            return Err(err(format!(
+                "public key fingerprint mismatch for app {app_id}; refusing to install"
+            )));
+        }
+        return Ok(());
+    }
+    fs::write(pin_path, format!("{fingerprint}\n"))?;
+    Ok(())
+}
+
+fn enforce_secure_server(server: &str) -> Result<()> {
+    if server.starts_with("https://") {
+        return Ok(());
+    }
+    if let Some(rest) = server.strip_prefix("http://") {
+        let host_port = rest.split('/').next().unwrap_or(rest);
+        let host = host_port
+            .strip_prefix('[')
+            .and_then(|value| value.split(']').next())
+            .unwrap_or_else(|| host_port.split(':').next().unwrap_or(host_port));
+        if matches!(host, "localhost" | "127.0.0.1" | "::1") {
+            return Ok(());
+        }
+    }
+    Err(err(
+        "HTTPS is required when fetching public keys from non-localhost servers",
+    ))
+}
+
+fn safe_filename(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn load_local_context(path: &Path) -> Result<Option<LocalAppContext>> {

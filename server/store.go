@@ -274,14 +274,18 @@ func (s *Server) putApp(app App) error {
 			enabled = 1
 		}
 		if _, err := tx.Exec(
-			`insert into app_platforms(app_id, platform, enabled, backend) values(?, ?, ?, ?)`,
+			`insert into app_platforms(app_id, platform, enabled, backend)
+			 values(?, ?, ?, ?)
+			 on conflict(app_id, platform) do update set enabled=excluded.enabled, backend=excluded.backend`,
 			app.ID, platform.Platform, enabled, platform.Backend,
 		); err != nil {
 			return err
 		}
 		for i, abi := range platform.ABI {
 			if _, err := tx.Exec(
-				`insert into app_platform_abis(app_id, platform, abi, sort_order) values(?, ?, ?, ?)`,
+				`insert into app_platform_abis(app_id, platform, abi, sort_order)
+				 values(?, ?, ?, ?)
+				 on conflict(app_id, platform, abi) do update set sort_order=excluded.sort_order`,
 				app.ID, platform.Platform, abi, i,
 			); err != nil {
 				return err

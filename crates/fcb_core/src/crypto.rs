@@ -107,6 +107,11 @@ fn openssh_ed25519_seed(pem: &str) -> Result<[u8; 32]> {
     if private_key.len() != 64 {
         return Err(err("invalid OpenSSH ed25519 private key length"));
     }
+    if private_key[32..64] != *public {
+        return Err(err(
+            "OpenSSH ed25519 private key embedded public key mismatch",
+        ));
+    }
     let seed: [u8; 32] = private_key[..32]
         .try_into()
         .map_err(|_| err("invalid OpenSSH ed25519 private key seed"))?;

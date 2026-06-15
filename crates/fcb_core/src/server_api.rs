@@ -83,7 +83,7 @@ impl Client {
     }
 
     pub fn get_app(&self, app_id: &str) -> Result<RemoteAppConfig> {
-        self.get_json(&format!("/v1/apps/{app_id}"))
+        self.get_json(&format!("/v1/apps/{}", Self::path_segment_encode(app_id)))
     }
 
     pub fn resolve_app(&self, selector: &str) -> Result<RemoteAppConfig> {
@@ -106,6 +106,18 @@ impl Client {
             }
             Err(e) => Err(Error::Http(Box::new(e))),
         }
+    }
+
+    fn path_segment_encode(value: &str) -> String {
+        let mut out = String::new();
+        for byte in value.bytes() {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                out.push(byte as char);
+            } else {
+                out.push_str(&format!("%{byte:02X}"));
+            }
+        }
+        out
     }
 
     pub fn create_release(&self, manifest: &ReleaseManifest) -> Result<()> {

@@ -59,6 +59,7 @@ func TestCreatePatchStoresPayloadAndCheckReturnsDownloadURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer server.Close()
 	token := mustToken(t, server)
 	app := buildApp(server)
 	payload := []byte("payload")

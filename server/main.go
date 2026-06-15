@@ -64,6 +64,9 @@ func NewServerWithObjects(path string, objectsDir string) (*Server, error) {
 	}
 	server := &Server{db: db, gormDB: gormDB, objectsDir: objectsDir}
 	if err := server.migrate(); err != nil {
+		if gdb, gerr := gormDB.DB(); gerr == nil {
+			_ = gdb.Close()
+		}
 		_ = db.Close()
 		return nil, err
 	}
