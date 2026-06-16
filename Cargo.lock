@@ -391,6 +391,7 @@ dependencies = [
  "clap",
  "fcb_bytecode",
  "fcb_core",
+ "serde",
  "serde_json",
  "uuid",
 ]

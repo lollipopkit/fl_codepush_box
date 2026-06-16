@@ -1,0 +1,645 @@
+use clap::Args as ClapArgs;
+use fcb_core::build_info::{BuildInfo, BuildInfoComparison, BUILD_INFO_SCHEMA_VERSION};
+use fcb_core::config::LocalBuildConfig;
+use fcb_core::crypto;
+use fcb_core::linker::{KernelInventory, LinkerPlan};
+use fcb_core::manifest::{self, ReleaseManifest};
+use fcb_core::{err, fcb_dir, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
+
+#[derive(Clone, Debug, Default, ClapArgs)]
+pub(crate) struct BuildOptions {
+    #[arg(long)]
+    pub(crate) project: Option<PathBuf>,
+    #[arg(long)]
+    pub(crate) flutter: Option<PathBuf>,
+    #[arg(long)]
+    pub(crate) target: Option<String>,
+    #[arg(long)]
+    pub(crate) build_mode: Option<String>,
+    #[arg(long)]
+    pub(crate) flavor: Option<String>,
+    #[arg(long = "dart-define")]
+    pub(crate) dart_defines: Vec<String>,
+    #[arg(long = "ignore-dart-define")]
+    pub(crate) ignored_dart_define_keys: Vec<String>,
+    #[arg(long)]
+    pub(crate) ios_sdk: Option<String>,
+    #[arg(long)]
+    pub(crate) local_engine: Option<String>,
+    #[arg(long)]
+    pub(crate) local_engine_host: Option<String>,
+    #[arg(long)]
+    pub(crate) local_engine_src_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedBuild {
+    pub(crate) project: PathBuf,
+    pub(crate) flutter: PathBuf,
+    pub(crate) target: String,
+    pub(crate) build_mode: String,
+    pub(crate) flavor: Option<String>,
+    pub(crate) dart_defines: BTreeMap<String, String>,
+    pub(crate) ignored_dart_define_keys: BTreeSet<String>,
+    pub(crate) ios_sdk: String,
+    pub(crate) local_engine: Option<String>,
+    pub(crate) local_engine_host: Option<String>,
+    pub(crate) local_engine_src_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ReleaseCacheMetadata {
+    pub(crate) schema_version: u32,
+    pub(crate) manifest: ReleaseManifest,
+    pub(crate) build_info: BuildInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PatchReport {
+    pub(crate) schema_version: u32,
+    pub(crate) status: String,
+    pub(crate) backend: String,
+    pub(crate) platform: String,
+    pub(crate) arch: String,
+    pub(crate) release_version: String,
+    pub(crate) patch_number: u32,
+    #[serde(default)]
+    pub(crate) build_comparison: Option<BuildInfoComparison>,
+    #[serde(default)]
+    pub(crate) linker_plan: Option<LinkerPlan>,
+    #[serde(default)]
+    pub(crate) payload_hash: Option<String>,
+    #[serde(default)]
+    pub(crate) ignored_dart_define_keys: Vec<String>,
+    #[serde(default)]
+    pub(crate) messages: Vec<String>,
+}
+
+impl PatchReport {
+    pub(crate) fn new(
+        backend: &str,
+        platform: &str,
+        arch: &str,
+        release_version: &str,
+        patch_number: u32,
+    ) -> Self {
+        Self {
+            schema_version: 1,
+            status: "started".to_string(),
+            backend: backend.to_string(),
+            platform: platform.to_string(),
+            arch: arch.to_string(),
+            release_version: release_version.to_string(),
+            patch_number,
+            build_comparison: None,
+            linker_plan: None,
+            payload_hash: None,
+            ignored_dart_define_keys: Vec::new(),
+            messages: Vec::new(),
+        }
+    }
+}
+
+pub(crate) trait BuildContext {
+    fn config_path(&self) -> &Path;
+    fn build_config(&self) -> &LocalBuildConfig;
+}
+
+pub(crate) fn resolve_build<C: BuildContext>(
+    context: &C,
+    platform: &str,
+    arch: &str,
+    options: &BuildOptions,
+    example: Option<&Path>,
+) -> Result<ResolvedBuild> {
+    let config_dir = context
+        .config_path()
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let build_config = context.build_config();
+    let platform_config = build_config.platforms.get(platform);
+    let project = options
+        .project
+        .clone()
+        .or_else(|| example.map(PathBuf::from))
+        .or_else(|| build_config.project.as_ref().map(PathBuf::from))
+        .unwrap_or_else(|| config_dir.to_path_buf());
+    if options.project.is_none() && example.is_some() {
+        eprintln!("warning: --example is deprecated; use --project");
+    }
+    let flutter = options
+        .flutter
+        .clone()
+        .or_else(|| build_config.flutter.as_ref().map(PathBuf::from))
+        .unwrap_or_else(default_flutter_path);
+    let target = options
+        .target
+        .clone()
+        .or_else(|| build_config.target.clone())
+        .unwrap_or_else(|| "lib/main.dart".to_string());
+    let build_mode = options
+        .build_mode
+        .clone()
+        .or_else(|| build_config.build_mode.clone())
+        .unwrap_or_else(|| "release".to_string());
+    if !matches!(build_mode.as_str(), "debug" | "profile" | "release") {
+        return Err(err(format!("unsupported build mode {build_mode}")));
+    }
+    let mut dart_defines = build_config.dart_defines.clone();
+    for define in &options.dart_defines {
+        let (key, value) = define
+            .split_once('=')
+            .ok_or_else(|| err(format!("--dart-define must be KEY=VALUE, got {define}")))?;
+        dart_defines.insert(key.to_string(), value.to_string());
+    }
+    let mut ignored = build_config.ignored_dart_define_keys.clone();
+    ignored.extend(options.ignored_dart_define_keys.iter().cloned());
+    let ios_sdk = options
+        .ios_sdk
+        .clone()
+        .or_else(|| platform_config.and_then(|config| config.sdk.clone()))
+        .unwrap_or_else(|| "iphoneos".to_string());
+    if platform == "ios" && !matches!(ios_sdk.as_str(), "iphoneos" | "iphonesimulator") {
+        return Err(err(format!("unsupported iOS sdk {ios_sdk}")));
+    }
+    if platform == "android" {
+        if let Some(config) = platform_config {
+            if !config.abis.is_empty() && !config.abis.iter().any(|abi| abi == arch) {
+                return Err(err(format!(
+                    "arch {arch} is not in configured Android ABI list: {}",
+                    config.abis.join(", ")
+                )));
+            }
+        }
+    }
+    Ok(ResolvedBuild {
+        project: resolve_path(config_dir, &project),
+        flutter: resolve_path(config_dir, &flutter),
+        target,
+        build_mode,
+        flavor: options
+            .flavor
+            .clone()
+            .or_else(|| build_config.flavor.clone()),
+        dart_defines,
+        ignored_dart_define_keys: ignored,
+        ios_sdk,
+        local_engine: options
+            .local_engine
+            .clone()
+            .or_else(|| platform_config.and_then(|config| config.local_engine.clone())),
+        local_engine_host: options
+            .local_engine_host
+            .clone()
+            .or_else(|| platform_config.and_then(|config| config.local_engine_host.clone())),
+        local_engine_src_path: options
+            .local_engine_src_path
+            .clone()
+            .or_else(|| {
+                platform_config
+                    .and_then(|config| config.local_engine_src_path.as_ref())
+                    .map(PathBuf::from)
+            })
+            .map(|path| resolve_path(config_dir, &path)),
+    })
+}
+
+pub(crate) fn run_flutter_build(platform: &str, arch: &str, build: &ResolvedBuild) -> Result<()> {
+    if !build.project.join("pubspec.yaml").exists() {
+        return Err(err(format!(
+            "project {} does not contain pubspec.yaml",
+            build.project.display()
+        )));
+    }
+    let mut command = ProcessCommand::new(&build.flutter);
+    command
+        .current_dir(&build.project)
+        .arg("--no-version-check")
+        .arg("build");
+    match platform {
+        "android" => {
+            command.arg("apk");
+            command.arg(format!("--{}", build.build_mode));
+            command.arg("--target").arg(&build.target);
+            command
+                .arg("--target-platform")
+                .arg(android_target_platform(arch)?);
+        }
+        "ios" => {
+            command.arg("ios");
+            command.arg(format!("--{}", build.build_mode));
+            command.arg("--target").arg(&build.target);
+            if build.ios_sdk == "iphonesimulator" {
+                command.arg("--simulator");
+            } else {
+                command.arg("--no-codesign");
+            }
+        }
+        _ => return Err(err(format!("unsupported build platform {platform}"))),
+    }
+    if let Some(flavor) = &build.flavor {
+        command.arg("--flavor").arg(flavor);
+    }
+    for (key, value) in &build.dart_defines {
+        command.arg("--dart-define").arg(format!("{key}={value}"));
+    }
+    if let Some(path) = &build.local_engine_src_path {
+        command.arg("--local-engine-src-path").arg(path);
+    }
+    if let Some(host) = &build.local_engine_host {
+        command.arg("--local-engine-host").arg(host);
+    }
+    if let Some(engine) = &build.local_engine {
+        command.arg("--local-engine").arg(engine);
+    }
+    let status = command.status()?;
+    if !status.success() {
+        return Err(err(format!(
+            "flutter build failed for {platform} with status {status}"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn android_target_platform(arch: &str) -> Result<&'static str> {
+    match arch {
+        "arm64-v8a" => Ok("android-arm64"),
+        "armeabi-v7a" => Ok("android-arm"),
+        "x86_64" => Ok("android-x64"),
+        other => Err(err(format!("unsupported Android arch {other}"))),
+    }
+}
+
+pub(crate) fn collect_release_artifact(
+    release_dir: &Path,
+    platform: &str,
+    arch: &str,
+    backend: &str,
+    build: &ResolvedBuild,
+) -> Result<Vec<u8>> {
+    match backend {
+        "snapshot_replace" => {
+            if platform != "android" {
+                return Err(err(
+                    "snapshot_replace release artifact is only supported on Android",
+                ));
+            }
+            let source = android_app_so_path(&build.project, arch);
+            let artifact = fs::read(&source).map_err(|e| {
+                err(format!(
+                    "failed to read Android app.so at {}: {e}",
+                    source.display()
+                ))
+            })?;
+            fs::write(release_dir.join("app.so"), &artifact)?;
+            Ok(artifact)
+        }
+        "bytecode" => {
+            let inventory = generate_kernel_inventory(build)?;
+            let bytes = serde_json::to_vec_pretty(&inventory)?;
+            fs::write(release_dir.join("kernel_inventory.json"), &bytes)?;
+            Ok(bytes)
+        }
+        other => Err(err(format!("unsupported release backend: {other}"))),
+    }
+}
+
+pub(crate) fn android_app_so_path(project: &Path, arch: &str) -> PathBuf {
+    project
+        .join("build/app/intermediates/flutter/release")
+        .join(arch)
+        .join("app.so")
+}
+
+pub(crate) fn collect_build_info(
+    platform: &str,
+    arch: &str,
+    backend: &str,
+    build: &ResolvedBuild,
+) -> Result<BuildInfo> {
+    Ok(BuildInfo {
+        schema_version: BUILD_INFO_SCHEMA_VERSION,
+        backend: backend.to_string(),
+        platform: platform.to_string(),
+        arch: arch.to_string(),
+        target_platform: target_platform_label(platform, arch, build)?,
+        build_mode: build.build_mode.clone(),
+        flutter_tool_rev: command_rev(&build.flutter, &["--version"])?,
+        engine_fork_rev: git_rev(
+            build
+                .local_engine_src_path
+                .as_deref()
+                .unwrap_or(Path::new(".")),
+        ),
+        dart_sdk_rev: dart_sdk_rev(&build.flutter)?,
+        project_hash: hash_path(&build.project)?,
+        pubspec_lock_hash: hash_optional_file(&build.project.join("pubspec.lock"))?,
+        asset_hash: hash_build_assets(platform, build)?,
+        native_hash: hash_build_native(platform, build)?,
+        plugin_hash: hash_build_plugins(platform, build)?,
+        obfuscation: false,
+        split_debug_info: None,
+        dart_defines: build.dart_defines.clone(),
+        ignored_dart_define_keys: build.ignored_dart_define_keys.clone(),
+    })
+}
+
+pub(crate) fn write_release_cache(
+    release_dir: &Path,
+    manifest: &ReleaseManifest,
+    build_info: &BuildInfo,
+    artifact: &[u8],
+    platform: &str,
+    backend: &str,
+) -> Result<()> {
+    manifest::write_json(&release_dir.join("release_manifest.json"), manifest)?;
+    manifest::write_json(&release_dir.join("build_info.json"), build_info)?;
+    let metadata = ReleaseCacheMetadata {
+        schema_version: 2,
+        manifest: manifest.clone(),
+        build_info: build_info.clone(),
+    };
+    manifest::write_json(&release_dir.join("release_cache.json"), &metadata)?;
+    if backend == "snapshot_replace" && platform == "android" {
+        fs::write(release_dir.join("artifact.bin"), artifact)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelInventory> {
+    let tool = PathBuf::from("tool/fcb_kernel_manifest.dart");
+    if !tool.exists() {
+        return Err(err(format!(
+            "missing kernel inventory tool {}",
+            tool.display()
+        )));
+    }
+    let dart = flutter_dart_path(&build.flutter);
+    let cache_dir = fcb_dir().join("tool-cache");
+    fs::create_dir_all(&cache_dir)?;
+    let tool_hash = hash_optional_file(&tool)?;
+    let dart_rev = dart_sdk_rev(&build.flutter)?;
+    let key = crypto::sha256_hex(format!("{dart_rev}\n{tool_hash}").as_bytes());
+    let key_path = cache_dir.join("fcb_kernel_manifest.key");
+    let snapshot = cache_dir.join("fcb_kernel_manifest.dart.snapshot");
+    let current_key = fs::read_to_string(&key_path).unwrap_or_default();
+    if current_key != key || !snapshot.exists() {
+        let status = ProcessCommand::new(&dart)
+            .arg("compile")
+            .arg("kernel")
+            .arg(&tool)
+            .arg("-o")
+            .arg(&snapshot)
+            .status()?;
+        if !status.success() {
+            return Err(err(format!("failed to compile {}", tool.display())));
+        }
+        fs::write(&key_path, &key)?;
+    }
+    let output = ProcessCommand::new(&dart)
+        .arg(&snapshot)
+        .arg("--project")
+        .arg(&build.project)
+        .arg("--target")
+        .arg(&build.target)
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(err(format!("kernel inventory tool failed: {stderr}")));
+    }
+    let inventory: KernelInventory = serde_json::from_slice(&output.stdout)?;
+    inventory.validate()?;
+    Ok(inventory)
+}
+
+pub(crate) fn read_release_cache(release_dir: &Path) -> Result<ReleaseCacheMetadata> {
+    let metadata_path = release_dir.join("release_cache.json");
+    if metadata_path.exists() {
+        let metadata: ReleaseCacheMetadata = manifest::read_json(&metadata_path)?;
+        if metadata.schema_version != 2 {
+            return Err(err(format!(
+                "unsupported release cache schema_version {}",
+                metadata.schema_version
+            )));
+        }
+        metadata.build_info.validate()?;
+        return Ok(metadata);
+    }
+    Err(err(format!(
+        "missing release metadata {}; run 'fcb release' first",
+        metadata_path.display()
+    )))
+}
+
+pub(crate) fn write_patch_report(out: &Path, report: &PatchReport) -> Result<()> {
+    manifest::write_json(&out.join("patch_report.json"), report)
+}
+
+fn default_flutter_path() -> PathBuf {
+    let vendored = PathBuf::from("vendor/flutter/bin/flutter");
+    if vendored.exists() {
+        vendored
+    } else {
+        PathBuf::from("flutter")
+    }
+}
+
+fn target_platform_label(platform: &str, arch: &str, build: &ResolvedBuild) -> Result<String> {
+    match platform {
+        "android" => Ok(android_target_platform(arch)?.to_string()),
+        "ios" => Ok(build.ios_sdk.clone()),
+        other => Err(err(format!("unsupported platform {other}"))),
+    }
+}
+
+fn command_rev(command: &Path, args: &[&str]) -> Result<String> {
+    let output = ProcessCommand::new(command).args(args).output()?;
+    if !output.status.success() {
+        return Ok(format!("{}:unknown", command.display()));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .next()
+        .unwrap_or("unknown")
+        .trim()
+        .to_string())
+}
+
+fn dart_sdk_rev(flutter: &Path) -> Result<String> {
+    let dart = flutter_dart_path(flutter);
+    if dart.exists() {
+        command_rev(&dart, &["--version"])
+    } else {
+        Ok("dart:unknown".to_string())
+    }
+}
+
+fn flutter_dart_path(flutter: &Path) -> PathBuf {
+    flutter
+        .parent()
+        .and_then(Path::parent)
+        .map(|root| root.join("bin/cache/dart-sdk/bin/dart"))
+        .unwrap_or_else(|| PathBuf::from("dart"))
+}
+
+fn git_rev(path: &Path) -> String {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        _ => "unknown".to_string(),
+    }
+}
+
+fn hash_optional_file(path: &Path) -> Result<String> {
+    if path.exists() {
+        Ok(crypto::sha256_hex(&fs::read(path)?))
+    } else {
+        Ok("missing".to_string())
+    }
+}
+
+fn hash_path(path: &Path) -> Result<String> {
+    if path.is_file() {
+        return hash_optional_file(path);
+    }
+    if !path.exists() {
+        return Ok("missing".to_string());
+    }
+    let mut entries = Vec::new();
+    collect_hash_entries(path, path, &mut entries)?;
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut bytes = Vec::new();
+    for (rel, hash) in entries {
+        bytes.extend_from_slice(rel.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(hash.as_bytes());
+        bytes.push(b'\n');
+    }
+    Ok(crypto::sha256_hex(&bytes))
+}
+
+fn collect_hash_entries(root: &Path, path: &Path, out: &mut Vec<(String, String)>) -> Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if matches!(name.as_ref(), ".git" | ".dart_tool" | "build" | ".fcb") {
+            continue;
+        }
+        if path.is_dir() {
+            collect_hash_entries(root, &path, out)?;
+        } else if path.is_file() {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push((rel, crypto::sha256_hex(&fs::read(&path)?)));
+        }
+    }
+    Ok(())
+}
+
+fn hash_build_assets(platform: &str, build: &ResolvedBuild) -> Result<String> {
+    let candidates = match platform {
+        "android" => vec![
+            build
+                .project
+                .join("build/app/intermediates/flutter/release/flutter_assets/AssetManifest.json"),
+            build
+                .project
+                .join("build/app/intermediates/assets/release/flutter_assets/AssetManifest.json"),
+        ],
+        "ios" => vec![
+            build
+                .project
+                .join("build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.json"),
+            build
+                .project
+                .join("build/ios/iphonesimulator/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.json"),
+        ],
+        _ => Vec::new(),
+    };
+    hash_first_existing(&candidates)
+}
+
+fn hash_build_native(platform: &str, build: &ResolvedBuild) -> Result<String> {
+    let candidates = match platform {
+        "android" => vec![
+            build
+                .project
+                .join("build/app/intermediates/merged_native_libs"),
+            build
+                .project
+                .join("build/app/intermediates/stripped_native_libs"),
+        ],
+        "ios" => vec![
+            build
+                .project
+                .join("build/ios/iphoneos/Runner.app/Frameworks"),
+            build
+                .project
+                .join("build/ios/iphonesimulator/Runner.app/Frameworks"),
+        ],
+        _ => Vec::new(),
+    };
+    hash_first_existing(&candidates)
+}
+
+fn hash_build_plugins(platform: &str, build: &ResolvedBuild) -> Result<String> {
+    let candidates = match platform {
+        "android" => vec![build.project.join("build/app/intermediates/flutter")],
+        "ios" => vec![
+            build.project.join("build/ios/iphoneos"),
+            build.project.join("build/ios/iphonesimulator"),
+        ],
+        _ => Vec::new(),
+    };
+    hash_first_existing(&candidates)
+}
+
+fn hash_first_existing(candidates: &[PathBuf]) -> Result<String> {
+    for path in candidates {
+        if path.exists() {
+            return hash_path(path);
+        }
+    }
+    Ok("missing".to_string())
+}
+
+fn resolve_path(config_dir: &Path, path: &Path) -> PathBuf {
+    let expanded = expand_home(path);
+    if expanded.is_absolute() {
+        expanded
+    } else {
+        config_dir.join(expanded)
+    }
+}
+
+fn expand_home(path: &Path) -> PathBuf {
+    let value = path.to_string_lossy();
+    if value == "~" {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home);
+        }
+    } else if let Some(rest) = value.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    path.to_path_buf()
+}

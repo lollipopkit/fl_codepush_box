@@ -1,8 +1,16 @@
+mod auto;
+
+use auto::{
+    android_app_so_path, collect_build_info, collect_release_artifact, generate_kernel_inventory,
+    read_release_cache, resolve_build, run_flutter_build, write_patch_report, write_release_cache,
+    BuildContext, BuildOptions, PatchReport, ResolvedBuild,
+};
 use clap::{Parser, Subcommand};
 use fcb_bytecode::{compiler, format::BytecodeModule};
-use fcb_core::config::{LocalAppContext, RemoteAppConfig, RemotePlatformEntry};
+use fcb_core::config::{LocalAppContext, LocalBuildConfig, RemoteAppConfig, RemotePlatformEntry};
 use fcb_core::crypto;
 use fcb_core::diff::{self, BSDIFF_ZSTD_ALGORITHM};
+use fcb_core::linker::{self, FunctionInventoryEntry, KernelInventory, LinkerPlan};
 use fcb_core::manifest::{
     self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest, ReleaseManifest,
 };
@@ -11,6 +19,8 @@ use fcb_core::server_api::{
 };
 use fcb_core::state::Updater;
 use fcb_core::{err, fcb_dir, Result};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -47,6 +57,8 @@ enum Command {
     Doctor,
     Release {
         platform: String,
+        #[command(flatten)]
+        build: BuildOptions,
         #[arg(long)]
         example: Option<PathBuf>,
         #[arg(long, default_value = "1.0.0+1")]
@@ -56,6 +68,8 @@ enum Command {
     },
     Patch {
         platform: String,
+        #[command(flatten)]
+        build: BuildOptions,
         #[arg(long)]
         release_version: String,
         #[arg(long, default_value_t = 1)]
@@ -152,18 +166,21 @@ fn run() -> Result<()> {
         }
         Command::Release {
             platform,
+            build,
             example,
             release_version,
             arch,
         } => release(
             &context,
             &platform,
+            &build,
             example.as_deref(),
             &release_version,
             &arch,
         ),
         Command::Patch {
             platform,
+            build,
             release_version,
             patch_number,
             arch,
@@ -171,6 +188,7 @@ fn run() -> Result<()> {
         } => patch(
             &context,
             &platform,
+            &build,
             &release_version,
             patch_number,
             &arch,
@@ -248,6 +266,7 @@ struct ResolvedContext {
     app_id: Option<String>,
     key_file: PathBuf,
     config_path: PathBuf,
+    build: LocalBuildConfig,
 }
 
 impl ResolvedContext {
@@ -275,7 +294,20 @@ impl ResolvedContext {
             app_id: args.app_id.clone(),
             key_file,
             config_path: config_path.to_path_buf(),
+            build: local
+                .map(|context| context.build.clone())
+                .unwrap_or_default(),
         }
+    }
+}
+
+impl BuildContext for ResolvedContext {
+    fn config_path(&self) -> &Path {
+        &self.config_path
+    }
+
+    fn build_config(&self) -> &LocalBuildConfig {
+        &self.build
     }
 }
 
@@ -309,6 +341,7 @@ fn init(context: &ResolvedContext, name: &str, channel: &str) -> Result<()> {
         app: name.to_string(),
         server: context.server.clone(),
         key_file: path_for_context(&context.config_path, key_file),
+        build: Default::default(),
     }
     .write_yaml(&context.config_path)?;
     println!("APP_ID={app_id}");
@@ -320,6 +353,7 @@ fn init(context: &ResolvedContext, name: &str, channel: &str) -> Result<()> {
 fn release(
     context: &ResolvedContext,
     platform: &str,
+    build_options: &BuildOptions,
     example: Option<&Path>,
     release_version: &str,
     arch: &str,
@@ -327,7 +361,12 @@ fn release(
     let client = authed_client(&context.server, context.token.as_deref())?;
     let app = resolve_app(&client, context)?;
     let backend = backend_for(&app, platform)?;
-    let artifact = release_artifact_bytes(example)?;
+    let build = resolve_build(context, platform, arch, build_options, example)?;
+    run_flutter_build(platform, arch, &build)?;
+    let release_dir = release_cache_dir(&app.id, release_version, platform, arch);
+    fs::create_dir_all(&release_dir)?;
+    let artifact = collect_release_artifact(&release_dir, platform, arch, &backend, &build)?;
+    let build_info = collect_build_info(platform, arch, &backend, &build)?;
     let manifest = ReleaseManifest {
         schema_version: 1,
         app_id: app.id.clone(),
@@ -335,28 +374,27 @@ fn release(
         channel: app.channel.clone(),
         platform: platform.to_string(),
         arch: arch.to_string(),
-        backend,
+        backend: backend.clone(),
         artifact_hash: crypto::sha256_hex(&artifact),
         artifact_size: artifact.len() as u64,
     };
-    let out = fcb_dir()
-        .join("apps")
-        .join(&app.id)
-        .join("releases")
-        .join(release_version)
-        .join(platform)
-        .join(arch);
-    fs::create_dir_all(&out)?;
-    fs::write(out.join("artifact.bin"), artifact)?;
-    manifest::write_json(&out.join("release_manifest.json"), &manifest)?;
+    write_release_cache(
+        &release_dir,
+        &manifest,
+        &build_info,
+        &artifact,
+        platform,
+        &backend,
+    )?;
     client.create_release(&manifest)?;
-    println!("{}", out.join("release_manifest.json").display());
+    println!("{}", release_dir.join("release_manifest.json").display());
     Ok(())
 }
 
 fn patch(
     context: &ResolvedContext,
     platform: &str,
+    build_options: &BuildOptions,
     release_version: &str,
     patch_number: u32,
     arch: &str,
@@ -364,41 +402,65 @@ fn patch(
 ) -> Result<()> {
     let client = authed_client(&context.server, context.token.as_deref())?;
     let app = resolve_app(&client, context)?;
-    let target_artifact = if let Some(path) = payload {
-        fs::read(path)?
-    } else {
-        format!("fcb patch {patch_number} for {release_version}\n").into_bytes()
-    };
     let backend = backend_for(&app, platform)?;
-    let (payload_bytes, payload_kind, diff_algorithm, base_hash, output_hash) =
-        if backend == "snapshot_replace" {
-            let base =
-                snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
-            (
-                diff::create_bsdiff_zstd(&base, &target_artifact)?,
-                "binary_diff",
-                Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
-                Some(crypto::sha256_hex(&base)),
-                Some(crypto::sha256_hex(&target_artifact)),
-            )
-        } else if backend == "bytecode" {
-            let module = compile_or_read_bytecode_module(&target_artifact)?;
-            (module.to_vec()?, "bytecode_module", None, None, None)
-        } else {
-            return Err(err(format!("unsupported patch backend: {backend}")));
-        };
-    let out = fcb_dir()
-        .join("patches")
-        .join(release_version)
-        .join(patch_number.to_string())
-        .join(platform)
-        .join(arch);
+    let out = patch_cache_dir(release_version, patch_number, platform, arch);
     fs::create_dir_all(&out)?;
+    let mut report = PatchReport::new(&backend, platform, arch, release_version, patch_number);
+    let payload_result = if let Some(path) = payload {
+        report
+            .messages
+            .push("--payload supplied; bypassing automatic build checks".to_string());
+        manual_patch_payload(
+            &app,
+            &backend,
+            release_version,
+            patch_number,
+            platform,
+            arch,
+            path,
+        )
+    } else {
+        automatic_patch_payload(
+            context,
+            &app,
+            &backend,
+            platform,
+            build_options,
+            release_version,
+            patch_number,
+            arch,
+            &out,
+            &mut report,
+        )
+    };
+
+    let (payload_bytes, payload_kind, diff_algorithm, base_hash, output_hash, artifact) =
+        match payload_result {
+            Ok(Some(value)) => value,
+            Ok(None) => {
+                report.status = "no_op".to_string();
+                report
+                    .messages
+                    .push("no-op: 0 functions changed, no patch created".to_string());
+                write_patch_report(&out, &report)?;
+                println!("no-op: 0 functions changed, no patch created");
+                println!("{}", out.join("patch_report.json").display());
+                return Ok(());
+            }
+            Err(e) => {
+                report.status = "rejected".to_string();
+                report.messages.push(e.to_string());
+                write_patch_report(&out, &report)?;
+                return Err(e);
+            }
+        };
+
     fs::write(out.join("payload.bin"), &payload_bytes)?;
-    if backend == "snapshot_replace" {
-        fs::write(out.join("artifact.bin"), &target_artifact)?;
+    if let Some(artifact) = &artifact {
+        fs::write(out.join("artifact.bin"), artifact)?;
     }
     let payload_hash = crypto::sha256_hex(&payload_bytes);
+    report.payload_hash = Some(payload_hash.clone());
     let private_key = load_private_key(&context.key_file)?;
     let mut manifest = PatchManifest {
         schema_version: 1,
@@ -440,9 +502,183 @@ fn patch(
     manifest::sign_patch_manifest(&mut manifest, private_key.trim())?;
     manifest::write_json(&out.join("patch_manifest.json"), &manifest)?;
     client.create_patch(&manifest, &payload_bytes)?;
+    report.status = "created".to_string();
+    write_patch_report(&out, &report)?;
     println!("{}", out.join("patch_manifest.json").display());
+    println!("{}", out.join("patch_report.json").display());
     println!("payload_sha256={payload_hash}");
     Ok(())
+}
+
+type PatchPayloadResult = (
+    Vec<u8>,
+    &'static str,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Vec<u8>>,
+);
+
+fn manual_patch_payload(
+    app: &RemoteAppConfig,
+    backend: &str,
+    release_version: &str,
+    patch_number: u32,
+    platform: &str,
+    arch: &str,
+    path: &Path,
+) -> Result<Option<PatchPayloadResult>> {
+    let target_artifact = fs::read(path)?;
+    if backend == "snapshot_replace" {
+        let base =
+            snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
+        Ok(Some((
+            diff::create_bsdiff_zstd(&base, &target_artifact)?,
+            "binary_diff",
+            Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
+            Some(crypto::sha256_hex(&base)),
+            Some(crypto::sha256_hex(&target_artifact)),
+            Some(target_artifact),
+        )))
+    } else if backend == "bytecode" {
+        let module = compile_or_read_bytecode_module(&target_artifact)?;
+        Ok(Some((
+            module.to_vec()?,
+            "bytecode_module",
+            None,
+            None,
+            None,
+            None,
+        )))
+    } else {
+        Err(err(format!("unsupported patch backend: {backend}")))
+    }
+}
+
+fn automatic_patch_payload(
+    context: &ResolvedContext,
+    app: &RemoteAppConfig,
+    backend: &str,
+    platform: &str,
+    build_options: &BuildOptions,
+    release_version: &str,
+    patch_number: u32,
+    arch: &str,
+    out: &Path,
+    report: &mut PatchReport,
+) -> Result<Option<PatchPayloadResult>> {
+    let release_dir = release_cache_dir(&app.id, release_version, platform, arch);
+    if !release_dir.exists() {
+        return Err(err(format!(
+            "missing release cache {}; run 'fcb release' first",
+            release_dir.display()
+        )));
+    }
+    let release_metadata = read_release_cache(&release_dir)?;
+    let build = resolve_build(context, platform, arch, build_options, None)?;
+    run_flutter_build(platform, arch, &build)?;
+    let patch_build_info = collect_build_info(platform, arch, backend, &build)?;
+    let comparison = release_metadata
+        .build_info
+        .compare_for_patch(&patch_build_info);
+    report.ignored_dart_define_keys = patch_build_info
+        .ignored_dart_define_keys
+        .iter()
+        .cloned()
+        .collect();
+    report.build_comparison = Some(comparison.clone());
+    if !comparison.is_ok() {
+        write_patch_report(out, report)?;
+        return Err(err(format!(
+            "release was built with different config; see {}",
+            out.join("patch_report.json").display()
+        )));
+    }
+
+    match backend {
+        "snapshot_replace" => {
+            automatic_snapshot_payload(app, release_version, patch_number, platform, arch, &build)
+        }
+        "bytecode" => automatic_bytecode_payload(&release_dir, &build, report),
+        other => Err(err(format!("unsupported patch backend: {other}"))),
+    }
+}
+
+fn automatic_snapshot_payload(
+    app: &RemoteAppConfig,
+    release_version: &str,
+    patch_number: u32,
+    platform: &str,
+    arch: &str,
+    build: &ResolvedBuild,
+) -> Result<Option<PatchPayloadResult>> {
+    if platform != "android" {
+        return Err(err("snapshot_replace is only supported for Android"));
+    }
+    let target_artifact = fs::read(android_app_so_path(&build.project, arch))?;
+    let base = snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
+    Ok(Some((
+        diff::create_bsdiff_zstd(&base, &target_artifact)?,
+        "binary_diff",
+        Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
+        Some(crypto::sha256_hex(&base)),
+        Some(crypto::sha256_hex(&target_artifact)),
+        Some(target_artifact),
+    )))
+}
+
+fn automatic_bytecode_payload(
+    release_dir: &Path,
+    build: &ResolvedBuild,
+    report: &mut PatchReport,
+) -> Result<Option<PatchPayloadResult>> {
+    let release_inventory: KernelInventory =
+        manifest::read_json(&release_dir.join("kernel_inventory.json"))?;
+    let patch_inventory = generate_kernel_inventory(build)?;
+    let plan = linker::plan_bytecode_link(&release_inventory, &patch_inventory)?;
+    report.linker_plan = Some(plan.clone());
+    if plan.has_rejects() {
+        return Err(err("bytecode patch rejected; see patch_report.json"));
+    }
+    if plan.changed_function_count() == 0 {
+        return Ok(None);
+    }
+    let sources = interpret_sources(&patch_inventory, &plan)?;
+    let source_module = serde_json::json!({ "functions": sources });
+    let bytes = serde_json::to_vec(&source_module)?;
+    let module = compile_or_read_bytecode_module(&bytes)?;
+    Ok(Some((
+        module.to_vec()?,
+        "bytecode_module",
+        None,
+        None,
+        None,
+        None,
+    )))
+}
+
+fn interpret_sources(patch_inventory: &KernelInventory, plan: &LinkerPlan) -> Result<Vec<Value>> {
+    let mut functions = BTreeMap::<String, &FunctionInventoryEntry>::new();
+    for function in &patch_inventory.functions {
+        functions.insert(function.function_id.clone(), function);
+    }
+    let mut sources = Vec::new();
+    for decision in &plan.interpret {
+        let function = functions.get(&decision.function_id).ok_or_else(|| {
+            err(format!(
+                "linker selected missing function {}",
+                decision.function_id
+            ))
+        })?;
+        let source = function.bytecode_source.clone().ok_or_else(|| {
+            err(format!(
+                "function {} has no bytecode source",
+                decision.function_id
+            ))
+        })?;
+        sources.push(source);
+    }
+    Ok(sources)
 }
 
 fn promote(
@@ -649,6 +885,14 @@ fn release_artifact_path(
     platform: &str,
     arch: &str,
 ) -> PathBuf {
+    let app_so = release_cache_dir(app_id, release_version, platform, arch).join("app.so");
+    if app_so.exists() {
+        return app_so;
+    }
+    release_cache_dir(app_id, release_version, platform, arch).join("artifact.bin")
+}
+
+fn release_cache_dir(app_id: &str, release_version: &str, platform: &str, arch: &str) -> PathBuf {
     fcb_dir()
         .join("apps")
         .join(app_id)
@@ -656,10 +900,9 @@ fn release_artifact_path(
         .join(release_version)
         .join(platform)
         .join(arch)
-        .join("artifact.bin")
 }
 
-fn patch_artifact_path(
+fn patch_cache_dir(
     release_version: &str,
     patch_number: u32,
     platform: &str,
@@ -671,7 +914,15 @@ fn patch_artifact_path(
         .join(patch_number.to_string())
         .join(platform)
         .join(arch)
-        .join("artifact.bin")
+}
+
+fn patch_artifact_path(
+    release_version: &str,
+    patch_number: u32,
+    platform: &str,
+    arch: &str,
+) -> PathBuf {
+    patch_cache_dir(release_version, patch_number, platform, arch).join("artifact.bin")
 }
 
 fn snapshot_replace_diff_base(
@@ -719,19 +970,6 @@ fn inspect(kind: &str, path: &Path) -> Result<()> {
         _ => return Err(err("inspect kind must be patch or release")),
     }
     Ok(())
-}
-
-fn release_artifact_bytes(example: Option<&Path>) -> Result<Vec<u8>> {
-    if let Some(example) = example {
-        if example.is_file() {
-            return Ok(fs::read(example)?);
-        }
-        let main = example.join("lib/main.dart");
-        if main.exists() {
-            return Ok(fs::read(main)?);
-        }
-    }
-    Ok(b"fcb baseline artifact\n".to_vec())
 }
 
 fn backend_for(config: &RemoteAppConfig, platform: &str) -> Result<String> {
@@ -837,6 +1075,10 @@ fn load_local_context(path: &Path) -> Result<Option<LocalAppContext>> {
 }
 
 fn resolve_key_path(config_dir: &Path, path: &Path) -> PathBuf {
+    resolve_path(config_dir, path)
+}
+
+fn resolve_path(config_dir: &Path, path: &Path) -> PathBuf {
     let expanded = expand_home(path);
     if expanded.is_absolute() {
         expanded

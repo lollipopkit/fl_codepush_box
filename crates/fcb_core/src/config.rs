@@ -1,5 +1,6 @@
 use crate::{err, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::{fs, path::Path};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,6 +8,8 @@ pub struct LocalAppContext {
     pub app: String,
     pub server: String,
     pub key_file: String,
+    #[serde(default)]
+    pub build: LocalBuildConfig,
 }
 
 impl LocalAppContext {
@@ -34,6 +37,61 @@ impl LocalAppContext {
         }
         if self.key_file.trim().is_empty() {
             return Err(err("fcb.yaml missing key_file"));
+        }
+        self.build.validate()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LocalBuildConfig {
+    #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub flutter: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub build_mode: Option<String>,
+    #[serde(default)]
+    pub flavor: Option<String>,
+    #[serde(default)]
+    pub dart_defines: BTreeMap<String, String>,
+    #[serde(default)]
+    pub ignored_dart_define_keys: BTreeSet<String>,
+    #[serde(default)]
+    pub platforms: BTreeMap<String, LocalPlatformBuildConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LocalPlatformBuildConfig {
+    #[serde(default)]
+    pub abis: Vec<String>,
+    #[serde(default)]
+    pub sdk: Option<String>,
+    #[serde(default)]
+    pub local_engine: Option<String>,
+    #[serde(default)]
+    pub local_engine_host: Option<String>,
+    #[serde(default)]
+    pub local_engine_src_path: Option<String>,
+}
+
+impl LocalBuildConfig {
+    pub fn validate(&self) -> Result<()> {
+        if let Some(build_mode) = &self.build_mode {
+            if !matches!(build_mode.as_str(), "debug" | "profile" | "release") {
+                return Err(err(format!("unsupported build.build_mode {build_mode}")));
+            }
+        }
+        for (platform, config) in &self.platforms {
+            if platform == "ios" {
+                if let Some(sdk) = &config.sdk {
+                    if !matches!(sdk.as_str(), "iphoneos" | "iphonesimulator") {
+                        return Err(err(format!("unsupported build platform ios sdk {sdk}")));
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -111,6 +169,7 @@ mod tests {
             app: "Counter App".to_string(),
             server: "http://127.0.0.1:8080".to_string(),
             key_file: "~/.ssh/id_ed25519".to_string(),
+            build: Default::default(),
         };
         let parsed: LocalAppContext =
             serde_yaml::from_str(&serde_yaml::to_string(&context).expect("serialize"))
