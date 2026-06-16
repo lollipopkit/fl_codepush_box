@@ -56,6 +56,10 @@ cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
 int mainValue() {
   return 1;
 }
+
+void main() {
+  mainValue();
+}
 DART
 cat >"$FAKE_FLUTTER" <<'SH'
 #!/usr/bin/env bash
@@ -87,6 +91,13 @@ case "${1:-}" in
     mkdir -p build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets
     echo '{"assets":[]}' > build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.bin.json
     echo '{}' > build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.json
+    ;;
+  bundle)
+    mkdir -p build/flutter_assets
+    BUILD_ID=$(cksum lib/main.dart | awk '{print $1}')
+    mkdir -p ".dart_tool/flutter_build/$BUILD_ID"
+    echo '{"assets":[]}' > build/flutter_assets/AssetManifest.bin.json
+    "$(dirname "$0")/cache/dart-sdk/bin/dart" compile kernel --no-link-platform -o ".dart_tool/flutter_build/$BUILD_ID/app.dill" lib/main.dart >/dev/null
     ;;
   *)
     echo "unexpected fake flutter build target: ${1:-}" >&2
@@ -196,6 +207,10 @@ cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
 int mainValue() {
   return 2;
 }
+
+void main() {
+  mainValue();
+}
 DART
 "$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
 grep -q '"diff_algorithm"[[:space:]]*:[[:space:]]*"bsdiff-zstd-v1"' .fcb/patches/1.0.0+1/1/android/arm64-v8a/patch_manifest.json || {
@@ -209,6 +224,10 @@ cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
 int mainValue() {
   return 3;
 }
+
+void main() {
+  mainValue();
+}
 DART
 "$FCB" --server "http://$SERVER_ADDR" release ios --release-version 1.0.0+1 --arch arm64 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
 test -f .fcb/apps/"$APP_ID"/releases/1.0.0+1/ios/arm64/kernel_inventory.json || { echo "FAIL: iOS kernel_inventory.json not found"; exit 1; }
@@ -218,6 +237,10 @@ echo "=== iOS bytecode patch ==="
 cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
 int mainValue() {
   return 4;
+}
+
+void main() {
+  mainValue();
 }
 DART
 "$FCB" --server "http://$SERVER_ADDR" patch ios --release-version 1.0.0+1 --patch-number 1 --arch arm64 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
@@ -317,11 +340,19 @@ cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
 int mainValue() {
   return 10;
 }
+
+void main() {
+  mainValue();
+}
 DART
 "$FCB" --server "http://$SERVER_ADDR" release android --release-version 1.0.0+1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
 cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
 int mainValue() {
   return 20;
+}
+
+void main() {
+  mainValue();
 }
 DART
 "$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"

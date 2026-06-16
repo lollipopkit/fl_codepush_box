@@ -2,7 +2,7 @@ use crate::{err, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const BUILD_INFO_SCHEMA_VERSION: u32 = 2;
+pub const BUILD_INFO_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BuildInfo {

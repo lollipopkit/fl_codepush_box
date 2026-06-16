@@ -5,7 +5,9 @@ Future<void> main(List<String> args) async {
   final project = _arg(args, '--project') ?? '.';
   final target = _arg(args, '--target') ?? 'lib/main.dart';
   final explicitDill = _arg(args, '--dill');
-  final root = Directory(project).absolute;
+  final root = Directory(
+    Directory(project).absolute.resolveSymbolicLinksSync(),
+  );
   if (!File('${root.path}/pubspec.yaml').existsSync()) {
     stderr.writeln('project has no pubspec.yaml: ${root.path}');
     exit(2);

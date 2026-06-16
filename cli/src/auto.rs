@@ -209,7 +209,12 @@ pub(crate) fn resolve_build<C: BuildContext>(
     })
 }
 
-pub(crate) fn run_flutter_build(platform: &str, arch: &str, build: &ResolvedBuild) -> Result<()> {
+pub(crate) fn run_flutter_build(
+    platform: &str,
+    arch: &str,
+    backend: &str,
+    build: &ResolvedBuild,
+) -> Result<()> {
     if !build.project.join("pubspec.yaml").exists() {
         return Err(err(format!(
             "project {} does not contain pubspec.yaml",
@@ -221,8 +226,19 @@ pub(crate) fn run_flutter_build(platform: &str, arch: &str, build: &ResolvedBuil
         .current_dir(&build.project)
         .arg("--no-version-check")
         .arg("build");
-    match platform {
-        "android" => {
+    match backend {
+        "bytecode" => {
+            command.arg("bundle");
+            command.arg(format!("--{}", build.build_mode));
+            command.arg("--target").arg(&build.target);
+            command
+                .arg("--target-platform")
+                .arg(bundle_target_platform(platform, arch)?);
+        }
+        "snapshot_replace" => {
+            if platform != "android" {
+                return Err(err("snapshot_replace build is only supported for Android"));
+            }
             command.arg("apk");
             command.arg(format!("--{}", build.build_mode));
             command.arg("--target").arg(&build.target);
@@ -230,17 +246,7 @@ pub(crate) fn run_flutter_build(platform: &str, arch: &str, build: &ResolvedBuil
                 .arg("--target-platform")
                 .arg(android_target_platform(arch)?);
         }
-        "ios" => {
-            command.arg("ios");
-            command.arg(format!("--{}", build.build_mode));
-            command.arg("--target").arg(&build.target);
-            if build.ios_sdk == "iphonesimulator" {
-                command.arg("--simulator");
-            } else {
-                command.arg("--no-codesign");
-            }
-        }
-        _ => return Err(err(format!("unsupported build platform {platform}"))),
+        other => return Err(err(format!("unsupported build backend {other}"))),
     }
     if let Some(flavor) = &build.flavor {
         command.arg("--flavor").arg(flavor);
@@ -260,7 +266,7 @@ pub(crate) fn run_flutter_build(platform: &str, arch: &str, build: &ResolvedBuil
     let status = command.status()?;
     if !status.success() {
         return Err(err(format!(
-            "flutter build failed for {platform} with status {status}"
+            "flutter build failed for {platform}/{backend} with status {status}"
         )));
     }
     Ok(())
@@ -272,6 +278,14 @@ pub(crate) fn android_target_platform(arch: &str) -> Result<&'static str> {
         "armeabi-v7a" => Ok("android-arm"),
         "x86_64" => Ok("android-x64"),
         other => Err(err(format!("unsupported Android arch {other}"))),
+    }
+}
+
+pub(crate) fn bundle_target_platform(platform: &str, arch: &str) -> Result<&'static str> {
+    match platform {
+        "ios" => Ok("ios"),
+        "android" => android_target_platform(arch),
+        other => Err(err(format!("unsupported bundle platform {other}"))),
     }
 }
 
@@ -339,21 +353,9 @@ pub(crate) fn collect_build_info(
         engine_fork_rev: git_rev(engine_root),
         dart_sdk_rev: dart_sdk_git_rev(&build.flutter),
         pubspec_lock_hash: hash_optional_file(&build.project.join("pubspec.lock"))?,
-        asset_hash: if backend == "bytecode" {
-            "missing".to_string()
-        } else {
-            hash_build_assets(platform, build)?
-        },
-        native_hash: if backend == "bytecode" {
-            "missing".to_string()
-        } else {
-            hash_build_native(platform, build)?
-        },
-        plugin_hash: if backend == "bytecode" {
-            "missing".to_string()
-        } else {
-            hash_build_plugins(platform, build)?
-        },
+        asset_hash: hash_build_assets(platform, backend, build)?,
+        native_hash: hash_build_native(platform, backend, build)?,
+        plugin_hash: hash_build_plugins(platform, backend, build)?,
         obfuscation: false,
         split_debug_info: None,
         dart_defines: build.dart_defines.clone(),
@@ -375,10 +377,6 @@ pub(crate) fn build_info_warnings(build_info: &BuildInfo) -> Vec<String> {
         }
     }
     warnings
-}
-
-pub(crate) fn requires_platform_build(backend: &str) -> bool {
-    backend == "snapshot_replace"
 }
 
 pub(crate) fn collect_prebuild_build_info(
@@ -632,7 +630,18 @@ fn hash_optional_file(path: &Path) -> Result<String> {
     }
 }
 
-fn hash_build_assets(platform: &str, build: &ResolvedBuild) -> Result<String> {
+fn hash_build_assets(platform: &str, backend: &str, build: &ResolvedBuild) -> Result<String> {
+    if backend == "bytecode" {
+        return hash_first_existing(&[
+            build
+                .project
+                .join("build/flutter_assets/AssetManifest.bin.json"),
+            build.project.join("build/flutter_assets/AssetManifest.bin"),
+            build
+                .project
+                .join("build/flutter_assets/AssetManifest.json"),
+        ]);
+    }
     let candidates = match platform {
         "android" => vec![
             build.project.join(
@@ -679,7 +688,10 @@ fn hash_build_assets(platform: &str, build: &ResolvedBuild) -> Result<String> {
     hash_first_existing(&candidates)
 }
 
-fn hash_build_native(platform: &str, build: &ResolvedBuild) -> Result<String> {
+fn hash_build_native(platform: &str, backend: &str, build: &ResolvedBuild) -> Result<String> {
+    if backend == "bytecode" {
+        return Ok("missing".to_string());
+    }
     let candidates = match platform {
         "android" => vec![
             build
@@ -708,7 +720,10 @@ fn hash_build_native(platform: &str, build: &ResolvedBuild) -> Result<String> {
     }
 }
 
-fn hash_build_plugins(platform: &str, build: &ResolvedBuild) -> Result<String> {
+fn hash_build_plugins(platform: &str, backend: &str, build: &ResolvedBuild) -> Result<String> {
+    if backend == "bytecode" {
+        return hash_optional_file(&build.project.join(".flutter-plugins-dependencies"));
+    }
     let candidates = match platform {
         "android" => vec![build.project.join(".flutter-plugins-dependencies")],
         "ios" => vec![
