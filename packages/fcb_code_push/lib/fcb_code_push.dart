@@ -365,6 +365,11 @@ class FcbCodePush {
   }
 
   DynamicLibrary _openLibrary() {
+    // On iOS the updater is a static library linked into the app binary.
+    // All its symbols are available in the current process image.
+    if (Platform.isIOS) {
+      return DynamicLibrary.process();
+    }
     for (final path in _candidateLibraryPaths()) {
       try {
         return DynamicLibrary.open(path);
@@ -372,7 +377,7 @@ class FcbCodePush {
         // Keep trying platform loader paths below.
       }
     }
-    if (Platform.isMacOS || Platform.isIOS) {
+    if (Platform.isMacOS) {
       return DynamicLibrary.open('libfcb_updater.dylib');
     }
     if (Platform.isAndroid || Platform.isLinux) {

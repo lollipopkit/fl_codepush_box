@@ -1,0 +1,38 @@
+# FCB iOS Engine Integration — GN snippet
+#
+# Add this inside the ios_framework or ios_flutter_framework target in
+# vendor/flutter/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+# when building with fcb_enable_code_push=true.
+#
+# The fcb_ios target must be added to the deps list of
+# flutter_shell_platform_darwin_ios.
+
+if (fcb_enable_code_push) {
+  source_set("fcb_ios") {
+    sources = [
+      "fcb/fcb_ios_vm_patch_bridge.mm",
+    ]
+
+    public_headers = [
+      "fcb/fcb_ios_vm_patch_bridge.h",
+    ]
+
+    deps = [
+      "//flutter/shell/platform/darwin/ios/fcb:fcb_engine_hook",
+      "//third_party/dart/runtime/vm:fcb_patch_api",
+    ]
+
+    libs = [ fcb_updater_staticlib ]
+
+    if (fcb_unwind_staticlib != "") {
+      libs += [ fcb_unwind_staticlib ]
+    }
+
+    defines = [ "FCB_ENABLE_CODE_PUSH=1" ]
+
+    frameworks = [
+      "Foundation.framework",
+      "UIKit.framework",
+    ]
+  }
+}

@@ -22,3 +22,5 @@ flutter:
       android:
         package: dev.fcb.code_push
         pluginClass: FcbCodePushPlugin
+      ios:
+        pluginClass: FcbCodePushPlugin
