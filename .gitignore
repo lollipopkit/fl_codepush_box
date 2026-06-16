@@ -15,9 +15,5 @@ fcb.yaml
 build/
 pubspec.lock
 
-vendor/.cache/
-vendor/depot_tools/
-vendor/flutter/
-vendor/sdk/
 examples/counter_app/target
 examples/counter_app/android/target

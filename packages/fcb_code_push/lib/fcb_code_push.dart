@@ -28,14 +28,15 @@ class FcbCodePush {
     String? baselineArtifactPath,
   }) async {
     final selectedPlatform = platform ?? _defaultPlatform();
-    final androidPaths = selectedPlatform == 'android'
-        ? await _androidPaths()
-        : const <String, String>{};
+    final platformPaths =
+        selectedPlatform == 'android' || selectedPlatform == 'ios'
+            ? await _platformPaths(selectedPlatform)
+            : const <String, String>{};
     final selectedCacheDir = cacheDir ??
-        androidPaths['cacheDir'] ??
+        platformPaths['cacheDir'] ??
         _defaultCacheDir(selectedPlatform);
     final selectedBaselineArtifactPath =
-        baselineArtifactPath ?? androidPaths['baselineArtifactPath'];
+        baselineArtifactPath ?? platformPaths['baselineArtifactPath'];
     if (!_isValidConfiguration(
       appId: appId,
       releaseVersion: releaseVersion,
@@ -205,7 +206,10 @@ class FcbCodePush {
         reason: _nativeFailureReason('native update download', result.code),
       );
     }
-    return const DownloadResult(success: true);
+    return DownloadResult(
+      success: result.code > 0,
+      reason: result.code > 0 ? null : 'no patch installed',
+    );
   }
 
   Future<bool> isNewPatchReadyToInstall() async {
@@ -221,8 +225,7 @@ class FcbCodePush {
   Future<void> markLaunchFailure(int patchNumber, String reason) async {
     try {
       final lib = _library ??= _openLibrary();
-      final fn = lib.lookupFunction<
-          Int32 Function(Int32, Pointer<Char>),
+      final fn = lib.lookupFunction<Int32 Function(Int32, Pointer<Char>),
           int Function(int, Pointer<Char>)>('fcb_mark_launch_failure');
       final reasonPtr = reason.toNativeUtf8();
       try {
@@ -438,14 +441,14 @@ class FcbCodePush {
     return 'unknown';
   }
 
-  Future<Map<String, String>> _androidPaths() async {
+  Future<Map<String, String>> _platformPaths(String platform) async {
     try {
       final paths = await _pathsChannel.invokeMapMethod<String, String>(
         'getPaths',
       );
       return paths ?? const <String, String>{};
     } catch (error, stack) {
-      _debugLookupError('Android paths', error, stack);
+      _debugLookupError('$platform paths', error, stack);
       return const <String, String>{};
     }
   }

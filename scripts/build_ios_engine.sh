@@ -7,14 +7,21 @@ ENGINE_DIR="$FLUTTER_DIR/engine"
 ENGINE_SRC_DIR="$ENGINE_DIR/src"
 DEPOT_TOOLS_DIR="$ROOT_DIR/vendor/depot_tools"
 
-FCB_IOS_CPU="${FCB_IOS_CPU:-arm64}"          # arm64 | x64 (simulator)
+FCB_IOS_CPU="${FCB_IOS_CPU:-arm64}"          # arm64 (device/simulator) | x64 (simulator)
 FCB_RUNTIME_MODE="${FCB_RUNTIME_MODE:-release}"
+FCB_IOS_SIMULATOR="${FCB_IOS_SIMULATOR:-0}"
 FCB_SKIP_SYNC="${FCB_SKIP_SYNC:-0}"
 FCB_SKIP_GN="${FCB_SKIP_GN:-0}"
 FCB_SKIP_NINJA="${FCB_SKIP_NINJA:-0}"
 FCB_UPDATER_STATICLIB="${FCB_UPDATER_STATICLIB:-}"
 
-OUT_DIR_NAME="ios_${FCB_RUNTIME_MODE}_${FCB_IOS_CPU}"
+OUT_DIR_NAME="ios_${FCB_RUNTIME_MODE}"
+if [ "$FCB_IOS_SIMULATOR" = "1" ]; then
+  OUT_DIR_NAME="${OUT_DIR_NAME}_sim"
+  if [ "$FCB_IOS_CPU" != "x64" ]; then
+    OUT_DIR_NAME="${OUT_DIR_NAME}_${FCB_IOS_CPU}"
+  fi
+fi
 OUT_DIR="$ENGINE_SRC_DIR/out/$OUT_DIR_NAME"
 
 usage() {
@@ -24,7 +31,8 @@ Usage: $0 [options]
 Build the FCB iOS Engine with bytecode patch support.
 
 Environment:
-  FCB_IOS_CPU          arm64 (device) or x64 (simulator). Default: arm64
+  FCB_IOS_CPU          arm64 (device/simulator) or x64 (simulator). Default: arm64
+  FCB_IOS_SIMULATOR    Build simulator engine when set to 1. Default: 0
   FCB_RUNTIME_MODE     release | profile | debug. Default: release
   FCB_SKIP_SYNC        Skip sync_dart_vm_patch.sh when set to 1. Default: 0
   FCB_SKIP_GN          Skip GN generation. Default: 0
@@ -33,7 +41,7 @@ Environment:
                          Auto-built if empty.
 
 Output:
-  $OUT_DIR/Flutter.xcframework  (or similar)
+  $OUT_DIR/Flutter.framework  (or similar)
 USAGE
 }
 
@@ -49,6 +57,8 @@ build_updater_staticlib() {
   local rust_target
   if [ "$FCB_IOS_CPU" = "x64" ]; then
     rust_target="x86_64-apple-ios"
+  elif [ "$FCB_IOS_SIMULATOR" = "1" ]; then
+    rust_target="aarch64-apple-ios-sim"
   else
     rust_target="aarch64-apple-ios"
   fi
@@ -77,11 +87,15 @@ main() {
   build_updater_staticlib
 
   if [ "$FCB_SKIP_GN" != "1" ]; then
+    local gn_ios_args=(--ios)
+    if [ "$FCB_IOS_SIMULATOR" = "1" ]; then
+      gn_ios_args+=(--simulator --simulator-cpu "$FCB_IOS_CPU")
+    fi
+
     echo "Running GN for iOS $FCB_IOS_CPU $FCB_RUNTIME_MODE..."
-    run PATH="$DEPOT_TOOLS_DIR:$PATH" \
-      "$FLUTTER_DIR/tools/gn" \
-        --ios \
-        --ios-cpu "$FCB_IOS_CPU" \
+    run env PATH="$DEPOT_TOOLS_DIR:$PATH" \
+      "$ENGINE_SRC_DIR/flutter/tools/gn" \
+        "${gn_ios_args[@]}" \
         --runtime-mode "$FCB_RUNTIME_MODE" \
         --gn-args "fcb_enable_code_push=true" \
         --gn-args "fcb_updater_staticlib=\"$FCB_UPDATER_STATICLIB\""
@@ -89,8 +103,8 @@ main() {
 
   if [ "$FCB_SKIP_NINJA" != "1" ]; then
     echo "Building iOS Engine with ninja..."
-    run PATH="$DEPOT_TOOLS_DIR:$PATH" \
-      ninja -C "$OUT_DIR" flutter/shell/platform/darwin/ios:flutter_xcframework
+    run env PATH="$DEPOT_TOOLS_DIR:$PATH" \
+      ninja -C "$OUT_DIR" flutter/shell/platform/darwin/ios:flutter_framework
   fi
 
   echo ""

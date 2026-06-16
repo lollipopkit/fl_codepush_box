@@ -21,6 +21,8 @@ const _cacheDir = String.fromEnvironment(
   'FCB_CACHE_DIR',
 );
 const _baselineArtifactPath = String.fromEnvironment('FCB_BASELINE_ARTIFACT');
+const _autoInstallOnStartup =
+    bool.fromEnvironment('FCB_AUTO_INSTALL_ON_STARTUP');
 
 void main() {
   runApp(const CounterApp());
@@ -116,6 +118,13 @@ class _CounterAppState extends State<CounterApp> {
       debugPrint('FCB statusLabel result: $_statusLabel');
       debugPrint('FCB quadCounterValue result: $_quadCounter');
       await _refreshState();
+      if (_configured && _autoInstallOnStartup) {
+        _check = await _codePush.checkForUpdate();
+        if (_check!.patchAvailable) {
+          _download = await _codePush.downloadUpdate();
+        }
+        await _refreshState();
+      }
     });
   }
 
