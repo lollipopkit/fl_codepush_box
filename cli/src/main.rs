@@ -1,10 +1,10 @@
 mod auto;
 
 use auto::{
-    android_app_so_path, collect_build_info, collect_prebuild_build_info, collect_release_artifact,
-    generate_kernel_inventory, read_release_cache, resolve_build, run_flutter_build,
-    write_patch_report, write_release_cache, BuildContext, BuildOptions, PatchReport,
-    ResolvedBuild,
+    android_app_so_path, build_info_warnings, collect_build_info, collect_prebuild_build_info,
+    collect_release_artifact, generate_kernel_inventory, read_release_cache,
+    requires_platform_build, resolve_build, run_flutter_build, write_patch_report,
+    write_release_cache, BuildContext, BuildOptions, PatchReport, ResolvedBuild,
 };
 use clap::{Parser, Subcommand};
 use fcb_bytecode::{compiler, format::BytecodeModule};
@@ -416,11 +416,16 @@ fn release(
     let app = resolve_app(&client, context)?;
     let backend = backend_for(&app, platform)?;
     let build = resolve_build(context, platform, arch, build_options, example)?;
-    run_flutter_build(platform, arch, &build)?;
+    if requires_platform_build(&backend) {
+        run_flutter_build(platform, arch, &build)?;
+    }
     let release_dir = release_cache_dir(&app.id, release_version, platform, arch);
     fs::create_dir_all(&release_dir)?;
     let artifact = collect_release_artifact(&release_dir, platform, arch, &backend, &build)?;
     let build_info = collect_build_info(platform, arch, &backend, &build)?;
+    for warning in build_info_warnings(&build_info) {
+        eprintln!("{warning}");
+    }
     let manifest = ReleaseManifest {
         schema_version: 1,
         app_id: app.id.clone(),
@@ -653,7 +658,12 @@ fn automatic_patch_payload(
             out.join("patch_report.json").display()
         )));
     }
-    run_flutter_build(platform, arch, &build)?;
+    for warning in build_info_warnings(&prebuild_info) {
+        report.messages.push(warning);
+    }
+    if requires_platform_build(backend) {
+        run_flutter_build(platform, arch, &build)?;
+    }
     let patch_build_info = collect_build_info(platform, arch, backend, &build)?;
     let comparison = release_metadata
         .build_info

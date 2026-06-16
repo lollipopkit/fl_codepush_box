@@ -14,6 +14,7 @@
 - `tool/fcb_kernel_manifest.dart`：基于 `.dill` / `package:kernel` 的 Kernel AST inventory，输出 `functions/classes/top_level_fields`，body hash 来自 Kernel text view，不 hash `.dill` 字节；纯 Dart fallback 通过临时 wrapper 生成 `.dill`。
 - `tests/e2e/test_e2e.sh`：Android snapshot 自动 binary diff、iOS bytecode 自动 patch、Kernel inventory stability fixture、multi-app isolation。
 - 后续生产修复：Android native hash 排除 `libapp.so`；rev pin 改为 Flutter/Dart SDK git revision；`BuildInfo` 增加 `flavor` hard-fail，移除死的 `project_hash`；AssetManifest 优先检查 `.bin.json`/`.bin`；patch 前增加 pre-build metadata fail-fast；Kernel inventory 覆盖 constructors；补 Kernel bytecode_source 到 compiler 的接入单测。
+- 最新补强：bytecode 后端不再跑 platform-specific `flutter build ios --no-codesign`，改为 Kernel-only；bytecode build_info 的 asset/native/plugin hash 固定为 `missing`；Kernel 工具在 fallback 或复用现有 `app.dill` 时输出 warning；unknown SDK git pin 会在 release stderr / patch_report messages 中提示。
 
 **已验证**
 - `cargo fmt --check`: pass。
@@ -22,7 +23,7 @@
 - `vendor/flutter/bin/cache/dart-sdk/bin/dart tool/fcb_kernel_manifest.dart --project examples/counter_app --target lib/main.dart >/tmp/fcb_inventory.json && jq ...`: pass，`inventory_source=kernel_ast`，functions=28，classes=4，top_level_fields=9。
 
 **当前状态**
-- 待提交相关修改：`cli/src/auto.rs`、`cli/src/main.rs`、`crates/fcb_core/src/build_info.rs`、`crates/fcb_core/src/linker.rs`、`crates/fcb_core/src/state.rs`、`tests/e2e/test_e2e.sh`、`tool/fcb_kernel_manifest.dart`、`handoff.md`。
+- 待提交相关修改：`cli/src/auto.rs`、`cli/src/main.rs`、`tests/e2e/test_e2e.sh`、`tool/fcb_kernel_manifest.dart`、`handoff.md`。
 - 未跟踪且不要碰：`PLAN-now.md`、`vendor/depot_tools/`、`vendor/flutter/`、`vendor/sdk/`。
 
 **后续建议**

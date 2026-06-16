@@ -339,14 +339,46 @@ pub(crate) fn collect_build_info(
         engine_fork_rev: git_rev(engine_root),
         dart_sdk_rev: dart_sdk_git_rev(&build.flutter),
         pubspec_lock_hash: hash_optional_file(&build.project.join("pubspec.lock"))?,
-        asset_hash: hash_build_assets(platform, build)?,
-        native_hash: hash_build_native(platform, build)?,
-        plugin_hash: hash_build_plugins(platform, build)?,
+        asset_hash: if backend == "bytecode" {
+            "missing".to_string()
+        } else {
+            hash_build_assets(platform, build)?
+        },
+        native_hash: if backend == "bytecode" {
+            "missing".to_string()
+        } else {
+            hash_build_native(platform, build)?
+        },
+        plugin_hash: if backend == "bytecode" {
+            "missing".to_string()
+        } else {
+            hash_build_plugins(platform, build)?
+        },
         obfuscation: false,
         split_debug_info: None,
         dart_defines: build.dart_defines.clone(),
         ignored_dart_define_keys: build.ignored_dart_define_keys.clone(),
     })
+}
+
+pub(crate) fn build_info_warnings(build_info: &BuildInfo) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for (field, value) in [
+        ("flutter_tool_rev", build_info.flutter_tool_rev.as_str()),
+        ("engine_fork_rev", build_info.engine_fork_rev.as_str()),
+        ("dart_sdk_rev", build_info.dart_sdk_rev.as_str()),
+    ] {
+        if value == "unknown" {
+            warnings.push(format!(
+                "warning: build_info {field} is unknown; SDK pin protection is weakened"
+            ));
+        }
+    }
+    warnings
+}
+
+pub(crate) fn requires_platform_build(backend: &str) -> bool {
+    backend == "snapshot_replace"
 }
 
 pub(crate) fn collect_prebuild_build_info(
@@ -444,6 +476,9 @@ pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelI
         .arg(&build.target)
         .env("FCB_KERNEL_SDK_ROOT", kernel_sdk_root(&tool))
         .output()?;
+    if !output.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(err(format!("kernel inventory tool failed: {stderr}")));
@@ -597,49 +632,6 @@ fn hash_optional_file(path: &Path) -> Result<String> {
     }
 }
 
-fn hash_path(path: &Path) -> Result<String> {
-    if path.is_file() {
-        return hash_optional_file(path);
-    }
-    if !path.exists() {
-        return Ok("missing".to_string());
-    }
-    let mut entries = Vec::new();
-    collect_hash_entries(path, path, &mut entries)?;
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut bytes = Vec::new();
-    for (rel, hash) in entries {
-        bytes.extend_from_slice(rel.as_bytes());
-        bytes.push(0);
-        bytes.extend_from_slice(hash.as_bytes());
-        bytes.push(b'\n');
-    }
-    Ok(crypto::sha256_hex(&bytes))
-}
-
-fn collect_hash_entries(root: &Path, path: &Path, out: &mut Vec<(String, String)>) -> Result<()> {
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let path = entry.path();
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if matches!(name.as_ref(), ".git" | ".dart_tool" | "build" | ".fcb") {
-            continue;
-        }
-        if path.is_dir() {
-            collect_hash_entries(root, &path, out)?;
-        } else if path.is_file() {
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(path.as_path())
-                .to_string_lossy()
-                .replace('\\', "/");
-            out.push((rel, crypto::sha256_hex(&fs::read(&path)?)));
-        }
-    }
-    Ok(())
-}
-
 fn hash_build_assets(platform: &str, build: &ResolvedBuild) -> Result<String> {
     let candidates = match platform {
         "android" => vec![
@@ -739,7 +731,7 @@ fn hash_build_plugins(platform: &str, build: &ResolvedBuild) -> Result<String> {
 fn hash_first_existing(candidates: &[PathBuf]) -> Result<String> {
     for path in candidates {
         if path.exists() {
-            return hash_path(path);
+            return hash_optional_file(path);
         }
     }
     Ok("missing".to_string())

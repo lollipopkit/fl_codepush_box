@@ -55,8 +55,16 @@ String _packageName(Directory root) {
 
 Future<File> _resolveDill(Directory root, String target, Directory temp) async {
   final existing = _newestNonEmptyAppDill(root);
-  if (existing != null) return existing;
+  if (existing != null) {
+    stderr.writeln(
+      'warning: using Flutter app.dill ${existing.path}; ensure it matches the current build config',
+    );
+    return existing;
+  }
 
+  stderr.writeln(
+    'warning: using fallback Kernel; .dart_tool/flutter_build/**/app.dill not found',
+  );
   final out = File('${temp.path}/app.dill');
   final targetFile = File('${root.path}/$target').absolute;
   final wrapper = File('${temp.path}/fcb_entry.dart')

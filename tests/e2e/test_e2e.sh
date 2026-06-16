@@ -151,6 +151,7 @@ assert any("ConstructedPrice" in key for key in classes.split('"'))
 assert any("genericIdentity" == name for name in members)
 assert any("addOne" in name for name in members)
 assert members["usesClosure"]["unsupported_reasons"] == ["unsupported_kernel_node"]
+assert any(fn["enclosing"] == "class:ConstructedPrice" and fn["unsupported_reasons"] == ["unsupported_kernel_node"] for fn in data["functions"])
 PY
 
 echo "=== Starting server ==="
