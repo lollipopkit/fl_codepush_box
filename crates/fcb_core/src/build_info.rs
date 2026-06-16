@@ -12,10 +12,11 @@ pub struct BuildInfo {
     pub arch: String,
     pub target_platform: String,
     pub build_mode: String,
+    #[serde(default)]
+    pub flavor: Option<String>,
     pub flutter_tool_rev: String,
     pub engine_fork_rev: String,
     pub dart_sdk_rev: String,
-    pub project_hash: String,
     pub pubspec_lock_hash: String,
     pub asset_hash: String,
     pub native_hash: String,
@@ -117,6 +118,11 @@ impl BuildInfo {
                 patch.build_mode.clone(),
             ),
             (
+                "flavor",
+                self.flavor.clone().unwrap_or_default(),
+                patch.flavor.clone().unwrap_or_default(),
+            ),
+            (
                 "flutter_tool_rev",
                 self.flutter_tool_rev.clone(),
                 patch.flutter_tool_rev.clone(),
@@ -215,10 +221,10 @@ mod tests {
             arch: "arm64".to_string(),
             target_platform: "iphoneos".to_string(),
             build_mode: "release".to_string(),
+            flavor: None,
             flutter_tool_rev: "flutter".to_string(),
             engine_fork_rev: "engine".to_string(),
             dart_sdk_rev: "dart".to_string(),
-            project_hash: "project".to_string(),
             pubspec_lock_hash: "lock".to_string(),
             asset_hash: "assets".to_string(),
             native_hash: "native".to_string(),
@@ -266,14 +272,14 @@ mod tests {
     }
 
     #[test]
-    fn ignores_project_hash_changes_for_patch_code_changes() {
+    fn hard_fails_flavor_changes() {
         let release = info();
         let mut patch = info();
-        patch.project_hash = "changed-dart-source".to_string();
+        patch.flavor = Some("staging".to_string());
 
         let comparison = release.compare_for_patch(&patch);
 
-        assert!(comparison.hard_failures.is_empty());
+        assert_eq!(comparison.hard_failures[0].field, "flavor");
     }
 
     #[test]

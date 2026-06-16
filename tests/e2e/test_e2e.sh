@@ -78,11 +78,14 @@ case "${1:-}" in
     mkdir -p build/app/intermediates/flutter/release/flutter_assets
     mkdir -p build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a
     cp lib/main.dart build/app/intermediates/flutter/release/arm64-v8a/app.so
+    cp lib/main.dart build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libapp.so
+    echo '{"assets":[]}' > build/app/intermediates/flutter/release/flutter_assets/AssetManifest.bin.json
     echo '{}' > build/app/intermediates/flutter/release/flutter_assets/AssetManifest.json
     echo native > build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libfake.so
     ;;
   ios)
     mkdir -p build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets
+    echo '{"assets":[]}' > build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.bin.json
     echo '{}' > build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.json
     ;;
   *)
@@ -108,6 +111,11 @@ mixin PriceMixin {
 
 class BasePrice {}
 class CombinedPrice = BasePrice with PriceMixin;
+
+class ConstructedPrice {
+  ConstructedPrice(this.value);
+  final int value;
+}
 
 extension PriceExtension on int {
   int addOne() {
@@ -139,6 +147,7 @@ members = {fn["member_name"]: fn for fn in data["functions"]}
 classes = json.dumps(data["classes"])
 assert any("PriceMixin" in key for key in classes.split('"'))
 assert any("CombinedPrice" in key for key in classes.split('"'))
+assert any("ConstructedPrice" in key for key in classes.split('"'))
 assert any("genericIdentity" == name for name in members)
 assert any("addOne" in name for name in members)
 assert members["usesClosure"]["unsupported_reasons"] == ["unsupported_kernel_node"]

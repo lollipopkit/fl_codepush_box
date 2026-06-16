@@ -1,9 +1,10 @@
 mod auto;
 
 use auto::{
-    android_app_so_path, collect_build_info, collect_release_artifact, generate_kernel_inventory,
-    read_release_cache, resolve_build, run_flutter_build, write_patch_report, write_release_cache,
-    BuildContext, BuildOptions, PatchReport, ResolvedBuild,
+    android_app_so_path, collect_build_info, collect_prebuild_build_info, collect_release_artifact,
+    generate_kernel_inventory, read_release_cache, resolve_build, run_flutter_build,
+    write_patch_report, write_release_cache, BuildContext, BuildOptions, PatchReport,
+    ResolvedBuild,
 };
 use clap::{Parser, Subcommand};
 use fcb_bytecode::{compiler, format::BytecodeModule};
@@ -629,6 +630,29 @@ fn automatic_patch_payload(
     }
     let release_metadata = read_release_cache(&release_dir)?;
     let build = resolve_build(context, platform, arch, build_options, None)?;
+    let prebuild_info = collect_prebuild_build_info(
+        &release_metadata.build_info,
+        platform,
+        arch,
+        backend,
+        &build,
+    )?;
+    let prebuild_comparison = release_metadata
+        .build_info
+        .compare_for_patch(&prebuild_info);
+    report.ignored_dart_define_keys = prebuild_info
+        .ignored_dart_define_keys
+        .iter()
+        .cloned()
+        .collect();
+    report.build_comparison = Some(prebuild_comparison.clone());
+    if !prebuild_comparison.is_ok() {
+        write_patch_report(out, report)?;
+        return Err(err(format!(
+            "release was built with different config; see {}",
+            out.join("patch_report.json").display()
+        )));
+    }
     run_flutter_build(platform, arch, &build)?;
     let patch_build_info = collect_build_info(platform, arch, backend, &build)?;
     let comparison = release_metadata
@@ -1304,6 +1328,45 @@ mod tests {
 
         assert!(result.is_none());
         assert!(report.linker_plan.expect("plan").interpret.is_empty());
+    }
+
+    #[test]
+    fn automatic_bytecode_payload_compiles_kernel_inventory_source() {
+        let release = KernelInventory {
+            schema_version: KERNEL_INVENTORY_SCHEMA_VERSION,
+            functions: vec![FunctionInventoryEntry {
+                body_hash: "old".to_string(),
+                ..function("changed", None)
+            }],
+            classes: Vec::new(),
+            top_level_fields: Vec::new(),
+        };
+        let patch = KernelInventory {
+            schema_version: KERNEL_INVENTORY_SCHEMA_VERSION,
+            functions: vec![FunctionInventoryEntry {
+                body_hash: "new".to_string(),
+                bytecode_source: Some(serde_json::json!({
+                    "name": "package:app/main.dart::changed",
+                    "params": ["x"],
+                    "body": {
+                        "op": "+",
+                        "left": {"arg": "x"},
+                        "right": {"int": 1}
+                    }
+                })),
+                ..function("changed", None)
+            }],
+            classes: Vec::new(),
+            top_level_fields: Vec::new(),
+        };
+        let mut report = super::PatchReport::new("bytecode", "ios", "arm64", "1.0.0+1", 1);
+
+        let result = bytecode_payload_from_inventories(&release, &patch, &mut report)
+            .expect("bytecode")
+            .expect("payload");
+
+        assert_eq!(result.1, "bytecode_module");
+        assert!(report.linker_plan.expect("plan").reject.is_empty());
     }
 
     #[test]

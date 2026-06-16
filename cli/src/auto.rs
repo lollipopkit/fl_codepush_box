@@ -322,6 +322,11 @@ pub(crate) fn collect_build_info(
     backend: &str,
     build: &ResolvedBuild,
 ) -> Result<BuildInfo> {
+    let flutter_root = flutter_sdk_root(&build.flutter);
+    let engine_root = build
+        .local_engine_src_path
+        .as_deref()
+        .unwrap_or(flutter_root.as_path());
     Ok(BuildInfo {
         schema_version: BUILD_INFO_SCHEMA_VERSION,
         backend: backend.to_string(),
@@ -329,21 +334,50 @@ pub(crate) fn collect_build_info(
         arch: arch.to_string(),
         target_platform: target_platform_label(platform, arch, build)?,
         build_mode: build.build_mode.clone(),
-        flutter_tool_rev: command_rev(&build.flutter, &["--version"])?,
-        engine_fork_rev: git_rev(
-            build
-                .local_engine_src_path
-                .as_deref()
-                .unwrap_or(Path::new(".")),
-        ),
-        dart_sdk_rev: dart_sdk_rev(&build.flutter)?,
-        project_hash: hash_path(&build.project)?,
+        flavor: build.flavor.clone(),
+        flutter_tool_rev: flutter_tool_rev(&build.flutter),
+        engine_fork_rev: git_rev(engine_root),
+        dart_sdk_rev: dart_sdk_git_rev(&build.flutter),
         pubspec_lock_hash: hash_optional_file(&build.project.join("pubspec.lock"))?,
         asset_hash: hash_build_assets(platform, build)?,
         native_hash: hash_build_native(platform, build)?,
         plugin_hash: hash_build_plugins(platform, build)?,
         obfuscation: false,
         split_debug_info: None,
+        dart_defines: build.dart_defines.clone(),
+        ignored_dart_define_keys: build.ignored_dart_define_keys.clone(),
+    })
+}
+
+pub(crate) fn collect_prebuild_build_info(
+    release: &BuildInfo,
+    platform: &str,
+    arch: &str,
+    backend: &str,
+    build: &ResolvedBuild,
+) -> Result<BuildInfo> {
+    let flutter_root = flutter_sdk_root(&build.flutter);
+    let engine_root = build
+        .local_engine_src_path
+        .as_deref()
+        .unwrap_or(flutter_root.as_path());
+    Ok(BuildInfo {
+        schema_version: BUILD_INFO_SCHEMA_VERSION,
+        backend: backend.to_string(),
+        platform: platform.to_string(),
+        arch: arch.to_string(),
+        target_platform: target_platform_label(platform, arch, build)?,
+        build_mode: build.build_mode.clone(),
+        flavor: build.flavor.clone(),
+        flutter_tool_rev: flutter_tool_rev(&build.flutter),
+        engine_fork_rev: git_rev(engine_root),
+        dart_sdk_rev: dart_sdk_git_rev(&build.flutter),
+        pubspec_lock_hash: hash_optional_file(&build.project.join("pubspec.lock"))?,
+        asset_hash: release.asset_hash.clone(),
+        native_hash: release.native_hash.clone(),
+        plugin_hash: release.plugin_hash.clone(),
+        obfuscation: release.obfuscation,
+        split_debug_info: release.split_debug_info.clone(),
         dart_defines: build.dart_defines.clone(),
         ignored_dart_define_keys: build.ignored_dart_define_keys.clone(),
     })
@@ -511,6 +545,27 @@ fn dart_sdk_rev(flutter: &Path) -> Result<String> {
     }
 }
 
+fn flutter_tool_rev(flutter: &Path) -> String {
+    git_rev(&flutter_sdk_root(flutter))
+}
+
+fn dart_sdk_git_rev(flutter: &Path) -> String {
+    let sdk_root = flutter_sdk_root(flutter).join("bin/cache/dart-sdk");
+    let rev = git_rev(&sdk_root);
+    if rev != "unknown" {
+        return rev;
+    }
+    git_rev(&PathBuf::from("vendor/sdk"))
+}
+
+fn flutter_sdk_root(flutter: &Path) -> PathBuf {
+    flutter
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("vendor/flutter"))
+}
+
 fn flutter_dart_path(flutter: &Path) -> PathBuf {
     flutter
         .parent()
@@ -588,9 +643,21 @@ fn collect_hash_entries(root: &Path, path: &Path, out: &mut Vec<(String, String)
 fn hash_build_assets(platform: &str, build: &ResolvedBuild) -> Result<String> {
     let candidates = match platform {
         "android" => vec![
+            build.project.join(
+                "build/app/intermediates/flutter/release/flutter_assets/AssetManifest.bin.json",
+            ),
+            build
+                .project
+                .join("build/app/intermediates/flutter/release/flutter_assets/AssetManifest.bin"),
             build
                 .project
                 .join("build/app/intermediates/flutter/release/flutter_assets/AssetManifest.json"),
+            build.project.join(
+                "build/app/intermediates/assets/release/flutter_assets/AssetManifest.bin.json",
+            ),
+            build
+                .project
+                .join("build/app/intermediates/assets/release/flutter_assets/AssetManifest.bin"),
             build
                 .project
                 .join("build/app/intermediates/assets/release/flutter_assets/AssetManifest.json"),
@@ -598,7 +665,19 @@ fn hash_build_assets(platform: &str, build: &ResolvedBuild) -> Result<String> {
         "ios" => vec![
             build
                 .project
+                .join("build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.bin.json"),
+            build
+                .project
+                .join("build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.bin"),
+            build
+                .project
                 .join("build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.json"),
+            build
+                .project
+                .join("build/ios/iphonesimulator/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.bin.json"),
+            build
+                .project
+                .join("build/ios/iphonesimulator/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.bin"),
             build
                 .project
                 .join("build/ios/iphonesimulator/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.json"),
@@ -628,7 +707,9 @@ fn hash_build_native(platform: &str, build: &ResolvedBuild) -> Result<String> {
         ],
         _ => Vec::new(),
     };
-    if platform == "ios" {
+    if platform == "android" {
+        hash_first_existing_excluding(&candidates, &["libapp.so"])
+    } else if platform == "ios" {
         hash_first_existing_excluding(&candidates, &["App.framework"])
     } else {
         hash_first_existing(&candidates)

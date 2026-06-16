@@ -170,6 +170,11 @@ void main(List<String> args) {
     final libraryUri = _canonicalLibraryUri(library, project, packageName);
     for (final klass in library.classes) {
       classes.add(_classEntry(libraryUri, klass));
+      for (final constructor in klass.constructors) {
+        functions.add(
+          _constructorEntry(libraryUri, 'class:${klass.name}', constructor),
+        );
+      }
       for (final procedure in klass.procedures) {
         functions.add(_procedureEntry(libraryUri, 'class:${klass.name}', procedure));
       }
@@ -262,6 +267,7 @@ Map<String, Object?> _classEntry(String libraryUri, Class klass) {
     klass.mixedInType?.toString() ?? '',
     klass.implementedTypes.map((type) => type.toString()).join(','),
     ...klass.fields.map((field) => 'field:${field.name.text}:${field.type}:${field.isStatic}:${field.isFinal}:${field.isConst}'),
+    ...klass.constructors.map((constructor) => 'constructor:${constructor.name.text}:${constructor.isConst}:${constructor.isExternal}:${_signature(constructor.function)}:${constructor.initializers.map(_nodeText).join(",")}'),
     ...klass.procedures.map((procedure) => 'procedure:${procedure.name.text}:${procedure.kind}:${procedure.isStatic}:${_signature(procedure.function)}'),
   ].join('\n');
   return {
@@ -269,6 +275,35 @@ Map<String, Object?> _classEntry(String libraryUri, Class klass) {
     'class_name': klass.name,
     'shape_hash': _hash(shape),
     'source_location': _location(klass),
+  };
+}
+
+Map<String, Object?> _constructorEntry(
+  String libraryUri,
+  String enclosing,
+  Constructor constructor,
+) {
+  final memberName = constructor.name.text;
+  final signature = _signature(constructor.function);
+  final functionId = _hash([
+    libraryUri,
+    enclosing,
+    memberName,
+    _hash(signature),
+    constructor.function.typeParameters.length,
+  ].join('\n'));
+  return {
+    'function_id': functionId,
+    'library_uri': libraryUri,
+    'enclosing': enclosing,
+    'member_name': memberName,
+    'signature_hash': _hash(signature),
+    'body_hash': _hash([
+      _nodeText(constructor.function.body),
+      constructor.initializers.map(_nodeText).join('\n'),
+    ].join('\n')),
+    'source_location': _location(constructor),
+    'unsupported_reasons': ['unsupported_kernel_node'],
   };
 }
 
