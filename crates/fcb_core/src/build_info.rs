@@ -264,4 +264,35 @@ mod tests {
         assert!(comparison.hard_failures.is_empty());
         assert!(comparison.warnings.is_empty());
     }
+
+    #[test]
+    fn ignores_project_hash_changes_for_patch_code_changes() {
+        let release = info();
+        let mut patch = info();
+        patch.project_hash = "changed-dart-source".to_string();
+
+        let comparison = release.compare_for_patch(&patch);
+
+        assert!(comparison.hard_failures.is_empty());
+    }
+
+    #[test]
+    fn hard_fails_runtime_artifact_hash_changes() {
+        let release = info();
+        let mut patch = info();
+        patch.asset_hash = "changed-assets".to_string();
+        patch.native_hash = "changed-native".to_string();
+        patch.plugin_hash = "changed-plugins".to_string();
+
+        let comparison = release.compare_for_patch(&patch);
+        let fields = comparison
+            .hard_failures
+            .iter()
+            .map(|mismatch| mismatch.field.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(fields.contains(&"asset_hash"));
+        assert!(fields.contains(&"native_hash"));
+        assert!(fields.contains(&"plugin_hash"));
+    }
 }

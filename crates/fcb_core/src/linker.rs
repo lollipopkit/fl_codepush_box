@@ -252,8 +252,8 @@ impl KernelInventory {
 #[cfg(test)]
 mod tests {
     use super::{
-        plan_bytecode_link, FunctionInventoryEntry, KernelInventory, RejectReason,
-        KERNEL_INVENTORY_SCHEMA_VERSION,
+        plan_bytecode_link, ClassInventoryEntry, FieldInventoryEntry, FunctionInventoryEntry,
+        KernelInventory, RejectReason, KERNEL_INVENTORY_SCHEMA_VERSION,
     };
 
     fn function(id: &str, sig: &str, body: &str, bytecode: bool) -> FunctionInventoryEntry {
@@ -297,5 +297,52 @@ mod tests {
         assert_eq!(plan.unchanged[0].function_id, "same");
         assert_eq!(plan.interpret[0].function_id, "changed");
         assert_eq!(plan.reject[0].reject_reason, RejectReason::SignatureChanged);
+    }
+
+    #[test]
+    fn rejects_class_shape_and_field_signature_changes() {
+        let mut release = inventory(vec![function("same", "sig", "old", false)]);
+        release.classes.push(ClassInventoryEntry {
+            class_id: "class:pricing".to_string(),
+            shape_hash: "old-shape".to_string(),
+        });
+        release.top_level_fields.push(FieldInventoryEntry {
+            field_id: "field:flag".to_string(),
+            signature_hash: "old-field".to_string(),
+        });
+        let mut patch = inventory(vec![function("same", "sig", "old", false)]);
+        patch.classes.push(ClassInventoryEntry {
+            class_id: "class:pricing".to_string(),
+            shape_hash: "new-shape".to_string(),
+        });
+        patch.top_level_fields.push(FieldInventoryEntry {
+            field_id: "field:flag".to_string(),
+            signature_hash: "new-field".to_string(),
+        });
+
+        let plan = plan_bytecode_link(&release, &patch).expect("plan");
+
+        assert!(plan
+            .reject
+            .iter()
+            .any(|reject| reject.reject_reason == RejectReason::ClassShapeChanged));
+        assert!(plan
+            .reject
+            .iter()
+            .any(|reject| reject.reject_reason == RejectReason::FieldSignatureChanged));
+    }
+
+    #[test]
+    fn rejects_changed_function_without_bytecode_source() {
+        let release = inventory(vec![function("changed", "sig", "old", false)]);
+        let patch = inventory(vec![function("changed", "sig", "new", false)]);
+
+        let plan = plan_bytecode_link(&release, &patch).expect("plan");
+
+        assert_eq!(
+            plan.reject[0].reject_reason,
+            RejectReason::MissingBytecodeSource
+        );
+        assert!(plan.interpret.is_empty());
     }
 }

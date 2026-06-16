@@ -372,7 +372,8 @@ pub(crate) fn write_release_cache(
 }
 
 pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelInventory> {
-    let tool = PathBuf::from("tool/fcb_kernel_manifest.dart");
+    let tool = kernel_inventory_tool_path()?;
+    let display_tool = tool.display().to_string();
     if !tool.exists() {
         return Err(err(format!(
             "missing kernel inventory tool {}",
@@ -397,7 +398,7 @@ pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelI
             .arg(&snapshot)
             .status()?;
         if !status.success() {
-            return Err(err(format!("failed to compile {}", tool.display())));
+            return Err(err(format!("failed to compile {display_tool}")));
         }
         fs::write(&key_path, &key)?;
     }
@@ -407,6 +408,7 @@ pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelI
         .arg(&build.project)
         .arg("--target")
         .arg(&build.target)
+        .env("FCB_KERNEL_SDK_ROOT", kernel_sdk_root(&tool))
         .output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -415,6 +417,35 @@ pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelI
     let inventory: KernelInventory = serde_json::from_slice(&output.stdout)?;
     inventory.validate()?;
     Ok(inventory)
+}
+
+fn kernel_inventory_tool_path() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os("FCB_KERNEL_MANIFEST_TOOL") {
+        return Ok(PathBuf::from(path));
+    }
+    let cwd_tool = PathBuf::from("tool/fcb_kernel_manifest.dart");
+    if cwd_tool.exists() {
+        return Ok(cwd_tool);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        for ancestor in exe.ancestors() {
+            let candidate = ancestor.join("tool/fcb_kernel_manifest.dart");
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+    Ok(cwd_tool)
+}
+
+fn kernel_sdk_root(tool: &Path) -> PathBuf {
+    for ancestor in tool.ancestors() {
+        let candidate = ancestor.join("vendor/sdk");
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    PathBuf::from("vendor/sdk")
 }
 
 pub(crate) fn read_release_cache(release_dir: &Path) -> Result<ReleaseCacheMetadata> {
@@ -597,19 +628,31 @@ fn hash_build_native(platform: &str, build: &ResolvedBuild) -> Result<String> {
         ],
         _ => Vec::new(),
     };
-    hash_first_existing(&candidates)
+    if platform == "ios" {
+        hash_first_existing_excluding(&candidates, &["App.framework"])
+    } else {
+        hash_first_existing(&candidates)
+    }
 }
 
 fn hash_build_plugins(platform: &str, build: &ResolvedBuild) -> Result<String> {
     let candidates = match platform {
-        "android" => vec![build.project.join("build/app/intermediates/flutter")],
+        "android" => vec![build.project.join(".flutter-plugins-dependencies")],
         "ios" => vec![
-            build.project.join("build/ios/iphoneos"),
-            build.project.join("build/ios/iphonesimulator"),
+            build
+                .project
+                .join("build/ios/iphoneos/Runner.app/Frameworks"),
+            build
+                .project
+                .join("build/ios/iphonesimulator/Runner.app/Frameworks"),
         ],
         _ => Vec::new(),
     };
-    hash_first_existing(&candidates)
+    if platform == "ios" {
+        hash_first_existing_excluding(&candidates, &["App.framework"])
+    } else {
+        hash_first_existing(&candidates)
+    }
 }
 
 fn hash_first_existing(candidates: &[PathBuf]) -> Result<String> {
@@ -619,6 +662,75 @@ fn hash_first_existing(candidates: &[PathBuf]) -> Result<String> {
         }
     }
     Ok("missing".to_string())
+}
+
+fn hash_first_existing_excluding(
+    candidates: &[PathBuf],
+    excluded_names: &[&str],
+) -> Result<String> {
+    for path in candidates {
+        if path.exists() {
+            return hash_path_excluding(path, excluded_names);
+        }
+    }
+    Ok("missing".to_string())
+}
+
+fn hash_path_excluding(path: &Path, excluded_names: &[&str]) -> Result<String> {
+    if path.is_file() {
+        return hash_optional_file(path);
+    }
+    if !path.exists() {
+        return Ok("missing".to_string());
+    }
+    let mut entries = Vec::new();
+    collect_hash_entries_excluding(path, path, &mut entries, excluded_names)?;
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    if entries.is_empty() {
+        return Ok("missing".to_string());
+    }
+    let mut bytes = Vec::new();
+    for (rel, hash) in entries {
+        bytes.extend_from_slice(rel.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(hash.as_bytes());
+        bytes.push(b'\n');
+    }
+    Ok(crypto::sha256_hex(&bytes))
+}
+
+fn collect_hash_entries_excluding(
+    root: &Path,
+    path: &Path,
+    out: &mut Vec<(String, String)>,
+    excluded_names: &[&str],
+) -> Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if excluded_names
+            .iter()
+            .any(|excluded| *excluded == name.as_ref())
+        {
+            continue;
+        }
+        if matches!(name.as_ref(), ".git" | ".dart_tool" | "build" | ".fcb") {
+            continue;
+        }
+        if path.is_dir() {
+            collect_hash_entries_excluding(root, &path, out, excluded_names)?;
+        } else if path.is_file() {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push((rel, crypto::sha256_hex(&fs::read(&path)?)));
+        }
+    }
+    Ok(())
 }
 
 fn resolve_path(config_dir: &Path, path: &Path) -> PathBuf {
@@ -642,4 +754,99 @@ fn expand_home(path: &Path) -> PathBuf {
         }
     }
     path.to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_build, BuildContext, BuildOptions};
+    use fcb_core::config::{LocalBuildConfig, LocalPlatformBuildConfig};
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+
+    struct TestContext {
+        config_path: PathBuf,
+        build: LocalBuildConfig,
+    }
+
+    impl BuildContext for TestContext {
+        fn config_path(&self) -> &Path {
+            &self.config_path
+        }
+
+        fn build_config(&self) -> &LocalBuildConfig {
+            &self.build
+        }
+    }
+
+    #[test]
+    fn resolve_build_accepts_example_as_project_alias() {
+        let context = TestContext {
+            config_path: PathBuf::from("/tmp/fcb-test/fcb.yaml"),
+            build: LocalBuildConfig::default(),
+        };
+
+        let build = resolve_build(
+            &context,
+            "android",
+            "arm64-v8a",
+            &BuildOptions::default(),
+            Some(Path::new("example_app")),
+        )
+        .expect("resolve build");
+
+        assert_eq!(build.project, PathBuf::from("/tmp/fcb-test/example_app"));
+    }
+
+    #[test]
+    fn resolve_build_rejects_android_arch_outside_configured_abis() {
+        let mut platforms = BTreeMap::new();
+        platforms.insert(
+            "android".to_string(),
+            LocalPlatformBuildConfig {
+                abis: vec!["arm64-v8a".to_string()],
+                ..Default::default()
+            },
+        );
+        let context = TestContext {
+            config_path: PathBuf::from("/tmp/fcb-test/fcb.yaml"),
+            build: LocalBuildConfig {
+                platforms,
+                ..Default::default()
+            },
+        };
+
+        let err = resolve_build(
+            &context,
+            "android",
+            "x86_64",
+            &BuildOptions::default(),
+            Some(Path::new("example_app")),
+        )
+        .expect_err("arch mismatch should fail");
+
+        assert!(err.to_string().contains("is not in configured Android ABI"));
+    }
+
+    #[test]
+    fn resolve_build_rejects_invalid_ios_sdk_override() {
+        let context = TestContext {
+            config_path: PathBuf::from("/tmp/fcb-test/fcb.yaml"),
+            build: LocalBuildConfig::default(),
+        };
+        let options = BuildOptions {
+            ios_sdk: Some("watchos".to_string()),
+            ..Default::default()
+        };
+
+        let err = resolve_build(
+            &context,
+            "ios",
+            "arm64",
+            &options,
+            Some(Path::new("example_app")),
+        )
+        .expect_err("invalid sdk should fail");
+
+        assert!(err.to_string().contains("unsupported iOS sdk"));
+    }
 }

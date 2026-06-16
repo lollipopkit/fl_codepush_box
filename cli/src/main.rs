@@ -54,6 +54,10 @@ enum Command {
         #[arg(long, default_value = "stable")]
         channel: String,
     },
+    App {
+        #[command(subcommand)]
+        command: AppCommand,
+    },
     Doctor,
     Release {
         platform: String,
@@ -146,6 +150,17 @@ enum Command {
     },
 }
 
+#[derive(Subcommand)]
+enum AppCommand {
+    Add {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long, default_value = "stable")]
+        channel: String,
+    },
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -160,6 +175,9 @@ fn run() -> Result<()> {
     let context = ResolvedContext::new(&args, local_context.as_ref(), config_path);
     match args.command {
         Command::Init { name, channel } => init(&context, &name, &channel),
+        Command::App { command } => match command {
+            AppCommand::Add { name, id, channel } => app_add(&context, &name, id, &channel),
+        },
         Command::Doctor => {
             println!("fcb doctor: ok");
             Ok(())
@@ -347,6 +365,41 @@ fn init(context: &ResolvedContext, name: &str, channel: &str) -> Result<()> {
     println!("APP_ID={app_id}");
     println!("app={name}");
     println!("private_key={}", key_file.display());
+    Ok(())
+}
+
+fn app_add(context: &ResolvedContext, name: &str, id: Option<String>, channel: &str) -> Result<()> {
+    let key_file = &context.key_file;
+    if let Some(parent) = key_file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let public_key = if key_file.exists() {
+        let key_material = fs::read_to_string(key_file)?;
+        crypto::public_key_b64_from_private_key(&key_material)?
+    } else {
+        let (private_key, public_key) = crypto::generate_keypair_b64();
+        fs::write(key_file, private_key)?;
+        #[cfg(unix)]
+        fs::set_permissions(key_file, fs::Permissions::from_mode(0o600))?;
+        public_key
+    };
+    let app_id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    authed_client(&context.server, context.token.as_deref())?.create_app(&CreateAppRequest {
+        id: app_id.clone(),
+        name: name.to_string(),
+        channel: channel.to_string(),
+        public_key,
+        platforms: default_platforms(),
+    })?;
+    LocalAppContext {
+        app: name.to_string(),
+        server: context.server.clone(),
+        key_file: path_for_context(&context.config_path, key_file),
+        build: context.build.clone(),
+    }
+    .write_yaml(&context.config_path)?;
+    println!("APP_ID={app_id}");
+    println!("app={name}");
     Ok(())
 }
 
@@ -635,6 +688,14 @@ fn automatic_bytecode_payload(
     let release_inventory: KernelInventory =
         manifest::read_json(&release_dir.join("kernel_inventory.json"))?;
     let patch_inventory = generate_kernel_inventory(build)?;
+    bytecode_payload_from_inventories(&release_inventory, &patch_inventory, report)
+}
+
+fn bytecode_payload_from_inventories(
+    release_inventory: &KernelInventory,
+    patch_inventory: &KernelInventory,
+    report: &mut PatchReport,
+) -> Result<Option<PatchPayloadResult>> {
     let plan = linker::plan_bytecode_link(&release_inventory, &patch_inventory)?;
     report.linker_plan = Some(plan.clone());
     if plan.has_rejects() {
@@ -643,7 +704,7 @@ fn automatic_bytecode_payload(
     if plan.changed_function_count() == 0 {
         return Ok(None);
     }
-    let sources = interpret_sources(&patch_inventory, &plan)?;
+    let sources = interpret_sources(patch_inventory, &plan)?;
     let source_module = serde_json::json!({ "functions": sources });
     let bytes = serde_json::to_vec(&source_module)?;
     let module = compile_or_read_bytecode_module(&bytes)?;
@@ -1147,7 +1208,15 @@ fn object_key(
 
 #[cfg(test)]
 mod tests {
-    use super::compile_or_read_bytecode_module;
+    use super::{
+        bytecode_payload_from_inventories, compile_or_read_bytecode_module, interpret_sources,
+        manual_patch_payload,
+    };
+    use fcb_core::config::RemoteAppConfig;
+    use fcb_core::linker::{
+        FunctionDecision, FunctionInventoryEntry, KernelInventory, LinkerPlan,
+        KERNEL_INVENTORY_SCHEMA_VERSION,
+    };
 
     #[test]
     fn compiles_restricted_bytecode_source_payload() {
@@ -1183,5 +1252,107 @@ mod tests {
         .expect_err("unsupported source should fail");
 
         assert!(err.to_string().contains("invalid bytecode payload"));
+    }
+
+    #[test]
+    fn interpret_sources_uses_only_linker_interpret_entries() {
+        let inventory = KernelInventory {
+            schema_version: KERNEL_INVENTORY_SCHEMA_VERSION,
+            functions: vec![
+                function(
+                    "same",
+                    Some(serde_json::json!({"name":"same","params":[],"body":{"int":1}})),
+                ),
+                function(
+                    "changed",
+                    Some(serde_json::json!({"name":"changed","params":[],"body":{"int":2}})),
+                ),
+            ],
+            classes: Vec::new(),
+            top_level_fields: Vec::new(),
+        };
+        let plan = LinkerPlan {
+            unchanged: vec![FunctionDecision {
+                function_id: "same".to_string(),
+                source_location: None,
+            }],
+            interpret: vec![FunctionDecision {
+                function_id: "changed".to_string(),
+                source_location: None,
+            }],
+            reject: Vec::new(),
+        };
+
+        let sources = interpret_sources(&inventory, &plan).expect("sources");
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0]["name"], "changed");
+    }
+
+    #[test]
+    fn automatic_bytecode_payload_returns_noop_when_all_functions_unchanged() {
+        let inventory = KernelInventory {
+            schema_version: KERNEL_INVENTORY_SCHEMA_VERSION,
+            functions: vec![function("same", None)],
+            classes: Vec::new(),
+            top_level_fields: Vec::new(),
+        };
+        let mut report = super::PatchReport::new("bytecode", "ios", "arm64", "1.0.0+1", 1);
+
+        let result = bytecode_payload_from_inventories(&inventory, &inventory, &mut report)
+            .expect("bytecode");
+
+        assert!(result.is_none());
+        assert!(report.linker_plan.expect("plan").interpret.is_empty());
+    }
+
+    #[test]
+    fn manual_bytecode_payload_bypasses_automatic_flow() {
+        let dir = std::env::temp_dir().join(format!("fcb-cli-test-payload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let payload_path = dir.join("payload.json");
+        std::fs::write(
+            &payload_path,
+            br#"{"functions":[{"name":"manual","params":[],"body":{"int":7}}]}"#,
+        )
+        .expect("payload");
+        let app = RemoteAppConfig {
+            id: "app".to_string(),
+            name: "App".to_string(),
+            channel: "stable".to_string(),
+            public_key: "key".to_string(),
+            platforms: Vec::new(),
+        };
+
+        let result = manual_patch_payload(
+            &app,
+            "bytecode",
+            "1.0.0+1",
+            1,
+            "ios",
+            "arm64",
+            &payload_path,
+        )
+        .expect("manual")
+        .expect("payload result");
+
+        assert_eq!(result.1, "bytecode_module");
+        assert!(result.3.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn function(id: &str, bytecode_source: Option<serde_json::Value>) -> FunctionInventoryEntry {
+        FunctionInventoryEntry {
+            function_id: id.to_string(),
+            library_uri: "package:app/main.dart".to_string(),
+            enclosing: String::new(),
+            member_name: id.to_string(),
+            signature_hash: "sig".to_string(),
+            body_hash: "same-body".to_string(),
+            source_location: None,
+            bytecode_source,
+            unsupported_reasons: Vec::new(),
+        }
     }
 }

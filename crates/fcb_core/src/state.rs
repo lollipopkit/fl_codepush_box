@@ -302,7 +302,12 @@ fn snapshot_replace_chained_diff(
         .as_deref()
         .ok_or_else(|| err("snapshot_replace binary_diff requires base_hash"))?;
 
-    let base = find_diff_base(expected_base_hash, installed, cache_dir, baseline_artifact_path)?;
+    let base = find_diff_base(
+        expected_base_hash,
+        installed,
+        cache_dir,
+        baseline_artifact_path,
+    )?;
     let artifact = diff::apply_binary_diff(diff_algorithm, &base, payload)?;
 
     if let Some(expected_output_hash) = &manifest.payload.output_hash {
@@ -735,7 +740,8 @@ mod tests {
         // Install patch 1: diff from baseline -> v1
         let diff1 = diff::create_bsdiff_zstd(baseline, v1).expect("diff1");
         let mut patch1 = make_snapshot_patch(
-            &private_key, 1,
+            &private_key,
+            1,
             crypto::sha256_hex(baseline),
             crypto::sha256_hex(v1),
             &diff1,
@@ -748,7 +754,12 @@ mod tests {
 
         let updater = Updater::new(&cache_dir);
         updater
-            .install_payload_with_baseline(&manifest1_path, &payload1_path, &public_key, Some(&baseline_path))
+            .install_payload_with_baseline(
+                &manifest1_path,
+                &payload1_path,
+                &public_key,
+                Some(&baseline_path),
+            )
             .expect("install patch 1");
 
         assert_eq!(
@@ -759,7 +770,8 @@ mod tests {
         // Install patch 2: diff from v1 -> v2 (no baseline_path needed; uses patch 1 artifact)
         let diff2 = diff::create_bsdiff_zstd(v1, v2).expect("diff2");
         let mut patch2 = make_snapshot_patch(
-            &private_key, 2,
+            &private_key,
+            2,
             crypto::sha256_hex(v1),
             crypto::sha256_hex(v2),
             &diff2,
@@ -808,7 +820,9 @@ mod tests {
                 compression: "none".to_string(),
                 hash: crypto::sha256_hex(payload),
                 size: payload.len() as u64,
-                download_url: format!("patches/app/release/android/arm64-v8a/{patch_number}/payload.bin"),
+                download_url: format!(
+                    "patches/app/release/android/arm64-v8a/{patch_number}/payload.bin"
+                ),
                 diff_algorithm: Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
                 base_hash: Some(base_hash),
                 output_hash: Some(output_hash),
@@ -875,7 +889,10 @@ mod tests {
             .install_payload(&manifest_path, &payload_path, &public_key)
             .expect_err("opaque_payload should be rejected");
 
-        assert!(err.to_string().contains("requires binary_diff payload"), "{err}");
+        assert!(
+            err.to_string().contains("requires binary_diff payload"),
+            "{err}"
+        );
 
         let _ = std::fs::remove_dir_all(cache_dir);
         let _ = std::fs::remove_dir_all(input_dir);

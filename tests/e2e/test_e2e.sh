@@ -3,18 +3,32 @@
 # Requires: fcb (built), fcb_server (built), curl
 set -euo pipefail
 
+REPO_ROOT=$(pwd)
 SERVER_ADDR="127.0.0.1:18095"
 SERVER_HOST="127.0.0.1"
 SERVER_PORT="18095"
 WORKDIR=$(mktemp -d /tmp/fcb_e2e_test_XXXXXX)
 STORE_FILE="$WORKDIR/store.json"
 OBJECTS_DIR="$WORKDIR/objects"
+PROJECT_DIR="$WORKDIR/counter_project"
+FAKE_FLUTTER="$WORKDIR/fake_flutter_sdk/bin/flutter"
 FCB="${FCB_BIN:-fcb}"
 SERVER="${SERVER_BIN:-fcb_server}"
 SERVER_PID=""
 FCB_CLI_TOKEN=""
 
+if [[ "$FCB" == */* ]]; then
+    FCB=$(cd "$(dirname "$FCB")" && pwd)/$(basename "$FCB")
+fi
+if [[ "$SERVER" == */* ]]; then
+    SERVER=$(cd "$(dirname "$SERVER")" && pwd)/$(basename "$SERVER")
+fi
+
 cleanup() {
+    if [ "${FCB_E2E_KEEP_WORKDIR:-}" = "1" ]; then
+        echo "keeping e2e workdir: $WORKDIR"
+        return
+    fi
     if [ -n "$SERVER_PID" ]; then
         kill "$SERVER_PID" 2>/dev/null || true
         wait "$SERVER_PID" 2>/dev/null || true
@@ -24,6 +38,111 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$OBJECTS_DIR"
+mkdir -p "$PROJECT_DIR/lib"
+mkdir -p "$(dirname "$FAKE_FLUTTER")"
+mkdir -p "$WORKDIR/fake_flutter_sdk/bin/cache/dart-sdk/bin"
+if [ -x "$REPO_ROOT/vendor/flutter/bin/cache/dart-sdk/bin/dart" ]; then
+    DEFAULT_DART_BIN="$REPO_ROOT/vendor/flutter/bin/cache/dart-sdk/bin/dart"
+else
+    DEFAULT_DART_BIN="$(command -v dart)"
+fi
+DART_BIN="${DART_BIN:-$DEFAULT_DART_BIN}"
+ln -s "$DART_BIN" "$WORKDIR/fake_flutter_sdk/bin/cache/dart-sdk/bin/dart"
+cat >"$PROJECT_DIR/pubspec.yaml" <<'YAML'
+name: fcb_e2e_counter
+version: 1.0.0+1
+YAML
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 1;
+}
+DART
+cat >"$FAKE_FLUTTER" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "--version" ]; then
+  echo "Flutter fake-e2e"
+  exit 0
+fi
+if [ "${1:-}" = "--no-version-check" ]; then
+  shift
+fi
+if [ "${1:-}" != "build" ]; then
+  echo "unexpected fake flutter command: $*" >&2
+  exit 2
+fi
+shift
+case "${1:-}" in
+  apk)
+    mkdir -p build/app/intermediates/flutter/release/arm64-v8a
+    mkdir -p build/app/intermediates/flutter/release/flutter_assets
+    mkdir -p build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a
+    cp lib/main.dart build/app/intermediates/flutter/release/arm64-v8a/app.so
+    echo '{}' > build/app/intermediates/flutter/release/flutter_assets/AssetManifest.json
+    echo native > build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libfake.so
+    ;;
+  ios)
+    mkdir -p build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets
+    echo '{}' > build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/AssetManifest.json
+    ;;
+  *)
+    echo "unexpected fake flutter build target: ${1:-}" >&2
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$FAKE_FLUTTER"
+
+INVENTORY_PROJECT="$WORKDIR/inventory_project"
+mkdir -p "$INVENTORY_PROJECT/lib"
+cat >"$INVENTORY_PROJECT/pubspec.yaml" <<'YAML'
+name: fcb_inventory_fixture
+version: 1.0.0
+YAML
+cat >"$INVENTORY_PROJECT/lib/main.dart" <<'DART'
+mixin PriceMixin {
+  int mixinValue() {
+    return 1;
+  }
+}
+
+class BasePrice {}
+class CombinedPrice = BasePrice with PriceMixin;
+
+extension PriceExtension on int {
+  int addOne() {
+    return this + 1;
+  }
+}
+
+T genericIdentity<T>(T value) {
+  return value;
+}
+
+int usesClosure(int value) {
+  final add = (int x) {
+    return x + 1;
+  };
+  return add(value);
+}
+DART
+echo "=== Kernel inventory stability ==="
+"$DART_BIN" "$REPO_ROOT/tool/fcb_kernel_manifest.dart" --project "$INVENTORY_PROJECT" --target lib/main.dart >"$WORKDIR/inventory1.json"
+"$DART_BIN" "$REPO_ROOT/tool/fcb_kernel_manifest.dart" --project "$INVENTORY_PROJECT" --target lib/main.dart >"$WORKDIR/inventory2.json"
+cmp "$WORKDIR/inventory1.json" "$WORKDIR/inventory2.json" || { echo "FAIL: kernel inventory is not stable"; exit 1; }
+python3 - "$WORKDIR/inventory1.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+assert data["inventory_source"] == "kernel_ast"
+members = {fn["member_name"]: fn for fn in data["functions"]}
+classes = json.dumps(data["classes"])
+assert any("PriceMixin" in key for key in classes.split('"'))
+assert any("CombinedPrice" in key for key in classes.split('"'))
+assert any("genericIdentity" == name for name in members)
+assert any("addOne" in name for name in members)
+assert members["usesClosure"]["unsupported_reasons"] == ["unsupported_kernel_node"]
+PY
 
 echo "=== Starting server ==="
 FCB_SERVER_ADDR="$SERVER_ADDR" "$SERVER" -store "$STORE_FILE" -objects "$OBJECTS_DIR" &
@@ -44,11 +163,6 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
     exit 1
 fi
 
-echo "=== Init ==="
-cd "$WORKDIR"
-"$FCB" init
-APP_ID=$(awk -F':[[:space:]]*' '$1 == "app_id" { print $2; found=1; exit } $1 == "active_app_id" { fallback=$2 } END { if (!found && fallback != "") print fallback }' fcb.yaml | tr -d '"')
-
 echo "=== Server setup ==="
 SETUP_RESULT=$(curl -s -X POST "http://$SERVER_ADDR/api/auth/setup" \
     -H 'Content-Type: application/json' \
@@ -56,15 +170,53 @@ SETUP_RESULT=$(curl -s -X POST "http://$SERVER_ADDR/api/auth/setup" \
 FCB_CLI_TOKEN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"$SETUP_RESULT")
 export FCB_CLI_TOKEN
 
+echo "=== Init ==="
+cd "$WORKDIR"
+INIT_OUTPUT=$("$FCB" --server "http://$SERVER_ADDR" init)
+echo "$INIT_OUTPUT"
+APP_ID=$(printf '%s\n' "$INIT_OUTPUT" | awk -F= '$1 == "APP_ID" { print $2; exit }')
+
 echo "=== Release ==="
-echo "baseline: counter 1" > baseline.bin
-"$FCB" --server "http://$SERVER_ADDR" release android --release-version 1.0.0+1 --example baseline.bin
+"$FCB" --server "http://$SERVER_ADDR" release android --release-version 1.0.0+1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
+test -f .fcb/apps/"$APP_ID"/releases/1.0.0+1/android/arm64-v8a/app.so || { echo "FAIL: release app.so not found"; exit 1; }
+test -f .fcb/apps/"$APP_ID"/releases/1.0.0+1/android/arm64-v8a/build_info.json || { echo "FAIL: release build_info.json not found"; exit 1; }
 
 echo "=== Patch ==="
-echo "patched: counter 2" > patched.bin
-"$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --payload patched.bin
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 2;
+}
+DART
+"$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
 grep -q '"diff_algorithm"[[:space:]]*:[[:space:]]*"bsdiff-zstd-v1"' .fcb/patches/1.0.0+1/1/android/arm64-v8a/patch_manifest.json || {
     echo "FAIL: patch did not use bsdiff-zstd-v1"
+    exit 1
+}
+test -f .fcb/patches/1.0.0+1/1/android/arm64-v8a/patch_report.json || { echo "FAIL: patch_report.json not found"; exit 1; }
+
+echo "=== iOS bytecode release ==="
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 3;
+}
+DART
+"$FCB" --server "http://$SERVER_ADDR" release ios --release-version 1.0.0+1 --arch arm64 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
+test -f .fcb/apps/"$APP_ID"/releases/1.0.0+1/ios/arm64/kernel_inventory.json || { echo "FAIL: iOS kernel_inventory.json not found"; exit 1; }
+test -f .fcb/apps/"$APP_ID"/releases/1.0.0+1/ios/arm64/build_info.json || { echo "FAIL: iOS build_info.json not found"; exit 1; }
+
+echo "=== iOS bytecode patch ==="
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 4;
+}
+DART
+"$FCB" --server "http://$SERVER_ADDR" patch ios --release-version 1.0.0+1 --patch-number 1 --arch arm64 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
+grep -q '"kind"[[:space:]]*:[[:space:]]*"bytecode_module"' .fcb/patches/1.0.0+1/1/ios/arm64/patch_manifest.json || {
+    echo "FAIL: iOS patch did not use bytecode_module"
+    exit 1
+}
+grep -q '"interpret"' .fcb/patches/1.0.0+1/1/ios/arm64/patch_report.json || {
+    echo "FAIL: iOS patch_report missing linker interpret list"
     exit 1
 }
 
@@ -151,10 +303,18 @@ echo "100% rollout correctly serves patch"
 echo "=== Multi-app isolation ==="
 SECOND_APP_ID="00000000-0000-0000-0000-0000000000e2"
 "$FCB" app add E2ESecond --id "$SECOND_APP_ID"
-echo "second baseline" > second-baseline.bin
-"$FCB" --server "http://$SERVER_ADDR" release android --release-version 1.0.0+1 --example second-baseline.bin
-echo "second patched" > second-patched.bin
-"$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --payload second-patched.bin
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 10;
+}
+DART
+"$FCB" --server "http://$SERVER_ADDR" release android --release-version 1.0.0+1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 20;
+}
+DART
+"$FCB" --server "http://$SERVER_ADDR" patch android --release-version 1.0.0+1 --patch-number 1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
 "$FCB" --server "http://$SERVER_ADDR" promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100
 SECOND_CHECK=$("$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
 echo "$SECOND_CHECK"
