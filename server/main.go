@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/gofiber/fiber/v2"
@@ -16,6 +21,14 @@ type Server struct {
 	db         *sql.DB
 	gormDB     *gorm.DB
 	objectsDir string
+	storage    Storage
+	metrics    ServerMetrics
+}
+
+type ServerMetrics struct {
+	PatchCheckRequests atomic.Uint64
+	EventWrites        atomic.Uint64
+	StorageErrors      atomic.Uint64
 }
 
 func main() {
@@ -32,6 +45,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer server.Close()
+	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+	defer cancelCleanup()
+	server.startEventRetentionCleanup(cleanupCtx, eventRetentionDaysFromEnv(), 24*time.Hour)
 
 	app := buildApp(server)
 	addr := envDefault("FCB_SERVER_ADDR", "127.0.0.1:8080")
@@ -50,7 +66,8 @@ func NewServerWithObjects(path string, objectsDir string) (*Server, error) {
 	if objectsDir == "" {
 		objectsDir = filepath.Join(filepath.Dir(path), "objects")
 	}
-	if err := os.MkdirAll(objectsDir, 0o755); err != nil {
+	storage, err := newStorageFromEnv(objectsDir)
+	if err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", path)
@@ -62,7 +79,7 @@ func NewServerWithObjects(path string, objectsDir string) (*Server, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	server := &Server{db: db, gormDB: gormDB, objectsDir: objectsDir}
+	server := &Server{db: db, gormDB: gormDB, objectsDir: objectsDir, storage: storage}
 	if err := server.migrate(); err != nil {
 		if gdb, gerr := gormDB.DB(); gerr == nil {
 			_ = gdb.Close()
@@ -71,6 +88,23 @@ func NewServerWithObjects(path string, objectsDir string) (*Server, error) {
 		return nil, err
 	}
 	return server, nil
+}
+
+func newStorageFromEnv(objectsDir string) (Storage, error) {
+	switch driver := envDefault("FCB_STORAGE_DRIVER", "fs"); driver {
+	case "fs":
+		return NewLocalFSStorage(objectsDir)
+	case "s3":
+		return NewS3Storage(context.Background(), S3StorageConfig{
+			Bucket:          os.Getenv("FCB_S3_BUCKET"),
+			Region:          os.Getenv("FCB_S3_REGION"),
+			Endpoint:        os.Getenv("FCB_S3_ENDPOINT"),
+			AccessKeyID:     os.Getenv("FCB_S3_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("FCB_S3_SECRET_ACCESS_KEY"),
+		})
+	default:
+		return nil, fmt.Errorf("unsupported FCB_STORAGE_DRIVER %q", driver)
+	}
 }
 
 func (s *Server) Close() error {
@@ -84,6 +118,8 @@ func (s *Server) Close() error {
 
 func buildApp(server *Server) *fiber.App {
 	app := fiber.New()
+	app.Get("/healthz", server.healthz)
+	app.Get("/metrics", server.metricsHandler)
 	app.Get("/api/auth/setup-status", server.setupStatus)
 	app.Post("/api/auth/setup", server.setup)
 	app.Post("/api/auth/login", server.login)
@@ -91,6 +127,25 @@ func buildApp(server *Server) *fiber.App {
 	app.Get("/api/auth/me", server.requireSession, server.me)
 
 	admin := app.Group("/api/admin", server.requireSession)
+	admin.Get("/orgs", server.adminListOrgs)
+	admin.Post("/orgs", server.adminCreateOrg)
+	admin.Get("/orgs/:org/members", server.requireOrgRole("member"), server.adminListOrgMembers)
+	admin.Post("/orgs/:org/members", server.requireOrgRole("owner"), server.adminAddOrgMember)
+	admin.Put("/orgs/:org/members/:user_id", server.requireOrgRole("owner"), server.adminUpdateOrgMember)
+	admin.Delete("/orgs/:org/members/:user_id", server.requireOrgRole("owner"), server.adminRemoveOrgMember)
+	admin.Get("/orgs/:org/apps", server.requireOrgRole("member"), server.adminListOrgApps)
+	admin.Post("/orgs/:org/apps", server.requireOrgRole("owner"), server.adminCreateOrgApp)
+	admin.Get("/orgs/:org/apps/:id", server.requireOrgRole("member"), server.adminGetOrgApp)
+	admin.Put("/orgs/:org/apps/:id", server.requireOrgRole("owner"), server.adminUpdateOrgApp)
+	admin.Delete("/orgs/:org/apps/:id", server.requireOrgRole("owner"), server.adminDeleteOrgApp)
+	admin.Get("/orgs/:org/apps/:id/releases", server.requireOrgRole("member"), server.adminListOrgReleases)
+	admin.Get("/orgs/:org/apps/:id/patches", server.requireOrgRole("member"), server.adminListOrgPatches)
+	admin.Get("/orgs/:org/apps/:id/patches/:patch_number/stats", server.requireOrgRole("member"), server.adminOrgPatchStats)
+	admin.Post("/orgs/:org/patches/promote", server.requireOrgRole("owner"), server.promotePatch)
+	admin.Post("/orgs/:org/patches/rollback", server.requireOrgRole("owner"), server.rollbackPatch)
+	admin.Post("/orgs/:org/cli-tokens", server.requireOrgRole("owner"), server.adminCreateOrgToken)
+	admin.Get("/orgs/:org/cli-tokens", server.requireOrgRole("member"), server.adminListOrgTokens)
+	admin.Delete("/orgs/:org/cli-tokens/:id", server.requireOrgRole("owner"), server.adminRevokeOrgToken)
 	admin.Get("/apps", server.adminListApps)
 	admin.Post("/apps", server.adminCreateApp)
 	admin.Get("/apps/:id", server.adminGetApp)
@@ -98,6 +153,7 @@ func buildApp(server *Server) *fiber.App {
 	admin.Delete("/apps/:id", server.adminDeleteApp)
 	admin.Get("/apps/:id/releases", server.adminListReleases)
 	admin.Get("/apps/:id/patches", server.adminListPatches)
+	admin.Get("/apps/:id/patches/:patch_number/stats", server.adminPatchStats)
 	admin.Post("/patches/promote", server.promotePatch)
 	admin.Post("/patches/rollback", server.rollbackPatch)
 	admin.Post("/tokens", server.adminCreateToken)
@@ -125,4 +181,13 @@ func envDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func eventRetentionDaysFromEnv() int {
+	value := envDefault("FCB_EVENT_RETENTION_DAYS", "90")
+	days, err := strconv.Atoi(value)
+	if err != nil || days <= 0 {
+		return 90
+	}
+	return days
 }

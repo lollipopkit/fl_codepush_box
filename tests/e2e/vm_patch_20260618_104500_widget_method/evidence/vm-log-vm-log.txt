@@ -1,0 +1,15 @@
+FCB VM interpreter executed patch function
+06-18 10:46:45.286 I/Flutter (18505): FCB VM bytecode patch registered: /data/user/0/com.example.fcb_counter_app/code_cache/fcb/patches/1/payload.bin
+06-18 10:46:45.286 I/Flutter (18505): FCB VM bytecode patch 1 selected
+06-18 10:46:45.389 I/flutter (18505): FCB initialCounterValue result: 42
+06-18 10:46:45.389 I/flutter (18505): FCB adjustedCounterValue result: 42
+06-18 10:46:45.389 I/flutter (18505): FCB staticCounterValue result: 42
+06-18 10:46:45.389 I/flutter (18505): FCB statusLabel result: patched
+06-18 10:46:45.389 I/flutter (18505): FCB widgetTreeLabel result: patched widget tree
+06-18 10:46:45.389 I/flutter (18505): FCB fieldStatusLabel result: patched-field
+06-18 10:46:45.389 I/flutter (18505): FCB quadCounterValue result: 42
+06-18 10:46:45.679 I/flutter (18505): FCB plugin method channel cacheDir result: /data/user/0/com.example.fcb_counter_app/code_cache/fcb
+06-18 10:46:45.679 I/flutter (18505): FCB currentPatchNumber result: 0
+06-18 10:46:45.679 I/flutter (18505): FCB readyToInstall result: false
+06-18 10:46:45.679 I/flutter (18505): FCB interpreterStats result: 0/0/0.000000
+06-18 10:46:45.679 I/flutter (18505): FCB setState applied widget state

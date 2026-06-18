@@ -1,0 +1,72 @@
+name: iOS Simulator Nightly
+
+on:
+  schedule:
+    - cron: "47 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  ios-sim:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Bootstrap vendor
+        run: |
+          scripts/bootstrap.sh --check
+          test -x scripts/build_ios_engine.sh
+          test -x scripts/test_ios_sim.sh
+
+      - name: Cache iOS simulator engine output
+        uses: actions/cache@v4
+        with:
+          path: vendor/flutter/engine/src/out/ios_release_sim
+          key: ios-engine-x64-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'scripts/build_ios_engine.sh', 'vendor/flutter/engine/src/flutter/DEPS') }}
+          restore-keys: |
+            ios-engine-x64-${{ runner.os }}-
+
+      - name: Build iOS simulator engine
+        run: |
+          FCB_IOS_SIMULATOR=1 \
+          FCB_IOS_CPU=x64 \
+          FCB_RUNTIME_MODE=release \
+          scripts/build_ios_engine.sh
+
+      - name: Select and boot simulator
+        run: |
+          SIM_UDID="$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and "iPhone" in device.get("name", ""):
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit(1)
+          ')"
+          echo "FCB_SIM_DEVICE=$SIM_UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$SIM_UDID" || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+
+      - name: Run iOS simulator smoke
+        run: |
+          scripts/test_ios_sim.sh
+
+      - name: Upload app and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-fcb-artifacts
+          path: |
+            examples/counter_app/build/ios/iphonesimulator
+            target/fcb
+          if-no-files-found: ignore

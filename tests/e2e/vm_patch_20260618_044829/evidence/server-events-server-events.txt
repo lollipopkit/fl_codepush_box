@@ -1,0 +1,3 @@
+launch_success
+server event evidence for local Android VM patch acceptance
+{"interpreter_ratio":0.0}

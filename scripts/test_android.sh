@@ -28,10 +28,22 @@ EXPECTED_INITIAL_COUNTER="${FCB_EXPECTED_INITIAL_COUNTER:-}"
 EXPECTED_ADJUSTED_COUNTER="${FCB_EXPECTED_ADJUSTED_COUNTER:-}"
 EXPECTED_STATIC_COUNTER="${FCB_EXPECTED_STATIC_COUNTER:-}"
 EXPECTED_STATUS_LABEL="${FCB_EXPECTED_STATUS_LABEL:-}"
+EXPECTED_WIDGET_TREE_LABEL="${FCB_EXPECTED_WIDGET_TREE_LABEL:-}"
+EXPECTED_FIELD_STATUS_LABEL="${FCB_EXPECTED_FIELD_STATUS_LABEL:-}"
 EXPECTED_QUAD_COUNTER="${FCB_EXPECTED_QUAD_COUNTER:-}"
 ALLOW_SECONDARY_ABI="${FCB_ALLOW_SECONDARY_ABI:-0}"
 REQUIRE_PRIMARY_ABI="${FCB_REQUIRE_PRIMARY_ABI:-0}"
 AOT_PROBE_ALLOWLIST="${FCB_AOT_PROBE_ALLOWLIST:-}"
+SERVER_URL="${FCB_SERVER_URL:-}"
+APP_ID="${FCB_APP_ID:-}"
+PUBLIC_KEY="${FCB_PUBLIC_KEY:-}"
+RELEASE_VERSION="${FCB_RELEASE_VERSION:-}"
+CHANNEL="${FCB_CHANNEL:-}"
+PLATFORM="${FCB_PLATFORM:-}"
+ARCH="${FCB_ARCH:-}"
+CACHE_DIR="${FCB_CACHE_DIR:-}"
+BASELINE_ARTIFACT="${FCB_BASELINE_ARTIFACT:-}"
+AUTO_INSTALL_ON_STARTUP="${FCB_AUTO_INSTALL_ON_STARTUP:-}"
 if [ -n "$AOT_PROBE_ALLOWLIST" ]; then
   DEFAULT_GEN_SNAPSHOT_OPTIONS="--fcb_enable_aot_dispatch,--fcb_aot_probe_allowlist=$AOT_PROBE_ALLOWLIST"
 else
@@ -63,12 +75,26 @@ Environment:
                               Expected adjustedCounterValue result. Default: 42 with patch, otherwise 8
   FCB_EXPECTED_STATIC_COUNTER  Expected PricingEngine.staticCounterValue result. Default: 42 with patch, otherwise 7
   FCB_EXPECTED_STATUS_LABEL    Expected statusLabel result. Default: patched with patch, otherwise base
+  FCB_EXPECTED_WIDGET_TREE_LABEL
+                              Expected widgetTreeLabel result. Default: patched widget tree with patch, otherwise baseline widget tree
+  FCB_EXPECTED_FIELD_STATUS_LABEL
+                              Expected fieldStatusLabel result. Default: patched-field with patch, otherwise base-field
   FCB_EXPECTED_QUAD_COUNTER    Expected quadCounterValue result. Default: 42 with patch, otherwise 10
   FCB_ALLOW_SECONDARY_ABI      Allow target ABI when listed as secondary ABI. Default: 0
   FCB_REQUIRE_PRIMARY_ABI      Require device primary ABI to match target ABI. Default: 0
   FCB_AOT_PROBE_ALLOWLIST      Optional gen_snapshot FCB probe allowlist. Default: unset
   FCB_EXTRA_GEN_SNAPSHOT_OPTIONS
                               Extra gen_snapshot flags. Default: --fcb_enable_aot_dispatch plus FCB_AOT_PROBE_ALLOWLIST when set
+  FCB_SERVER_URL               Optional Dart define for counter_app FCB server URL.
+  FCB_APP_ID                   Optional Dart define for counter_app app id.
+  FCB_PUBLIC_KEY               Optional Dart define for counter_app public key.
+  FCB_RELEASE_VERSION          Optional Dart define for release version.
+  FCB_CHANNEL                  Optional Dart define for channel.
+  FCB_PLATFORM                 Optional Dart define for platform.
+  FCB_ARCH                     Optional Dart define for arch.
+  FCB_CACHE_DIR                Optional Dart define for updater cache directory.
+  FCB_BASELINE_ARTIFACT        Optional Dart define for baseline artifact path.
+  FCB_AUTO_INSTALL_ON_STARTUP  Optional Dart define for startup update check/install.
   FCB_WORKDIR                  Per-run state/log directory. Default: target/fcb/android-arm64
 USAGE
 }
@@ -128,10 +154,28 @@ expected_engine_machine_for_platform() {
 }
 
 expected_host_machine() {
-  case "$(uname -m)" in
-    x86_64|amd64) echo "x86-64" ;;
-    aarch64|arm64) echo "ARM aarch64" ;;
+  if [ -n "${FCB_EXPECTED_HOST_MACHINE:-}" ]; then
+    echo "$FCB_EXPECTED_HOST_MACHINE"
+    return 0
+  fi
+
+  case "$(uname -s):$(uname -m)" in
+    Darwin:arm64) echo "arm64" ;;
+    *:x86_64|*:amd64) echo "x86-64" ;;
+    *:aarch64|*:arm64) echo "ARM aarch64" ;;
     *) die "unsupported host machine for gen_snapshot verification: $(uname -m)" ;;
+  esac
+}
+
+expected_android_gen_snapshot_machine() {
+  if [ -n "${FCB_EXPECTED_ANDROID_GEN_SNAPSHOT_MACHINE:-}" ]; then
+    echo "$FCB_EXPECTED_ANDROID_GEN_SNAPSHOT_MACHINE"
+    return 0
+  fi
+
+  case "$(uname -s):$(uname -m)" in
+    Darwin:arm64) echo "x86_64" ;;
+    *) expected_host_machine ;;
   esac
 }
 
@@ -148,6 +192,57 @@ verify_file_machine() {
     die "$description has wrong machine type; expected '$expected', got: $actual"
   fi
   echo "$description verified: $actual"
+}
+
+snapshot_version() {
+  local path="$1"
+  awk '/^[0-9a-f]{32}$/ { print; exit }' < <(strings "$path")
+}
+
+verify_snapshot_version_match() {
+  local engine_path="$1"
+  local snapshotter_path="$2"
+  local description="$3"
+  local engine_version snapshotter_version
+
+  require_command strings
+  engine_version="$(snapshot_version "$engine_path")"
+  snapshotter_version="$(snapshot_version "$snapshotter_path")"
+  [ -n "$engine_version" ] || die "could not extract Dart snapshot version from $engine_path"
+  [ -n "$snapshotter_version" ] || die "could not extract Dart snapshot version from $snapshotter_path"
+
+  if [ "$engine_version" != "$snapshotter_version" ]; then
+    die "$description has Dart snapshot version '$snapshotter_version', but local-engine libflutter.so expects '$engine_version'"
+  fi
+  echo "$description Dart snapshot version verified: $snapshotter_version"
+}
+
+verify_host_gen_snapshot() {
+  local host_out_dir="$1"
+  local expected_machine="$2"
+  local host_gen_snapshot="$host_out_dir/gen_snapshot"
+  local clang_gen_snapshot="$host_out_dir/clang_arm64/gen_snapshot"
+
+  if [ -f "$host_gen_snapshot" ] &&
+      file "$host_gen_snapshot" | grep -Fq "$expected_machine"; then
+    verify_file_machine "$host_gen_snapshot" "$expected_machine" "local-engine-host gen_snapshot"
+    return 0
+  fi
+
+  if [ -f "$clang_gen_snapshot" ]; then
+    verify_file_machine "$clang_gen_snapshot" "$expected_machine" "local-engine-host clang_arm64 gen_snapshot"
+    return 0
+  fi
+
+  verify_file_machine "$host_gen_snapshot" "$expected_machine" "local-engine-host gen_snapshot"
+}
+
+file_mtime() {
+  if stat -c %Y "$1" >/dev/null 2>&1; then
+    stat -c %Y "$1"
+  else
+    stat -f %m "$1"
+  fi
 }
 
 app_snapshot_path() {
@@ -167,8 +262,8 @@ verify_app_snapshot() {
 
   if [ "$SKIP_BUILD" = "1" ]; then
     require_command stat
-    app_mtime="$(stat -c %Y "$app_so")"
-    snapshot_mtime="$(stat -c %Y "$gen_snapshot")"
+    app_mtime="$(file_mtime "$app_so")"
+    snapshot_mtime="$(file_mtime "$gen_snapshot")"
     if [ "$app_mtime" -lt "$snapshot_mtime" ]; then
       die "FCB_SKIP_BUILD=1 would reuse stale app.so built before local-engine gen_snapshot; rerun without FCB_SKIP_BUILD=1"
     fi
@@ -178,15 +273,28 @@ verify_app_snapshot() {
 verify_local_engine_artifacts() {
   local out_dir="$ENGINE_SRC_DIR/out/$ENGINE_OUT_NAME"
   local host_out_dir="$ENGINE_SRC_DIR/out/$LOCAL_ENGINE_HOST"
+  local libflutter_so="$out_dir/libflutter.so"
+  local android_gen_snapshot_machine
+  android_gen_snapshot_machine="$(expected_android_gen_snapshot_machine)"
   verify_file_machine "$out_dir/libflutter.so" \
     "$(expected_engine_machine_for_platform)" \
     "local-engine libflutter.so"
   verify_file_machine "$out_dir/gen_snapshot" \
-    "$(expected_host_machine)" \
+    "$android_gen_snapshot_machine" \
     "local-engine gen_snapshot"
-  verify_file_machine "$host_out_dir/gen_snapshot" \
-    "$(expected_host_machine)" \
-    "local-engine-host gen_snapshot"
+  verify_snapshot_version_match "$libflutter_so" \
+    "$out_dir/gen_snapshot" \
+    "local-engine gen_snapshot"
+  if [ -f "$out_dir/clang_x64/gen_snapshot" ]; then
+    verify_file_machine "$out_dir/clang_x64/gen_snapshot" \
+      "$android_gen_snapshot_machine" \
+      "local-engine clang_x64 gen_snapshot"
+    verify_snapshot_version_match "$libflutter_so" \
+      "$out_dir/clang_x64/gen_snapshot" \
+      "local-engine clang_x64 gen_snapshot"
+  fi
+  verify_host_gen_snapshot "$host_out_dir" \
+    "$(expected_host_machine)"
 }
 
 check_device_abi() {
@@ -280,7 +388,19 @@ seed_gradle_cache() {
   if [ -d "$host_modules" ]; then
     mkdir -p "$(dirname "$work_modules")"
     mkdir -p "$work_modules"
-    cp -a --update=none "$host_modules"/. "$work_modules"/
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --ignore-existing "$host_modules"/ "$work_modules"/
+    else
+      cp -Rpn "$host_modules"/. "$work_modules"/
+    fi
+  fi
+}
+
+add_dart_define() {
+  local key="$1"
+  local value="$2"
+  if [ -n "$value" ]; then
+    DART_DEFINES+=(--dart-define "$key=$value")
   fi
 }
 
@@ -288,6 +408,18 @@ build_apk() {
   require_file "$FLUTTER_BIN"
   require_dir "$ENGINE_SRC_DIR"
   require_dir "$APP_DIR"
+
+  DART_DEFINES=()
+  add_dart_define FCB_SERVER_URL "$SERVER_URL"
+  add_dart_define FCB_APP_ID "$APP_ID"
+  add_dart_define FCB_PUBLIC_KEY "$PUBLIC_KEY"
+  add_dart_define FCB_RELEASE_VERSION "$RELEASE_VERSION"
+  add_dart_define FCB_CHANNEL "$CHANNEL"
+  add_dart_define FCB_PLATFORM "$PLATFORM"
+  add_dart_define FCB_ARCH "$ARCH"
+  add_dart_define FCB_CACHE_DIR "$CACHE_DIR"
+  add_dart_define FCB_BASELINE_ARTIFACT "$BASELINE_ARTIFACT"
+  add_dart_define FCB_AUTO_INSTALL_ON_STARTUP "$AUTO_INSTALL_ON_STARTUP"
 
   local host_home="${HOME:-$WORKDIR/host-home}"
   export ANDROID_HOME="${ANDROID_HOME:-$ENGINE_SRC_DIR/flutter/third_party/android_tools/sdk}"
@@ -311,7 +443,10 @@ build_apk() {
       run "$FLUTTER_BIN" --no-version-check clean
     fi
     run "$FLUTTER_BIN" --no-version-check pub get
-    run "$FLUTTER_BIN" --no-version-check build apk \
+    local build_args=(
+      --no-version-check
+      build
+      apk
       --release \
       --no-tree-shake-icons \
       --extra-gen-snapshot-options="$EXTRA_GEN_SNAPSHOT_OPTIONS" \
@@ -319,6 +454,11 @@ build_apk() {
       --local-engine-src-path "$ENGINE_SRC_DIR" \
       --local-engine-host "$LOCAL_ENGINE_HOST" \
       --local-engine "$ENGINE_OUT_NAME"
+    )
+    if [ "${#DART_DEFINES[@]}" -gt 0 ]; then
+      build_args+=("${DART_DEFINES[@]}")
+    fi
+    run "$FLUTTER_BIN" "${build_args[@]}"
   )
 }
 
@@ -439,6 +579,36 @@ install_and_launch() {
     die "expected statusLabel result $expected_status_label was not observed; full log: $LOGCAT_FILE"
   fi
 
+  local expected_widget_tree_label="$EXPECTED_WIDGET_TREE_LABEL"
+  if [ -z "$expected_widget_tree_label" ]; then
+    if [ "$INSTALL_BYTECODE_PATCH" = "1" ] &&
+        [ "${FCB_INCLUDE_WIDGET_TREE_FUNCTION_PATCH:-1}" = "1" ]; then
+      expected_widget_tree_label="${FCB_PATCH_WIDGET_TREE_VALUE:-patched widget tree}"
+    else
+      expected_widget_tree_label="baseline widget tree"
+    fi
+  fi
+  if ! grep -Fq "FCB widgetTreeLabel result: $expected_widget_tree_label" "$LOGCAT_FILE"; then
+    grep -Ein 'fcb|widgetTreeLabel|statusLabel|staticCounterValue|initialCounterValue|counter|updater|patch|bytecode|libflutter|flutter|dart' \
+      "$LOGCAT_FILE" >&2 || true
+    die "expected widgetTreeLabel result $expected_widget_tree_label was not observed; full log: $LOGCAT_FILE"
+  fi
+
+  local expected_field_status_label="$EXPECTED_FIELD_STATUS_LABEL"
+  if [ -z "$expected_field_status_label" ]; then
+    if [ "$INSTALL_BYTECODE_PATCH" = "1" ] &&
+        [ "${FCB_INCLUDE_FIELD_FUNCTION_PATCH:-1}" = "1" ]; then
+      expected_field_status_label="patched-field"
+    else
+      expected_field_status_label="base-field"
+    fi
+  fi
+  if ! grep -Fq "FCB fieldStatusLabel result: $expected_field_status_label" "$LOGCAT_FILE"; then
+    grep -Ein 'fcb|fieldStatusLabel|statusLabel|staticCounterValue|initialCounterValue|counter|updater|patch|bytecode|libflutter|flutter|dart' \
+      "$LOGCAT_FILE" >&2 || true
+    die "expected fieldStatusLabel result $expected_field_status_label was not observed; full log: $LOGCAT_FILE"
+  fi
+
   local expected_quad_counter="$EXPECTED_QUAD_COUNTER"
   if [ -z "$expected_quad_counter" ]; then
     if [ "$INSTALL_BYTECODE_PATCH" = "1" ] &&
@@ -452,6 +622,19 @@ install_and_launch() {
     grep -Ein 'fcb|quadCounterValue|statusLabel|staticCounterValue|initialCounterValue|counter|updater|patch|bytecode|libflutter|flutter|dart' \
       "$LOGCAT_FILE" >&2 || true
     die "expected quadCounterValue result $expected_quad_counter was not observed; full log: $LOGCAT_FILE"
+  fi
+
+  if ! grep -Fq "FCB setState applied widget state" "$LOGCAT_FILE"; then
+    grep -Ein 'fcb|setState|widgetTreeLabel|statusLabel|counter|updater|patch|bytecode|flutter|dart' \
+      "$LOGCAT_FILE" >&2 || true
+    die "setState application was not observed; full log: $LOGCAT_FILE"
+  fi
+
+  if ! grep -Fq "FCB plugin method channel cacheDir result:" "$LOGCAT_FILE" ||
+      grep -Fq "FCB plugin method channel cacheDir result: unavailable" "$LOGCAT_FILE"; then
+    grep -Ein 'fcb|method channel|cacheDir|getPaths|updater|patch|bytecode|flutter|dart' \
+      "$LOGCAT_FILE" >&2 || true
+    die "plugin method channel cacheDir was not observed; full log: $LOGCAT_FILE"
   fi
 
   local after_tombstones
@@ -474,6 +657,12 @@ install_and_launch() {
     echo "staticCounterValue_observed: $(log_result_value staticCounterValue)"
     echo "statusLabel_expected: $expected_status_label"
     echo "statusLabel_observed: $(log_result_value statusLabel)"
+    echo "widgetTreeLabel_expected: $expected_widget_tree_label"
+    echo "widgetTreeLabel_observed: $(log_result_value widgetTreeLabel)"
+    echo "setState_observed: true"
+    echo "methodChannelCacheDir_observed: $(log_result_value 'plugin method channel cacheDir')"
+    echo "fieldStatusLabel_expected: $expected_field_status_label"
+    echo "fieldStatusLabel_observed: $(log_result_value fieldStatusLabel)"
     echo "quadCounterValue_expected: $expected_quad_counter"
     echo "quadCounterValue_observed: $(log_result_value quadCounterValue)"
     echo "logcat: $LOGCAT_FILE"
@@ -493,13 +682,14 @@ main() {
 
   mkdir -p "$LOG_DIR"
 
+  verify_local_engine_artifacts
+
   if [ "$SKIP_BUILD" != "1" ]; then
     build_apk
   else
     echo "skipping Flutter APK build because FCB_SKIP_BUILD=1"
   fi
 
-  verify_local_engine_artifacts
   verify_app_snapshot
   install_and_launch
 }

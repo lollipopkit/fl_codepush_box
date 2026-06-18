@@ -1,9 +1,8 @@
+use crate::bytecode::BytecodeModule;
 use crate::diff;
 use crate::manifest::{self, PatchManifest};
 use crate::{crypto, err, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -11,6 +10,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+const STATE_SCHEMA_VERSION: u32 = 2;
+const MAX_BOOT_ATTEMPTS: u32 = 3;
+const ROLLBACK_EVENTS_FILE: &str = "events.log";
+const MAX_ROLLBACK_EVENTS: usize = 50;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct State {
@@ -18,6 +21,10 @@ pub struct State {
     pub release_version: String,
     pub current_patch_number: u32,
     pub pending_patch_number: Option<u32>,
+    #[serde(default)]
+    pub last_known_good_patch_number: Option<u32>,
+    #[serde(default)]
+    pub boot_attempts: u32,
     pub bad_patches: Vec<u32>,
     pub last_launch: Option<LastLaunch>,
     pub installed: Vec<InstalledPatch>,
@@ -40,6 +47,17 @@ pub struct InstalledPatch {
     pub installed_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrashRollbackEvent {
+    pub event_type: String,
+    pub patch_number: u32,
+    pub boot_attempts: u32,
+    pub last_known_good_patch_number: Option<u32>,
+    pub timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 pub struct Updater {
     cache_dir: PathBuf,
 }
@@ -55,15 +73,42 @@ impl Updater {
         self.cache_dir.join("state.json")
     }
 
+    pub fn rollback_events_path(&self) -> PathBuf {
+        self.cache_dir.join(ROLLBACK_EVENTS_FILE)
+    }
+
     pub fn load_state(&self) -> Result<State> {
         let path = self.state_path();
         if !path.exists() {
             return Ok(State {
-                schema_version: 1,
+                schema_version: STATE_SCHEMA_VERSION,
                 ..State::default()
             });
         }
-        Ok(serde_json::from_slice(&fs::read(path)?)?)
+        let bytes = fs::read(&path)?;
+        let mut state: State = match serde_json::from_slice(&bytes) {
+            Ok(state) => state,
+            Err(error) => {
+                backup_corrupt_state(&path)?;
+                append_rollback_event(
+                    &self.cache_dir,
+                    CrashRollbackEvent {
+                        event_type: "state_reset".to_string(),
+                        patch_number: 0,
+                        boot_attempts: 0,
+                        last_known_good_patch_number: None,
+                        timestamp: now_string(),
+                        reason: Some(format!("failed to parse state.json: {error}")),
+                    },
+                )?;
+                return Ok(State {
+                    schema_version: STATE_SCHEMA_VERSION,
+                    ..State::default()
+                });
+            }
+        };
+        migrate_state(&mut state);
+        Ok(state)
     }
 
     pub fn save_state(&self, state: &State) -> Result<()> {
@@ -117,9 +162,10 @@ impl Updater {
         } else {
             None
         };
-        state.schema_version = 1;
+        state.schema_version = STATE_SCHEMA_VERSION;
         state.release_version = manifest.release_version.clone();
         state.pending_patch_number = Some(manifest.patch_number);
+        state.boot_attempts = 0;
         state
             .installed
             .retain(|p| p.patch_number != manifest.patch_number);
@@ -135,8 +181,11 @@ impl Updater {
         while state.installed.len() > 2 {
             let current = state.current_patch_number;
             let pending = state.pending_patch_number;
+            let last_known_good = state.last_known_good_patch_number;
             let Some(index) = state.installed.iter().position(|patch| {
-                patch.patch_number != current && Some(patch.patch_number) != pending
+                patch.patch_number != current
+                    && Some(patch.patch_number) != pending
+                    && Some(patch.patch_number) != last_known_good
             }) else {
                 break;
             };
@@ -160,44 +209,38 @@ impl Updater {
                 .map(|launch| launch.status.as_str()),
             Some("pending_success")
         ) {
-            if let Some(last) = &state.last_launch {
-                if !state.bad_patches.contains(&last.patch_number) {
-                    state.bad_patches.push(last.patch_number);
-                }
-                if state.current_patch_number == last.patch_number {
-                    state.current_patch_number = 0;
-                }
-                if state.pending_patch_number == Some(last.patch_number) {
-                    state.pending_patch_number = None;
+            if let Some(patch_number) = state.last_launch.as_ref().map(|last| last.patch_number) {
+                if state.boot_attempts.saturating_add(1) >= MAX_BOOT_ATTEMPTS {
+                    append_rollback_event(
+                        &self.cache_dir,
+                        CrashRollbackEvent {
+                            event_type: "crash_rollback".to_string(),
+                            patch_number,
+                            boot_attempts: state.boot_attempts.saturating_add(1),
+                            last_known_good_patch_number: state.last_known_good_patch_number,
+                            timestamp: now_string(),
+                            reason: None,
+                        },
+                    )?;
+                    mark_patch_bad(&mut state, patch_number);
                 }
             }
             state.last_launch = None;
             state_changed = true;
         }
-        let Some(patch_number) = state.pending_patch_number.or_else(|| {
-            if state.current_patch_number == 0 {
-                None
-            } else {
-                Some(state.current_patch_number)
-            }
-        }) else {
+        let Some(patch_number) = select_launch_patch_number(&state) else {
             if state_changed {
                 self.save_state(&state)?;
             }
             return Ok(None);
         };
-        if state.bad_patches.contains(&patch_number) {
-            if state_changed {
-                self.save_state(&state)?;
-            }
-            return Ok(None);
-        }
         let installed = state
             .installed
             .iter()
             .find(|p| p.patch_number == patch_number)
             .cloned();
         if installed.is_some() {
+            state.boot_attempts = state.boot_attempts.saturating_add(1);
             state.last_launch = Some(LastLaunch {
                 patch_number,
                 status: "pending_success".to_string(),
@@ -231,23 +274,23 @@ impl Updater {
         let Some(last) = &mut state.last_launch else {
             return Err(err("no last_launch to mark success"));
         };
+        if state.bad_patches.contains(&last.patch_number) {
+            return Err(err("cannot mark a bad patch as successful"));
+        }
+        if last.status.starts_with("failure:") {
+            return Err(err("cannot mark a failed launch as successful"));
+        }
         state.current_patch_number = last.patch_number;
+        state.last_known_good_patch_number = Some(last.patch_number);
         state.pending_patch_number = None;
+        state.boot_attempts = 0;
         last.status = "success".to_string();
         self.save_state(&state)
     }
 
     pub fn mark_failure(&self, patch_number: u32, reason: &str) -> Result<()> {
         let mut state = self.load_state()?;
-        if !state.bad_patches.contains(&patch_number) {
-            state.bad_patches.push(patch_number);
-        }
-        if state.current_patch_number == patch_number {
-            state.current_patch_number = 0;
-        }
-        if state.pending_patch_number == Some(patch_number) {
-            state.pending_patch_number = None;
-        }
+        mark_patch_bad(&mut state, patch_number);
         state.last_launch = Some(LastLaunch {
             patch_number,
             status: format!("failure:{reason}"),
@@ -255,6 +298,99 @@ impl Updater {
         });
         self.save_state(&state)
     }
+
+    pub fn rollback_events(&self) -> Result<Vec<CrashRollbackEvent>> {
+        let path = self.rollback_events_path();
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = fs::read_to_string(path)?;
+        content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).map_err(Into::into))
+            .collect()
+    }
+
+    pub fn clear_rollback_events(&self) -> Result<()> {
+        let path = self.rollback_events_path();
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+}
+
+fn append_rollback_event(cache_dir: &Path, event: CrashRollbackEvent) -> Result<()> {
+    fs::create_dir_all(cache_dir)?;
+    let path = cache_dir.join(ROLLBACK_EVENTS_FILE);
+    let mut lines = if path.exists() {
+        fs::read_to_string(&path)?
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    lines.push(serde_json::to_string(&event)?);
+    if lines.len() > MAX_ROLLBACK_EVENTS {
+        lines.drain(0..lines.len() - MAX_ROLLBACK_EVENTS);
+    }
+    let mut content = lines.join("\n").into_bytes();
+    content.push(b'\n');
+    atomic_write_bytes(&path, &content)
+}
+
+fn backup_corrupt_state(path: &Path) -> Result<()> {
+    let backup = path.with_file_name(format!("state.json.corrupt.{}", unique_suffix()));
+    fs::rename(path, backup)?;
+    Ok(())
+}
+
+fn migrate_state(state: &mut State) {
+    if state.schema_version < STATE_SCHEMA_VERSION {
+        if state.last_known_good_patch_number.is_none() && state.current_patch_number > 0 {
+            state.last_known_good_patch_number = Some(state.current_patch_number);
+        }
+        state.schema_version = STATE_SCHEMA_VERSION;
+    }
+}
+
+fn mark_patch_bad(state: &mut State, patch_number: u32) {
+    if !state.bad_patches.contains(&patch_number) {
+        state.bad_patches.push(patch_number);
+    }
+    if state.current_patch_number == patch_number {
+        state.current_patch_number = state
+            .last_known_good_patch_number
+            .filter(|lkg| *lkg != patch_number)
+            .unwrap_or_default();
+    }
+    if state.pending_patch_number == Some(patch_number) {
+        state.pending_patch_number = None;
+    }
+    if state.last_known_good_patch_number == Some(patch_number) {
+        state.last_known_good_patch_number = None;
+    }
+    state.boot_attempts = 0;
+}
+
+fn select_launch_patch_number(state: &State) -> Option<u32> {
+    [
+        state.pending_patch_number,
+        (state.current_patch_number > 0).then_some(state.current_patch_number),
+        state.last_known_good_patch_number,
+    ]
+    .into_iter()
+    .flatten()
+    .find(|patch_number| {
+        !state.bad_patches.contains(patch_number)
+            && state
+                .installed
+                .iter()
+                .any(|patch| patch.patch_number == *patch_number)
+    })
 }
 
 fn validate_payload_contract(manifest: &PatchManifest, payload: &[u8]) -> Result<()> {
@@ -351,163 +487,7 @@ fn find_diff_base(
 }
 
 fn validate_bytecode_module_payload(payload: &[u8]) -> Result<()> {
-    let module: Value = serde_json::from_slice(payload)?;
-    let Some(object) = module.as_object() else {
-        return Err(err("bytecode module must be a JSON object"));
-    };
-    let version = object
-        .get("version")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| err("bytecode module version must be an integer"))?;
-    if version != 1 {
-        return Err(err(format!(
-            "unexpected bytecode module version {version}, expected 1"
-        )));
-    }
-    let functions = object
-        .get("functions")
-        .and_then(Value::as_array)
-        .ok_or_else(|| err("bytecode module functions must be a list"))?;
-    if functions.is_empty() {
-        return Err(err("bytecode module must contain at least one function"));
-    }
-
-    let mut names = BTreeSet::new();
-    for function in functions {
-        validate_bytecode_function(function, &mut names)?;
-    }
-    Ok(())
-}
-
-fn validate_bytecode_function(function: &Value, names: &mut BTreeSet<String>) -> Result<()> {
-    let Some(object) = function.as_object() else {
-        return Err(err("bytecode function must be a JSON object"));
-    };
-    let name = object
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| err("bytecode function name must be a string"))?;
-    if name.trim().is_empty() {
-        return Err(err("bytecode function name must not be empty"));
-    }
-    if !names.insert(name.to_string()) {
-        return Err(err(format!("duplicate bytecode function {name}")));
-    }
-    let param_count = read_u8_field(object, "param_count", name)?;
-    let local_count = read_u8_field(object, "local_count", name)?;
-    if local_count < param_count {
-        return Err(err(format!(
-            "function {name} local_count {local_count} is smaller than param_count {param_count}"
-        )));
-    }
-    let constants_len = object
-        .get("constants")
-        .and_then(Value::as_array)
-        .ok_or_else(|| err(format!("constants for {name} must be a list")))?
-        .len();
-    let code_values = object
-        .get("code")
-        .and_then(Value::as_array)
-        .ok_or_else(|| err(format!("code for {name} must be a list")))?;
-    let code = code_values
-        .iter()
-        .map(|value| {
-            let byte = value
-                .as_u64()
-                .ok_or_else(|| err(format!("code for {name} must contain byte integers")))?;
-            u8::try_from(byte).map_err(|_| err(format!("code byte {byte} for {name} exceeds u8")))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    validate_bytecode(name, constants_len, &code)
-}
-
-fn read_u8_field(
-    object: &serde_json::Map<String, Value>,
-    field: &str,
-    function_name: &str,
-) -> Result<u8> {
-    let value = object
-        .get(field)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| err(format!("{field} for {function_name} must be an integer")))?;
-    u8::try_from(value).map_err(|_| err(format!("{field} for {function_name} exceeds u8")))
-}
-
-fn validate_bytecode(function_name: &str, constants_len: usize, code: &[u8]) -> Result<()> {
-    if code.is_empty() {
-        return Err(err(format!("function {function_name} has empty bytecode")));
-    }
-
-    let mut starts = BTreeSet::new();
-    let mut pos = 0usize;
-    while pos < code.len() {
-        starts.insert(pos);
-        let opcode = decode_opcode(code[pos]).ok_or_else(|| {
-            err(format!(
-                "invalid opcode 0x{:02x} at offset {pos} in {function_name}",
-                code[pos]
-            ))
-        })?;
-        let operand_start = pos + 1;
-        let next = operand_start + opcode_operand_len(opcode);
-        if next > code.len() {
-            return Err(err(format!(
-                "opcode 0x{opcode:02x} at offset {pos} in {function_name} requires {} operand bytes",
-                opcode_operand_len(opcode)
-            )));
-        }
-        if opcode == 0x01 {
-            let idx = read_u16(code, operand_start) as usize;
-            if idx >= constants_len {
-                return Err(err(format!(
-                    "LoadConst at offset {pos} in {function_name} references missing constant {idx}"
-                )));
-            }
-        }
-        pos = next;
-    }
-
-    pos = 0;
-    while pos < code.len() {
-        let opcode = decode_opcode(code[pos]).expect("validated opcode");
-        let operand_start = pos + 1;
-        if matches!(opcode, 0x30 | 0x31 | 0x32) {
-            let target = read_u16(code, operand_start) as usize;
-            if target >= code.len() {
-                return Err(err(format!(
-                    "opcode 0x{opcode:02x} at offset {pos} in {function_name} targets out-of-range offset {target}"
-                )));
-            }
-            if !starts.contains(&target) {
-                return Err(err(format!(
-                    "opcode 0x{opcode:02x} at offset {pos} in {function_name} targets non-instruction offset {target}"
-                )));
-            }
-        }
-        pos = operand_start + opcode_operand_len(opcode);
-    }
-    Ok(())
-}
-
-fn decode_opcode(byte: u8) -> Option<u8> {
-    match byte {
-        0x01 | 0x02 | 0x03 | 0x04 | 0x10 | 0x11 | 0x12 | 0x13 | 0x20 | 0x21 | 0x30 | 0x31
-        | 0x32 | 0x40 | 0x41 | 0xff => Some(byte),
-        _ => None,
-    }
-}
-
-fn opcode_operand_len(opcode: u8) -> usize {
-    match opcode {
-        0x01 | 0x30 | 0x31 | 0x32 | 0x40 | 0x41 => 2,
-        0x02 | 0x03 | 0x04 => 1,
-        0x10 | 0x11 | 0x12 | 0x13 | 0x20 | 0x21 | 0xff => 0,
-        _ => 0,
-    }
-}
-
-fn read_u16(code: &[u8], pos: usize) -> u16 {
-    u16::from_be_bytes([code[pos], code[pos + 1]])
+    BytecodeModule::from_slice_envelope(payload).map(|_| ())
 }
 
 fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -555,572 +535,5 @@ fn unique_suffix() -> u128 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{InstalledPatch, LastLaunch, State, Updater};
-    use crate::crypto;
-    use crate::diff::{self, BSDIFF_ZSTD_ALGORITHM};
-    use crate::manifest::{self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest};
-
-    #[test]
-    fn mark_success_requires_last_launch() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let updater = Updater::new(&cache_dir);
-
-        let err = updater
-            .mark_success()
-            .expect_err("missing last_launch should fail");
-
-        assert!(err.to_string().contains("no last_launch to mark success"));
-        let _ = std::fs::remove_dir_all(cache_dir);
-    }
-
-    #[test]
-    fn launch_patch_marks_previous_pending_launch_bad() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let updater = Updater::new(&cache_dir);
-        updater
-            .save_state(&State {
-                schema_version: 1,
-                release_version: "1.0.0+1".to_string(),
-                current_patch_number: 0,
-                pending_patch_number: Some(1),
-                bad_patches: Vec::new(),
-                last_launch: Some(LastLaunch {
-                    patch_number: 1,
-                    status: "pending_success".to_string(),
-                    started_at: "0".to_string(),
-                }),
-                installed: vec![InstalledPatch {
-                    patch_number: 1,
-                    backend: "snapshot_replace".to_string(),
-                    manifest_path: "patches/1/manifest.json".to_string(),
-                    payload_path: "patches/1/payload.bin".to_string(),
-                    artifact_path: Some("patches/1/libapp.so".to_string()),
-                    installed_at: "0".to_string(),
-                }],
-            })
-            .expect("write state");
-
-        let launch = updater.launch_patch().expect("launch patch");
-        let state = updater.load_state().expect("load state");
-
-        assert!(launch.is_none());
-        assert_eq!(state.bad_patches, vec![1]);
-        assert_eq!(state.pending_patch_number, None);
-        assert!(state.last_launch.is_none());
-        let _ = std::fs::remove_dir_all(cache_dir);
-    }
-
-    #[test]
-    fn ready_patch_reports_pending_without_marking_launch() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let updater = Updater::new(&cache_dir);
-        updater
-            .save_state(&State {
-                schema_version: 1,
-                release_version: "1.0.0+1".to_string(),
-                current_patch_number: 0,
-                pending_patch_number: Some(1),
-                bad_patches: Vec::new(),
-                last_launch: None,
-                installed: vec![InstalledPatch {
-                    patch_number: 1,
-                    backend: "snapshot_replace".to_string(),
-                    manifest_path: "patches/1/manifest.json".to_string(),
-                    payload_path: "patches/1/payload.bin".to_string(),
-                    artifact_path: Some("patches/1/libapp.so".to_string()),
-                    installed_at: "0".to_string(),
-                }],
-            })
-            .expect("write state");
-
-        let ready = updater.ready_patch().expect("ready patch");
-        let state = updater.load_state().expect("load state");
-
-        assert_eq!(ready.expect("ready").patch_number, 1);
-        assert!(state.last_launch.is_none());
-        assert_eq!(state.pending_patch_number, Some(1));
-        let _ = std::fs::remove_dir_all(cache_dir);
-    }
-
-    #[test]
-    fn install_snapshot_replace_payload_writes_launch_artifact() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let input_dir =
-            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
-        std::fs::create_dir_all(&input_dir).expect("create input dir");
-        let baseline = b"counter: 1; shared suffix";
-        let patched = b"counter: 2; shared suffix";
-        let baseline_path = input_dir.join("baseline.bin");
-        std::fs::write(&baseline_path, baseline).expect("write baseline");
-        let payload = diff::create_bsdiff_zstd(baseline, patched).expect("create diff");
-        let payload_path = input_dir.join("payload.bin");
-        std::fs::write(&payload_path, &payload).expect("write payload");
-
-        let (private_key, public_key) = crypto::generate_keypair_b64();
-        let mut patch = PatchManifest {
-            schema_version: 1,
-            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
-            release_version: "1.0.0+1".to_string(),
-            patch_number: 2,
-            channel: "stable".to_string(),
-            created_at: "1970-01-01T00:00:00Z".to_string(),
-            backend: "snapshot_replace".to_string(),
-            platform: "android".to_string(),
-            arch: "arm64-v8a".to_string(),
-            payload: PayloadManifest {
-                kind: "binary_diff".to_string(),
-                compression: "none".to_string(),
-                hash: crypto::sha256_hex(&payload),
-                size: payload.len() as u64,
-                download_url: "patches/app/release/android/arm64-v8a/2/payload.bin".to_string(),
-                diff_algorithm: Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
-                base_hash: Some(crypto::sha256_hex(baseline)),
-                output_hash: Some(crypto::sha256_hex(patched)),
-            },
-            policy: PatchPolicy {
-                rollout_percentage: 100,
-                allow_downgrade: false,
-            },
-            signature: PatchSignature {
-                algorithm: "ed25519".to_string(),
-                key_id: "dev".to_string(),
-                value: String::new(),
-            },
-        };
-        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
-        let manifest_path = input_dir.join("patch_manifest.json");
-        manifest::write_json(&manifest_path, &patch).expect("write manifest");
-
-        let updater = Updater::new(&cache_dir);
-        updater
-            .install_payload_with_baseline(
-                &manifest_path,
-                &payload_path,
-                &public_key,
-                Some(&baseline_path),
-            )
-            .expect("install payload");
-
-        let artifact_path = cache_dir.join("patches/2/libapp.so");
-        assert_eq!(
-            std::fs::read(&artifact_path).expect("read artifact"),
-            patched
-        );
-        let launch = updater
-            .launch_patch()
-            .expect("launch patch")
-            .expect("installed patch");
-        assert_eq!(launch.artifact_path.as_deref(), Some("patches/2/libapp.so"));
-
-        let _ = std::fs::remove_dir_all(cache_dir);
-        let _ = std::fs::remove_dir_all(input_dir);
-    }
-
-    #[test]
-    fn install_snapshot_replace_chained_uses_previous_patch_artifact() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let input_dir =
-            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
-        std::fs::create_dir_all(&input_dir).expect("create input dir");
-
-        let baseline = b"v0";
-        let v1 = b"v0v1";
-        let v2 = b"v0v1v2";
-        let baseline_path = input_dir.join("baseline.bin");
-        std::fs::write(&baseline_path, baseline).expect("write baseline");
-
-        let (private_key, public_key) = crypto::generate_keypair_b64();
-
-        // Install patch 1: diff from baseline -> v1
-        let diff1 = diff::create_bsdiff_zstd(baseline, v1).expect("diff1");
-        let mut patch1 = make_snapshot_patch(
-            &private_key,
-            1,
-            crypto::sha256_hex(baseline),
-            crypto::sha256_hex(v1),
-            &diff1,
-        );
-        manifest::sign_patch_manifest(&mut patch1, &private_key).expect("sign1");
-        let manifest1_path = input_dir.join("m1.json");
-        let payload1_path = input_dir.join("p1.bin");
-        manifest::write_json(&manifest1_path, &patch1).expect("write manifest1");
-        std::fs::write(&payload1_path, &diff1).expect("write payload1");
-
-        let updater = Updater::new(&cache_dir);
-        updater
-            .install_payload_with_baseline(
-                &manifest1_path,
-                &payload1_path,
-                &public_key,
-                Some(&baseline_path),
-            )
-            .expect("install patch 1");
-
-        assert_eq!(
-            std::fs::read(cache_dir.join("patches/1/libapp.so")).expect("v1 artifact"),
-            v1
-        );
-
-        // Install patch 2: diff from v1 -> v2 (no baseline_path needed; uses patch 1 artifact)
-        let diff2 = diff::create_bsdiff_zstd(v1, v2).expect("diff2");
-        let mut patch2 = make_snapshot_patch(
-            &private_key,
-            2,
-            crypto::sha256_hex(v1),
-            crypto::sha256_hex(v2),
-            &diff2,
-        );
-        manifest::sign_patch_manifest(&mut patch2, &private_key).expect("sign2");
-        let manifest2_path = input_dir.join("m2.json");
-        let payload2_path = input_dir.join("p2.bin");
-        manifest::write_json(&manifest2_path, &patch2).expect("write manifest2");
-        std::fs::write(&payload2_path, &diff2).expect("write payload2");
-
-        updater
-            .install_payload_with_baseline(&manifest2_path, &payload2_path, &public_key, None)
-            .expect("install patch 2");
-
-        assert_eq!(
-            std::fs::read(cache_dir.join("patches/2/libapp.so")).expect("v2 artifact"),
-            v2
-        );
-        let state = updater.load_state().expect("load state");
-        assert_eq!(state.pending_patch_number, Some(2));
-
-        let _ = std::fs::remove_dir_all(cache_dir);
-        let _ = std::fs::remove_dir_all(input_dir);
-    }
-
-    fn make_snapshot_patch(
-        _private_key: &str,
-        patch_number: u32,
-        base_hash: String,
-        output_hash: String,
-        payload: &[u8],
-    ) -> PatchManifest {
-        use crate::diff::BSDIFF_ZSTD_ALGORITHM;
-        PatchManifest {
-            schema_version: 1,
-            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
-            release_version: "1.0.0+1".to_string(),
-            patch_number,
-            channel: "stable".to_string(),
-            created_at: "1970-01-01T00:00:00Z".to_string(),
-            backend: "snapshot_replace".to_string(),
-            platform: "android".to_string(),
-            arch: "arm64-v8a".to_string(),
-            payload: PayloadManifest {
-                kind: "binary_diff".to_string(),
-                compression: "none".to_string(),
-                hash: crypto::sha256_hex(payload),
-                size: payload.len() as u64,
-                download_url: format!(
-                    "patches/app/release/android/arm64-v8a/{patch_number}/payload.bin"
-                ),
-                diff_algorithm: Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
-                base_hash: Some(base_hash),
-                output_hash: Some(output_hash),
-            },
-            policy: PatchPolicy {
-                rollout_percentage: 100,
-                allow_downgrade: false,
-            },
-            signature: PatchSignature {
-                algorithm: "ed25519".to_string(),
-                key_id: "dev".to_string(),
-                value: String::new(),
-            },
-        }
-    }
-
-    #[test]
-    fn install_snapshot_replace_rejects_non_binary_diff_payload() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let input_dir =
-            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
-        std::fs::create_dir_all(&input_dir).expect("create input dir");
-        let payload = b"raw artifact";
-        let payload_path = input_dir.join("payload.bin");
-        std::fs::write(&payload_path, payload).expect("write payload");
-
-        let (private_key, public_key) = crypto::generate_keypair_b64();
-        let mut patch = PatchManifest {
-            schema_version: 1,
-            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
-            release_version: "1.0.0+1".to_string(),
-            patch_number: 1,
-            channel: "stable".to_string(),
-            created_at: "1970-01-01T00:00:00Z".to_string(),
-            backend: "snapshot_replace".to_string(),
-            platform: "android".to_string(),
-            arch: "arm64-v8a".to_string(),
-            payload: PayloadManifest {
-                kind: "opaque_payload".to_string(),
-                compression: "none".to_string(),
-                hash: crypto::sha256_hex(payload),
-                size: payload.len() as u64,
-                download_url: "patches/app/1/payload.bin".to_string(),
-                diff_algorithm: None,
-                base_hash: None,
-                output_hash: None,
-            },
-            policy: PatchPolicy {
-                rollout_percentage: 100,
-                allow_downgrade: false,
-            },
-            signature: PatchSignature {
-                algorithm: "ed25519".to_string(),
-                key_id: "dev".to_string(),
-                value: String::new(),
-            },
-        };
-        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign");
-        let manifest_path = input_dir.join("m.json");
-        manifest::write_json(&manifest_path, &patch).expect("write manifest");
-
-        let err = Updater::new(&cache_dir)
-            .install_payload(&manifest_path, &payload_path, &public_key)
-            .expect_err("opaque_payload should be rejected");
-
-        assert!(
-            err.to_string().contains("requires binary_diff payload"),
-            "{err}"
-        );
-
-        let _ = std::fs::remove_dir_all(cache_dir);
-        let _ = std::fs::remove_dir_all(input_dir);
-    }
-
-    #[test]
-    fn install_bytecode_payload_launches_payload_without_artifact() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let input_dir =
-            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
-        std::fs::create_dir_all(&input_dir).expect("create input dir");
-        let payload = br#"{"version":1,"functions":[{"name":"initialCounterValue","param_count":0,"local_count":0,"constants":[{"type":"Int","value":2}],"code":[1,0,0,255]}]}"#;
-        let payload_path = input_dir.join("payload.bin");
-        std::fs::write(&payload_path, payload).expect("write payload");
-
-        let (private_key, public_key) = crypto::generate_keypair_b64();
-        let mut patch = PatchManifest {
-            schema_version: 1,
-            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
-            release_version: "1.0.0+1".to_string(),
-            patch_number: 4,
-            channel: "stable".to_string(),
-            created_at: "1970-01-01T00:00:00Z".to_string(),
-            backend: "bytecode".to_string(),
-            platform: "android".to_string(),
-            arch: "arm64-v8a".to_string(),
-            payload: PayloadManifest {
-                kind: "bytecode_module".to_string(),
-                compression: "none".to_string(),
-                hash: crypto::sha256_hex(payload),
-                size: payload.len() as u64,
-                download_url: "patches/app/release/android/arm64-v8a/4/payload.bin".to_string(),
-                diff_algorithm: None,
-                base_hash: None,
-                output_hash: None,
-            },
-            policy: PatchPolicy {
-                rollout_percentage: 100,
-                allow_downgrade: false,
-            },
-            signature: PatchSignature {
-                algorithm: "ed25519".to_string(),
-                key_id: "dev".to_string(),
-                value: String::new(),
-            },
-        };
-        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
-        let manifest_path = input_dir.join("patch_manifest.json");
-        manifest::write_json(&manifest_path, &patch).expect("write manifest");
-
-        let updater = Updater::new(&cache_dir);
-        updater
-            .install_payload(&manifest_path, &payload_path, &public_key)
-            .expect("install payload");
-
-        let state = updater.load_state().expect("load state");
-        let installed = state.installed.first().expect("installed patch");
-        assert_eq!(installed.backend, "bytecode");
-        assert_eq!(installed.payload_path, "patches/4/payload.bin");
-        assert!(installed.artifact_path.is_none());
-        assert_eq!(
-            std::fs::read(cache_dir.join(&installed.payload_path)).expect("read payload"),
-            payload
-        );
-
-        let launch = updater
-            .launch_patch()
-            .expect("launch patch")
-            .expect("installed patch");
-        assert_eq!(launch.payload_path, "patches/4/payload.bin");
-        assert!(launch.artifact_path.is_none());
-
-        let _ = std::fs::remove_dir_all(cache_dir);
-        let _ = std::fs::remove_dir_all(input_dir);
-    }
-
-    #[test]
-    fn install_prunes_old_patch_without_removing_current() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let input_dir =
-            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
-        std::fs::create_dir_all(&input_dir).expect("create input dir");
-        let updater = Updater::new(&cache_dir);
-        updater
-            .save_state(&State {
-                schema_version: 1,
-                release_version: "1.0.0+1".to_string(),
-                current_patch_number: 1,
-                pending_patch_number: None,
-                bad_patches: Vec::new(),
-                last_launch: None,
-                installed: vec![
-                    InstalledPatch {
-                        patch_number: 1,
-                        backend: "bytecode".to_string(),
-                        manifest_path: "patches/1/manifest.json".to_string(),
-                        payload_path: "patches/1/payload.bin".to_string(),
-                        artifact_path: None,
-                        installed_at: "0".to_string(),
-                    },
-                    InstalledPatch {
-                        patch_number: 2,
-                        backend: "bytecode".to_string(),
-                        manifest_path: "patches/2/manifest.json".to_string(),
-                        payload_path: "patches/2/payload.bin".to_string(),
-                        artifact_path: None,
-                        installed_at: "0".to_string(),
-                    },
-                ],
-            })
-            .expect("write state");
-
-        let payload = br#"{"version":1,"functions":[{"name":"initialCounterValue","param_count":0,"local_count":0,"constants":[{"type":"Int","value":3}],"code":[1,0,0,255]}]}"#;
-        let payload_path = input_dir.join("payload.bin");
-        std::fs::write(&payload_path, payload).expect("write payload");
-        let (private_key, public_key) = crypto::generate_keypair_b64();
-        let mut patch = PatchManifest {
-            schema_version: 1,
-            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
-            release_version: "1.0.0+1".to_string(),
-            patch_number: 3,
-            channel: "stable".to_string(),
-            created_at: "1970-01-01T00:00:00Z".to_string(),
-            backend: "bytecode".to_string(),
-            platform: "android".to_string(),
-            arch: "arm64-v8a".to_string(),
-            payload: PayloadManifest {
-                kind: "bytecode_module".to_string(),
-                compression: "none".to_string(),
-                hash: crypto::sha256_hex(payload),
-                size: payload.len() as u64,
-                download_url: "patches/app/release/android/arm64-v8a/3/payload.bin".to_string(),
-                diff_algorithm: None,
-                base_hash: None,
-                output_hash: None,
-            },
-            policy: PatchPolicy {
-                rollout_percentage: 100,
-                allow_downgrade: false,
-            },
-            signature: PatchSignature {
-                algorithm: "ed25519".to_string(),
-                key_id: "dev".to_string(),
-                value: String::new(),
-            },
-        };
-        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
-        let manifest_path = input_dir.join("patch_manifest.json");
-        manifest::write_json(&manifest_path, &patch).expect("write manifest");
-
-        updater
-            .install_payload(&manifest_path, &payload_path, &public_key)
-            .expect("install payload");
-        let state = updater.load_state().expect("load state");
-        let installed: Vec<u32> = state
-            .installed
-            .iter()
-            .map(|patch| patch.patch_number)
-            .collect();
-
-        assert_eq!(installed, vec![1, 3]);
-        assert_eq!(state.current_patch_number, 1);
-        assert_eq!(state.pending_patch_number, Some(3));
-
-        let _ = std::fs::remove_dir_all(cache_dir);
-        let _ = std::fs::remove_dir_all(input_dir);
-    }
-
-    #[test]
-    fn install_rejects_invalid_bytecode_payload_before_writing_state() {
-        let cache_dir =
-            std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
-        let input_dir =
-            std::env::temp_dir().join(format!("fcb-state-input-{}", super::unique_suffix()));
-        std::fs::create_dir_all(&input_dir).expect("create input dir");
-        let payload = br#"{"version":1,"functions":[{"name":"bad","param_count":0,"local_count":0,"constants":[],"code":[1,0,0,255]}]}"#;
-        let payload_path = input_dir.join("payload.bin");
-        std::fs::write(&payload_path, payload).expect("write payload");
-
-        let (private_key, public_key) = crypto::generate_keypair_b64();
-        let mut patch = PatchManifest {
-            schema_version: 1,
-            app_id: "00000000-0000-0000-0000-000000000001".to_string(),
-            release_version: "1.0.0+1".to_string(),
-            patch_number: 5,
-            channel: "stable".to_string(),
-            created_at: "1970-01-01T00:00:00Z".to_string(),
-            backend: "bytecode".to_string(),
-            platform: "android".to_string(),
-            arch: "arm64-v8a".to_string(),
-            payload: PayloadManifest {
-                kind: "bytecode_module".to_string(),
-                compression: "none".to_string(),
-                hash: crypto::sha256_hex(payload),
-                size: payload.len() as u64,
-                download_url: "patches/app/release/android/arm64-v8a/5/payload.bin".to_string(),
-                diff_algorithm: None,
-                base_hash: None,
-                output_hash: None,
-            },
-            policy: PatchPolicy {
-                rollout_percentage: 100,
-                allow_downgrade: false,
-            },
-            signature: PatchSignature {
-                algorithm: "ed25519".to_string(),
-                key_id: "dev".to_string(),
-                value: String::new(),
-            },
-        };
-        manifest::sign_patch_manifest(&mut patch, &private_key).expect("sign manifest");
-        let manifest_path = input_dir.join("patch_manifest.json");
-        manifest::write_json(&manifest_path, &patch).expect("write manifest");
-
-        let updater = Updater::new(&cache_dir);
-        let err = updater
-            .install_payload(&manifest_path, &payload_path, &public_key)
-            .expect_err("invalid bytecode should fail");
-
-        assert!(err.to_string().contains("references missing constant"));
-        assert!(!cache_dir.join("patches/5/payload.bin").exists());
-        let state = updater.load_state().expect("load state");
-        assert!(state.installed.is_empty());
-        assert_eq!(state.pending_patch_number, None);
-
-        let _ = std::fs::remove_dir_all(cache_dir);
-        let _ = std::fs::remove_dir_all(input_dir);
-    }
-}
+#[path = "state_tests.rs"]
+mod tests;

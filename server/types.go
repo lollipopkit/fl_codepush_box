@@ -2,8 +2,33 @@ package main
 
 import "time"
 
+type Organization struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+type OrgMember struct {
+	OrgID     string    `json:"org_id"`
+	UserID    int64     `json:"user_id"`
+	Username  string    `json:"username,omitempty"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+type OrgMemberRequest struct {
+	Username string `json:"username"`
+	UserID   int64  `json:"user_id"`
+	Role     string `json:"role"`
+}
+
+type OrgMemberUpdateRequest struct {
+	Role string `json:"role"`
+}
+
 type App struct {
 	ID        string        `json:"id"`
+	OrgID     string        `json:"org_id,omitempty"`
 	Name      string        `json:"name"`
 	Channel   string        `json:"channel"`
 	PublicKey string        `json:"public_key"`
@@ -136,7 +161,29 @@ type TokenRequest struct {
 
 type TokenResponse struct {
 	ID        int64     `json:"id"`
+	OrgID     string    `json:"org_id,omitempty"`
 	Name      string    `json:"name"`
 	Token     string    `json:"token,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type PatchStatsResponse struct {
+	AppID          string              `json:"app_id"`
+	ReleaseVersion string              `json:"release_version,omitempty"`
+	Platform       string              `json:"platform,omitempty"`
+	Arch           string              `json:"arch,omitempty"`
+	PatchNumber    int                 `json:"patch_number"`
+	Totals         map[string]int      `json:"totals"`
+	Last7Days      []PatchStatsDay     `json:"last_7_days"`
+	TopFailures    []PatchFailureStats `json:"top_failures"`
+}
+
+type PatchStatsDay struct {
+	Date   string         `json:"date"`
+	Counts map[string]int `json:"counts"`
+}
+
+type PatchFailureStats struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
 }

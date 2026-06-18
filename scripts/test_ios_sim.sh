@@ -3,7 +3,7 @@
 #
 # Prerequisites:
 #   - Xcode installed with iOS simulator support
-#   - FCB iOS Engine built via scripts/build_ios_engine.sh (FCB_IOS_CPU=x64)
+#   - FCB iOS Engine built via scripts/build_ios_engine.sh (FCB_IOS_SIMULATOR=1 FCB_IOS_CPU=x64)
 #   - FCB server running (default http://127.0.0.1:8080)
 #   - App registered via: FCB_CLI_TOKEN=<token> fcb init
 #
@@ -24,7 +24,7 @@ FCB_SKIP_BUILD="${FCB_SKIP_BUILD:-0}"
 FCB_INSTALL_BYTECODE_PATCH="${FCB_INSTALL_BYTECODE_PATCH:-0}"
 SIM_DEVICE="${FCB_SIM_DEVICE:-}"   # e.g. "iPhone 15 Pro" — auto-selected if empty
 
-ENGINE_OUT="${ROOT_DIR}/vendor/flutter/engine/src/out/ios_release_x64"
+ENGINE_OUT="${ROOT_DIR}/vendor/flutter/engine/src/out/ios_release_sim"
 
 BUNDLE_ID="com.example.fcbCounterApp"
 
@@ -59,7 +59,7 @@ build_app() {
     --debug \
     --target-platform ios-x64 \
     --local-engine-src-path "$ROOT_DIR/vendor/flutter/engine/src" \
-    --local-engine "ios_release_x64" \
+    --local-engine "ios_release_sim" \
     --dart-define "FCB_SERVER_URL=$SERVER_URL" \
     --dart-define "FCB_APP_ID=$APP_ID" \
     --dart-define "FCB_PUBLIC_KEY=$PUBLIC_KEY" \
@@ -104,7 +104,7 @@ main() {
   info "Using simulator: $sim_udid"
 
   if [ "$FCB_SKIP_BUILD" != "1" ]; then
-    [ -d "$ENGINE_OUT" ] || die "iOS Engine not built. Run: FCB_IOS_CPU=x64 scripts/build_ios_engine.sh"
+    [ -d "$ENGINE_OUT" ] || die "iOS Engine not built. Run: FCB_IOS_SIMULATOR=1 FCB_IOS_CPU=x64 scripts/build_ios_engine.sh"
     build_app
   fi
 

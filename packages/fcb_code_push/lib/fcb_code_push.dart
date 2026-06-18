@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -24,6 +25,7 @@ class FcbCodePush {
     String? platform,
     String arch = 'arm64-v8a',
     String? cacheDir,
+    String? orgId,
     String clientId = 'default',
     String? baselineArtifactPath,
   }) async {
@@ -45,6 +47,7 @@ class FcbCodePush {
       platform: selectedPlatform,
       arch: arch,
       cacheDir: selectedCacheDir,
+      orgId: orgId,
       baselineArtifactPath: selectedBaselineArtifactPath,
       clientId: clientId,
     )) {
@@ -66,6 +69,7 @@ class FcbCodePush {
     final cacheDirPtr = selectedCacheDir.toNativeUtf8();
     final publicKeyPtr = publicKey.toNativeUtf8();
     final serverUrlPtr = serverUrl.toNativeUtf8();
+    final orgIdPtr = orgId?.toNativeUtf8();
     final clientIdPtr = clientId.toNativeUtf8();
     final baselinePtr = selectedBaselineArtifactPath?.toNativeUtf8();
     try {
@@ -80,6 +84,12 @@ class FcbCodePush {
         ..checkOnStartup = 0;
       if (init(params) != 0 || setServerUrl(serverUrlPtr.cast()) != 0) {
         return false;
+      }
+      if (orgIdPtr != null) {
+        final setOrgId = _lookupStringSetter('fcb_set_org_id');
+        if (setOrgId != null && setOrgId(orgIdPtr.cast()) != 0) {
+          return false;
+        }
       }
       final setClientId = _lookupStringSetter('fcb_set_client_id');
       if (setClientId != null && setClientId(clientIdPtr.cast()) != 0) {
@@ -103,6 +113,9 @@ class FcbCodePush {
       calloc.free(cacheDirPtr);
       calloc.free(publicKeyPtr);
       calloc.free(serverUrlPtr);
+      if (orgIdPtr != null) {
+        calloc.free(orgIdPtr);
+      }
       calloc.free(clientIdPtr);
       if (baselinePtr != null) {
         calloc.free(baselinePtr);
@@ -118,6 +131,7 @@ class FcbCodePush {
     required String platform,
     required String arch,
     required String cacheDir,
+    required String? orgId,
     required String clientId,
     required String? baselineArtifactPath,
   }) {
@@ -150,6 +164,9 @@ class FcbCodePush {
     if (cacheDir.trim().isEmpty) {
       return false;
     }
+    if (orgId != null && orgId.trim().isEmpty) {
+      return false;
+    }
     final cacheDirectory = Directory(cacheDir);
     try {
       if (!cacheDirectory.existsSync()) {
@@ -169,6 +186,71 @@ class FcbCodePush {
   Future<int?> currentPatchNumber() async {
     final fn = _lookupInt('fcb_current_patch_number');
     return fn == null ? null : fn();
+  }
+
+  Future<int?> lastKnownGoodPatchNumber() async {
+    final fn = _lookupInt('fcb_last_known_good_patch_number');
+    if (fn == null) {
+      return null;
+    }
+    final value = fn();
+    return value > 0 ? value : null;
+  }
+
+  Future<List<CrashRollbackEvent>> crashRollbackHistory(
+      {int limit = 10}) async {
+    try {
+      final lib = _library ??= _openLibrary();
+      final fn = lib.lookupFunction<Pointer<Char> Function(Int32),
+          Pointer<Char> Function(int)>('fcb_crash_rollback_history_json');
+      final ptr = fn(limit);
+      if (ptr == nullptr) {
+        return const <CrashRollbackEvent>[];
+      }
+      final decoded = jsonDecode(ptr.cast<Utf8>().toDartString());
+      if (decoded is! List) {
+        return const <CrashRollbackEvent>[];
+      }
+      return decoded
+          .whereType<Map<String, Object?>>()
+          .map(CrashRollbackEvent.fromJson)
+          .toList(growable: false);
+    } catch (error, stack) {
+      _debugLookupError('fcb_crash_rollback_history_json', error, stack);
+      return const <CrashRollbackEvent>[];
+    }
+  }
+
+  Future<InterpreterStats?> interpreterStats() async {
+    try {
+      final lib = _library ??= _openLibrary();
+      final fn = lib.lookupFunction<
+          Int32 Function(Pointer<Uint64>, Pointer<Uint64>),
+          int Function(
+              Pointer<Uint64>, Pointer<Uint64>)>('fcb_get_interpreter_stats');
+      final interpreted = calloc<Uint64>();
+      final aot = calloc<Uint64>();
+      try {
+        if (fn(interpreted, aot) != 0) {
+          return null;
+        }
+        return InterpreterStats(
+          interpretedFunctionCalls: interpreted.value,
+          aotFunctionCalls: aot.value,
+        );
+      } finally {
+        calloc.free(interpreted);
+        calloc.free(aot);
+      }
+    } catch (error, stack) {
+      _debugLookupError('fcb_get_interpreter_stats', error, stack);
+      return null;
+    }
+  }
+
+  Future<void> cancelPendingOperations() async {
+    final fn = _lookupInt('fcb_cancel_pending_operations');
+    fn?.call();
   }
 
   Future<bool> isUpdateAvailable() async {
@@ -244,6 +326,10 @@ class FcbCodePush {
     } catch (error, stack) {
       _debugLookupError('restart', error, stack);
     }
+  }
+
+  Future<Map<String, String>> platformPaths() async {
+    return _platformPaths(_defaultPlatform());
   }
 
   Future<String?> launchBytecodePatchPath() async {
@@ -526,4 +612,49 @@ class DownloadResult {
 
   final bool success;
   final String? reason;
+}
+
+class CrashRollbackEvent {
+  const CrashRollbackEvent({
+    required this.patchNumber,
+    required this.bootAttempts,
+    required this.timestamp,
+    this.isReported = false,
+    this.lastKnownGoodPatchNumber,
+  });
+
+  factory CrashRollbackEvent.fromJson(Map<String, Object?> json) {
+    return CrashRollbackEvent(
+      patchNumber: (json['patch_number'] as num?)?.toInt() ?? 0,
+      bootAttempts: (json['boot_attempts'] as num?)?.toInt() ?? 0,
+      lastKnownGoodPatchNumber:
+          (json['last_known_good_patch_number'] as num?)?.toInt(),
+      timestamp: json['timestamp']?.toString() ?? '',
+      isReported: json['is_reported'] == true,
+    );
+  }
+
+  final int patchNumber;
+  final int bootAttempts;
+  final int? lastKnownGoodPatchNumber;
+  final String timestamp;
+  final bool isReported;
+}
+
+class InterpreterStats {
+  const InterpreterStats({
+    required this.interpretedFunctionCalls,
+    required this.aotFunctionCalls,
+  });
+
+  final int interpretedFunctionCalls;
+  final int aotFunctionCalls;
+
+  double get interpreterRatio {
+    final total = interpretedFunctionCalls + aotFunctionCalls;
+    if (total == 0) {
+      return 0;
+    }
+    return interpretedFunctionCalls / total;
+  }
 }

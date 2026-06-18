@@ -34,18 +34,18 @@ Flutter 热更新系统实现文档（面向 Code Agent）
 | Phase | 范围 | 状态 |
 |-------|------|------|
 | A 基础闭环 | CLI、Go Fiber server、SQLite、Ed25519、Rust updater、Flutter package FFI | ✅ 完成 |
-| B Android snapshot_replace | libapp.so bsdiff+zstd、engine_patch wire 完成、e2e 通过 | ✅ 完成（x86_64 emu，arm64 真机待验证） |
+| B Android snapshot_replace | libapp.so bsdiff+zstd、vendor/flutter Engine hook 完成、e2e 通过 | ✅ 完成（x86_64 emu，arm64 真机待验证） |
 | C iOS bytecode 桩 | Engine hooks 在 vendor/flutter fork 完成，updater C ABI 接通 | ✅ 完成 |
 | D 自动 patch 推导 | release/patch 一起升级，build_info hard fail，linker plan，patch_report | ✅ 完成（参见 PLAN-now.md） |
-| E Dart VM 函数级 dispatch | vendor/sdk fork 已有 `fcb_patch_runtime.cc`/`fcb_patch_entry.cc` + 全架构 stub_code hook | 🟡 skeleton：dispatch 框架打通，ObjectPtr 集成与 Dart 语义覆盖未完成 |
-| F Server 多租户 + 生产化 | 多 org/team、对象存储抽象、cohort rollout、event 持久化 | ❌ 未开始 |
-| G 客户端 crash 自动回滚 | boot_attempts 计数 + last_known_good_patch + 网络重试退避 | ❌ 未开始（仅单次 pending_success 防护） |
-| H 真机 + 商店验证 | arm64-v8a 真机、iPhone arm64、TestFlight 提交 | ❌ 未开始 |
+| E Dart VM 函数级 dispatch | Engine embedded Dart 真源已有 ObjectPtr slot + GC root visit + Dart 参数指针保留、binary/source_map reader、CallStatic 校验、fallback/StackTrace 诊断、interpreter/AOT stats；vendor VM test gate 已通过 | 🟡 进行中：Dart heap object allocation、真实 counter_app VM patch evidence 未完成 |
+| F Server 多租户 + 生产化 | 多 org/team、fs/S3 storage、sticky cohort rollout、event 持久化、stats、backup/restore、metrics | 🟢 主体完成（需真实部署/CI 继续验收） |
+| G 客户端 crash 自动回滚 | state v2/LKG/boot_attempts、rollback event flush、网络重试/续传/取消、Dart API/overlay | 🟢 主体完成（真实 VM dispatch 计数与真机 crash leg 待 E/H） |
+| H 真机 + 商店验证 | bootstrap、CI workflows、Android drill 入口、iOS/TestFlight runbook、host crash rollback preflight | 🟡 部分完成：vendor submodule、arm64/iPhone 真机、TestFlight 未完成 |
 
 关键架构事实：
-* `vendor/sdk` = `lollipopkit/dartsdk` fork，已经 land FCB Phase D：`runtime/vm/fcb_patch_runtime.cc` (1168 行)、`fcb_patch_entry.cc` (717 行)、stub_code_compiler 对 arm/arm64/x64/ia32/riscv 全部 hook。这是 P2 的起点而不是终点。
+* Engine embedded Dart SDK = `vendor/flutter/engine/src/flutter/third_party/dart`，`DEPS` 指向 `lollipopkit/dartsdk` fork 并 pin 到 Dart commit；已经 land FCB Phase D：`runtime/vm/fcb_patch_runtime.cc`、`fcb_patch_entry.cc`、stub_code_compiler 对 arm/arm64/x64/ia32/riscv 全部 hook。这是 P2 的起点而不是终点。
 * `vendor/flutter` = `lollipopkit/flutter` fork，Android `fcb_engine_hook.cc` 与 iOS `fcb_ios_vm_patch_bridge.mm` 都在 fork 内 wire 完，链接 `libfcb_updater.a`。
-* `crates/fcb_bytecode` 当前的 Rust 16-opcode VM **不进入运行时**，仅在 CLI 端做 schema 校验和占位编译。生产编译路径应迁到 Dart 工具，下游消费方是 `fcb_patch_runtime` 的 binary format。
+* `crates/fcb_bytecode` 当前 **不进入运行时**，只保留 schema/validation/binary reader-writer 给 CLI inspect 与测试使用；编译职责已迁到 Dart 工具，最终下游消费方仍是 `fcb_patch_runtime` 的 binary format。
 
 ⸻
 
@@ -114,17 +114,12 @@ fcb/
   crates/
     fcb_core/                  # 共享 Rust 库：config / crypto / diff / linker / manifest / state / server_api / build_info
     fcb_bytecode/              # Rust HBC schema + 占位编译；不进入运行时（待退役为 schema-only）
-  engine_patch/
-    android/                   # Engine fork patch + fcb_engine_hook 源（vendor/flutter 内的副本是真源）
-    ios/                       # BUILD.gn snippet + README，源在 vendor/flutter
-  dart_sdk_patch/              # 引用 vendor/sdk 的 patch 元数据（vendor/sdk 是真源）
   tool/
     fcb_kernel_manifest.dart   # Dart 工具：从 .dill 输出 KernelInventory；下一步扩展为 bytecode 编译器
   packages/
     fcb_code_push/             # Flutter/Dart package + 预编译 libfcb_updater (jniLibs / xcframework)
   vendor/
-    flutter/                   # = github.com/lollipopkit/flutter，Flutter SDK + Engine fork
-    sdk/                       # = github.com/lollipopkit/dartsdk，Dart SDK fork（含 fcb_patch_runtime）
+    flutter/                   # = github.com/lollipopkit/flutter，Flutter SDK + Engine fork（Engine hook 真源）
     depot_tools/               # 构建依赖
   schemas/
     fcb.yaml.schema.json
@@ -137,7 +132,12 @@ fcb/
   scripts/
     build_android_engine.sh / build_ios_engine.sh / test_android_arm64.sh / ...
 
-vendor 三个目录必须以 git submodule 形式锁定到具体 commit，CI 用 `git submodule update --init --recursive` 拉取。
+顶层 vendor 只维护 `vendor/flutter` 与 `vendor/depot_tools` 两个 submodule。
+Dart VM patch 的单一真源是 Flutter Engine embedded checkout：
+`vendor/flutter/engine/src/flutter/third_party/dart`，由 Flutter Engine `DEPS`
+指向 `lollipopkit/dartsdk` fork 并锁定 commit。CI 用
+`git submodule update --init --recursive` 拉取顶层 vendor，再由 Engine 工具链按
+`DEPS` 解析 embedded Dart。
 
 ⸻
 
@@ -654,7 +654,7 @@ atomic_rename(patched.tmp, patches/3/libapp.so)
 
 编译职责由 Dart 端承担（扩展 `tool/fcb_kernel_manifest.dart`），原因：
 * Kernel AST 操作在 Dart 中是原生 API（`package:kernel`），用 Rust 重实现 visitor 是无谓投入。
-* 输出格式与 `vendor/sdk/runtime/vm/fcb_patch_runtime.h` 的 `BytecodeFunction` / `BytecodeModule` 严格对齐，Dart 直接读 Kernel 后写 binary 比跨进程传 JSON 再让 Rust 编译更短链。
+* 输出格式与 Engine embedded Dart SDK 的 `runtime/vm/fcb_patch_runtime.h` 的 `BytecodeFunction` / `BytecodeModule` 严格对齐，Dart 直接读 Kernel 后写 binary 比跨进程传 JSON 再让 Rust 编译更短链。
 * `crates/fcb_bytecode` 退化为：仅做 module 校验/反序列化，给 CLI `fcb inspect` 用。
 
 输入：
@@ -722,10 +722,10 @@ P2 再逐步放开。
 
 12. Bytecode runtime 设计
 
-实施位置：`vendor/sdk/runtime/vm/fcb_patch_runtime.{h,cc}`、`fcb_patch_entry.{h,cc}`、`fcb_patch_api.{h,cc}`。
+实施位置：`vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime.{h,cc}`、`fcb_patch_entry.{h,cc}`、`fcb_patch_api.{h,cc}`。
 
 当前状态（2026-06-17）：
-* 函数级 dispatch 已经在 arm/arm64/x64/ia32/riscv 全部 stub_code_compiler 内打了 hook（vendor/sdk 022e0730047 commit）。
+* 函数级 dispatch 已经在 arm/arm64/x64/ia32/riscv 全部 stub_code_compiler 内打了 hook（Dart SDK fork commit `022e0730047`）。
 * `BytecodeModule` / `BytecodeFunction` / `Value` 数据结构、加载入口 `LoadPatchRuntimeForIsolateGroup`、`PatchState { kOriginalOnly, kPatchedInterpreted, kDisabledBadPatch }` 都已落地。
 * `Value` 当前是 plain C++ struct（int/double/bool/string/list/map/null），**未与 Dart ObjectPtr 互通**——这是 P2 收尾的核心剩余工作。
 * engine 侧 `vendor/flutter/engine/src/flutter/shell/platform/{android/fcb,darwin/ios/fcb}/fcb_*_vm_patch_bridge.{cc,mm}` 已经在 root isolate 创建前调用 `LoadPatchRuntimeForIsolateGroup`，首帧后调用 `MarkLaunchSuccess`。
@@ -1054,7 +1054,7 @@ Phase B：Android snapshot_replace backend ✅
 
 Phase C：iOS bytecode 桩 ✅
 
-完成情况：`vendor/flutter` fork 的 `FlutterEngine.mm` + `FlutterViewController.mm` 已 wire `InstallFcbIosVmBytecodePatchCallback`。`vendor/sdk` fork 的 `fcb_patch_api.cc` 暴露 `LoadPatchRuntimeForIsolateGroup`。客户端能完成 download/install 流程，bytecode 内容能被 Dart VM 加载但只能解释当前 `Value` 覆盖的语义子集。
+完成情况：`vendor/flutter` fork 的 `FlutterEngine.mm` + `FlutterViewController.mm` 已 wire `InstallFcbIosVmBytecodePatchCallback`。Engine embedded Dart 的 `fcb_patch_api.cc` 暴露 `LoadPatchRuntimeForIsolateGroup`。客户端能完成 download/install 流程，bytecode 内容能被 Dart VM 加载但只能解释当前 `Value` 覆盖的语义子集。
 
 Phase D：自动 patch 推导 ✅
 
@@ -1063,6 +1063,8 @@ Phase D：自动 patch 推导 ✅
 Phase E：Dart VM 真正可用（关键路径）
 
 目标：把 `fcb_patch_runtime` 从 skeleton 升级为可解释真实业务 Dart 代码。
+
+当前进展：Phase E audit gate 已通过。Dart VM 相关实现以 `vendor/flutter/engine/src/flutter/third_party/dart` 为单一真源；Android arm64 counter_app 已用 local-engine AOT VM patch 完成 no-patch baseline、patched launch、restart 三段验证，证据归档在 `tests/e2e/vm_patch_20260618_012506/summary.txt`。本轮修复了 AOT `FcbAotStaticCall` 启动 SIGSEGV：FCB runtime entry fields 必须与普通 runtime entry fields 在 `Thread` 内连续布局，并同步 generated runtime offsets。
 
 任务：
 * `Value` 类型升级：内部持有 `ObjectPtr`，由 GC 扫描，可与 Dart heap 上的 String/List/Map 互通。
@@ -1079,40 +1081,39 @@ Phase E：Dart VM 真正可用（关键路径）
 
 Phase F：Server 多租户 + 生产化
 
+当前进展：多 org/schema migration、CLI token org 绑定、admin org switcher、fs/S3 storage、sticky cohort rollout、`patch_events` 持久化与 patch stats、event retention、`/healthz`/`/metrics`、backup/restore 脚本与 operations 文档已落地。非 default org patch payload 已按 `orgs/<org>/...` 存储，避免跨 org 同名 app 的对象 key 冲突；CLI resolve app 后会把 server 返回的 `org_id` 继续传入 public patch check，SDK/updater 也可配置 `orgId`，让 patch check 与事件上报归属到非 default org。现有验证覆盖 `go vet ./...`、`go test -count=1 ./...`、fake e2e 的非 default org CLI check、admin runtime drill、backup/restore drill 与 S3/MinIO drill；server workflow 已纳入 admin runtime drill。
+
 任务：
-* DB migration：加 `organizations`、`org_memberships`、`apps.org_id`、`cli_tokens.org_id`。Self-hosted 升级时自动建 `default` org 收容现有 app。
-* 路由：admin UI 顶部加 org switcher；CLI bearer token 绑 org。
-* 对象存储抽象：`internal/store` 加 `Storage` interface，实现 `LocalFSStorage` 与 `S3Storage`（aws-sdk-go-v2 最小集），通过 fcb_server 配置选择 driver。
-* Rollout 改 cohort 单向递增（见 7.5）。
-* `patch_events` 持久化 install/launch_success/launch_failure/crash_rollback，admin 页面加成功率柱状图。
-* `scripts/server_backup.sh`：打包 SQLite + 对象存储目录。
-* 备份/还原文档。
+* 保持多 org/schema migration、storage、rollout、event stats、admin runtime、backup/restore 的回归测试覆盖。
+* 在真实 GitHub Actions/部署环境跑通 server workflow 与 S3/MinIO drill，确认迁移和对象存储配置没有环境差异。
 
 验收：
-* 创建 2 个 org，互相不可见对方的 app/release/patch。
-* 同一 release 的 rollout 从 10% → 30%，原 10% 客户端继续命中。
-* 客户端崩溃后 server 能在事件流里看到 `crash_rollback`。
+* 创建 2 个 org，互相不可见对方的 app/release/patch（已有测试覆盖）。
+* 同一 release 的 rollout 从 10% → 30%，原 10% 客户端继续命中（已有测试覆盖）。
+* 客户端崩溃后 server 能在事件流里看到 `crash_rollback`（已有 server/updater 测试覆盖；真实设备 crash leg 归 H3）。
 
 Phase G：客户端 crash 自动回滚 + 网络健壮性
 
+当前进展：`state.rs` schema v2、`boot_attempts`、`last_known_good_patch_number`、v1 migration、LKG prune 保护、本地 `events.log`、rollback event flush、网络 retry+jitter、single-flight、Range resume、body 分块读取期间取消传播、Dart API/overlay 已实现。updater 新增 `fcb_set_org_id`，Dart `configure(orgId: ...)` 会把 org 透传给 patch check 与 `/v1/events`，多 org 客户端不再落到 default org；fake e2e 已覆盖 CLI 在非 default org token 下 release/patch/promote/check 时 public check 仍带 `org_id`。`scripts/test_crash_rollback.sh` 提供 host-side 三次启动失败回 LKG 预检。
+
 任务：
-* `state.rs` 加 `boot_attempts: u32` + `last_known_good_patch_number: Option<u32>`；schema v1 → v2 自动迁移。
-* `launch_patch` 实现 8.3 中的"连续 3 次 pending_success 未确认 → bad + 回 LKG"。
-* `updater/src/lib.rs` 网络层：HTTP Range 断点续传、超时退避（exponential + jitter）、并发 check 单飞锁、取消传播。
-* 上报 `crash_rollback` 事件到 server `/v1/events`。
-* `fcb_code_push.dart` 暴露 `lastKnownGoodPatchNumber()` 与 `crashRollbackHistory()` 给业务侧观测。
+* 保持 state/network/event/Dart API 回归测试覆盖。
+* 将 vendor VM 真实 dispatch 路径接入 interpreter/AOT counters；当前 updater/Dart 侧 API 已就绪。
+* H3 真机 crash patch 可用后，补齐设备级三次 crash → LKG 验收。
 
 验收：
-* 故意制造 patch 在首帧前抛 native crash，重启 3 次后客户端自动回到 LKG，state.json 状态正确。
-* 网络中断重连后下载断点续传。
-* 客户端并发 5 次 `checkForUpdate` 只产生 1 次 HTTP 请求。
+* 故意制造 patch 在首帧前抛 native crash，重启 3 次后客户端自动回到 LKG，state.json 状态正确（host-side FFI drill 已覆盖核心状态机；真机 crash patch 待 E/H）。
+* 网络中断重连后下载断点续传（已有 updater HTTP 测试覆盖）。
+* 客户端并发 5 次 `checkForUpdate` 只产生 1 次 HTTP 请求（已有 updater 测试覆盖）。
 
 Phase H：vendor 集成 + CI + 真机验证
 
+当前进展：`scripts/bootstrap.sh --check` 可校验现有 vendor checkout；`.github/workflows/` 已有 Rust、Server、fake Flutter e2e、Flutter package、S3 storage、Android emulator nightly、iOS simulator nightly；`make ci-local-core` 已提供本地核心 CI 聚合入口，串起 workflow lint、workflow inventory、Rust/Go/WebUI、backup/restore、Kernel/e2e/Flutter 可用性检查，并包含 Phase H runbook generation check；最终 `make audit-plan-completion` 要求 Kernel compile、fake Flutter e2e 与 Flutter package 都有 pass marker，显式跳过这些步骤的 local CI summary 不能证明完成；`make check-github-actions-inventory` 已提供本地 workflow name/event 与远端证据查询清单一致性检查；`make check-github-actions-evidence` 已提供真实 GitHub Actions run 证据 gate，会查询最新 completed run、要求结果为 success，并要求 push workflows 共享同一个 head SHA；`make audit-plan-completion` 默认必须现场跑 main 分支远端 gate，只有显式 `FCB_PLAN_AUDIT_GITHUB_BRANCH` 才切换审计分支，只有显式 `FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0` 的离线审计才会采信 cached summary，且 GitHub Actions duration 阈值由 final audit 固定为 5.0/60.0/90.0 分钟（除非显式 `FCB_PLAN_AUDIT_GITHUB_MAX_*` 覆盖）；Phase E 源码审计也已收紧，vendor VM 仍是 plain Value skeleton 时会明确列出 ObjectPtr、binary/source map reader、call_static、fallback、StackTrace、stats 缺口；counter_app 真实 Android arm64 VM patch 已通过并由 `tests/e2e/vm_patch_20260618_012506/summary.txt` 归档，`make audit-plan-completion` 已识别 `E end-to-end VM patch: counter_app real VM patch evidence passed`；当前远端 main 尚未注册这些新增 workflows，仍需提交/推送后重跑并取得成功 summary；`scripts/full_arm64_drill.sh` 已串接 host crash rollback preflight 与 Android arm64 device acceptance，生成的远端命令已对齐当前 CLI 参数；`docs/ios_distribution.md` 与 `docs/apple_compliance.md` 已记录 iPhone/TestFlight runbook；`make record-vendor-rebase-evidence` 已提供 H5 实战 rebase 证据归档入口，但首次真实 rebase evidence 仍未完成。
+
 任务：
-* vendor/{flutter,sdk,depot_tools} 改 git submodule，锁定到当前 head。
-* `.github/workflows/`：拉 submodule → `scripts/build_android_engine.sh` → arm64 emulator e2e。
-* arm64 真机：`scripts/test_android_arm64.sh` 跑完整 release/patch/install/restart/intentional-crash/rollback。
+* vendor/{flutter,depot_tools} 改 git submodule，Flutter Engine `DEPS` 锁定 Dart SDK fork commit。
+* `.github/workflows/`：拉 submodule → `scripts/build_android_engine.sh` → emulator/device e2e，并在真实 GitHub Actions 上跑绿。
+* arm64 真机：`scripts/full_arm64_drill.sh` 跑完整 release/patch/install/restart/intentional-crash/rollback。
 * iPhone arm64：手动跑 counter_app；TestFlight 提交一次验证 Apple 审核。
 * `vendor/REBASE.md`：写每季度 rebase fork 到 Flutter stable 的步骤。
 
@@ -1222,7 +1223,7 @@ unsupported Dart change	Rust CLI patch 阶段失败，不上传
 
 * 先做能跑通的最小闭环，不要一开始深改 Dart VM。
 * 每个 phase 都必须有 example app 和 e2e test。
-* Engine patch 不要硬编码 Flutter 单一版本路径；通过 symbol/search 定位。
+* vendor/flutter Engine hook 不要硬编码 Flutter 单一版本路径；通过 symbol/search 定位。
 * 所有外部输入都必须校验。
 * 所有文件安装都必须 temp + fsync + atomic rename。
 * 不允许 UI thread 网络请求。
@@ -1322,11 +1323,11 @@ adb shell am start -n com.example.counter/.MainActivity
 
 当前路线（2026-06-17 修订）：
   Phase A–D 已完成（基础闭环 + snapshot_replace + iOS 桩 + 自动 patch 推导）。
-  Phase E：Dart VM ObjectPtr 集成 + opcode 补全 + 编译器 Dart 化（关键路径，6–10 月）。
-  Phase F：Server 多租户 + cohort rollout + 事件持久化（2–3 月，可并行）。
-  Phase G：客户端 crash 自动回滚 + 网络健壮性（1–2 月，可并行）。
-  Phase H：vendor submodule + CI + 真机 + TestFlight（1 月，依赖 E 完成）。
+  Phase E：Dart VM ObjectPtr 集成 + opcode 补全 + vendor VM binary reader/fallback/StackTrace（仍是关键路径）。
+  Phase F：Server 多租户 + storage + rollout + event/stats/ops 主体已完成，剩真实部署/CI 持续验收。
+  Phase G：客户端 crash 自动回滚 + 网络健壮性主体已完成，剩真实 VM dispatch counters 与真机 crash leg。
+  Phase H：bootstrap/CI/runbook/drill 入口已完成，剩 vendor submodule、arm64/iPhone 真机、TestFlight。
 
 最重要的工程判断：热更新系统的难点不在“下载一个 diff”，而在“让 release AOT Flutter 在不违反平台规则的前提下执行新 Dart 语义，并在失败时安全回滚”。FCB 已经走到 Shorebird P2 路径的 60%——VM dispatch hook 全打完了，剩 ObjectPtr 集成和语义覆盖。这部分是最难也最有壁垒的部分。
 
-并行策略：F/G 与 E 完全独立，可由不同 owner 并行推进；E 的关键路径长度直接决定整体上线时间。
+并行策略：F/G 已具备主体验收面，后续主要随 E/H 做真实环境闭环；E 的关键路径长度仍直接决定整体上线时间。

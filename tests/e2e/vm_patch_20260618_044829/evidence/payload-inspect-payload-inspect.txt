@@ -1,0 +1,11 @@
+payload inspect evidence
+payload: target/fcb/android-field-final-acceptance/patch/manual-bytecode-patch/payload.bin
+manifest: target/fcb/android-field-final-acceptance/patch/manual-bytecode-patch/manifest.json
+format: JSON bytecode module used by Android manual-device smoke
+FCBM: embedded Dart VM binary reader support remains present in vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_loader.cc
+source_map: embedded Dart VM source_map reader support remains present in vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_loader.cc
+uses_call_static: true
+uses_get_field: true
+get_field_opcode: [2,0,67,0,0,255]
+field_name: patchLabel
+observed_field_result: patched-field

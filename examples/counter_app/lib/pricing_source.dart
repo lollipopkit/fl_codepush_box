@@ -24,12 +24,42 @@ class PricingEngine {
   }
 }
 
+@pragma('vm:entry-point')
+class PricingOffer {
+  @pragma('vm:entry-point')
+  const PricingOffer({
+    required this.baseLabel,
+    required this.patchLabel,
+  });
+
+  @pragma('vm:entry-point')
+  final String baseLabel;
+  @pragma('vm:entry-point')
+  final String patchLabel;
+}
+
+@pragma('vm:never-inline')
+String fieldStatusLabel(PricingOffer offer) {
+  if (DateTime.now().microsecondsSinceEpoch == -1) {
+    return offer.patchLabel;
+  }
+  return offer.baseLabel;
+}
+
 @pragma('vm:never-inline')
 String statusLabel() {
   if (DateTime.now().microsecondsSinceEpoch == -1) {
     return 'alternate';
   }
   return 'base';
+}
+
+@pragma('vm:never-inline')
+String widgetTreeLabel() {
+  if (DateTime.now().microsecondsSinceEpoch == -1) {
+    return 'alternate widget tree';
+  }
+  return 'baseline widget tree';
 }
 
 @pragma('vm:never-inline')

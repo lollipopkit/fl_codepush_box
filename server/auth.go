@@ -48,14 +48,25 @@ func (s *Server) setup(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`insert into users(username, password_hash) values(?, ?)`, req.Username, string(hash)); err != nil {
+	result, err := tx.Exec(`insert into users(username, password_hash) values(?, ?)`, req.Username, string(hash))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	userID, err := result.LastInsertId()
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if _, err := tx.Exec(`insert or ignore into organizations(id, name) values(?, ?)`, defaultOrgID, "Default"); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	if _, err := tx.Exec(`insert or ignore into org_memberships(org_id, user_id, role) values(?, ?, ?)`, defaultOrgID, userID, "owner"); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	token, err := randomToken()
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	if _, err := tx.Exec(`insert into cli_tokens(name, token_hash) values(?, ?)`, req.TokenName, sha256Hex([]byte(token))); err != nil {
+	if _, err := tx.Exec(`insert into cli_tokens(org_id, name, token_hash) values(?, ?, ?)`, defaultOrgID, req.TokenName, sha256Hex([]byte(token))); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	if err := tx.Commit(); err != nil {
@@ -97,7 +108,7 @@ func (s *Server) logout(c *fiber.Ctx) error {
 }
 
 func (s *Server) me(c *fiber.Ctx) error {
-	return c.JSON(map[string]any{"authenticated": true, "username": c.Locals("username")})
+	return c.JSON(map[string]any{"authenticated": true, "username": c.Locals("username"), "user_id": currentUserID(c), "org_id": currentOrgID(c)})
 }
 
 func (s *Server) requireSession(c *fiber.Ctx) error {
@@ -106,10 +117,11 @@ func (s *Server) requireSession(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized, "login required")
 	}
 	var username, expiresAt string
+	var userID int64
 	err := s.db.QueryRow(
-		`select users.username, sessions.expires_at from sessions join users on users.id = sessions.user_id where sessions.id = ?`,
+		`select users.id, users.username, sessions.expires_at from sessions join users on users.id = sessions.user_id where sessions.id = ?`,
 		sha256Hex([]byte(token)),
-	).Scan(&username, &expiresAt)
+	).Scan(&userID, &username, &expiresAt)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "login required")
 	}
@@ -118,8 +130,28 @@ func (s *Server) requireSession(c *fiber.Ctx) error {
 		_, _ = s.db.Exec(`delete from sessions where id = ?`, sha256Hex([]byte(token)))
 		return fiber.NewError(fiber.StatusUnauthorized, "session expired")
 	}
+	c.Locals("user_id", userID)
 	c.Locals("username", username)
+	c.Locals("org_id", defaultOrgID)
 	return c.Next()
+}
+
+func (s *Server) requireOrgRole(minRole string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		userID := currentUserID(c)
+		if userID == 0 {
+			return fiber.NewError(fiber.StatusUnauthorized, "login required")
+		}
+		ok, err := s.userHasOrgRole(c.Params("org"), userID, minRole)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		}
+		if !ok {
+			return fiber.NewError(fiber.StatusNotFound, "org not found")
+		}
+		c.Locals("org_id", c.Params("org"))
+		return c.Next()
+	}
 }
 
 func (s *Server) requireBearer(c *fiber.Ctx) error {
@@ -128,19 +160,21 @@ func (s *Server) requireBearer(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized, "bearer token required")
 	}
 	tokenHash := sha256Hex([]byte(strings.TrimPrefix(value, "Bearer ")))
-	rows, err := s.db.Query(`select token_hash from cli_tokens where revoked_at is null`)
+	rows, err := s.db.Query(`select token_hash, org_id from cli_tokens where revoked_at is null`)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	ok := false
+	orgID := defaultOrgID
 	for rows.Next() {
-		var stored string
-		if err := rows.Scan(&stored); err != nil {
+		var stored, storedOrgID string
+		if err := rows.Scan(&stored, &storedOrgID); err != nil {
 			_ = rows.Close()
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
 		if subtle.ConstantTimeCompare([]byte(stored), []byte(tokenHash)) == 1 {
 			ok = true
+			orgID = storedOrgID
 			break
 		}
 	}
@@ -150,12 +184,27 @@ func (s *Server) requireBearer(c *fiber.Ctx) error {
 	}
 	_ = rows.Close()
 	if ok {
+		if orgID == "" {
+			orgID = defaultOrgID
+		}
+		c.Locals("org_id", orgID)
 		return c.Next()
 	}
 	return fiber.NewError(fiber.StatusUnauthorized, "invalid bearer token")
 }
 
 func (s *Server) createToken(name string) (TokenResponse, error) {
+	return s.createTokenInOrg(defaultOrgID, name)
+}
+
+func (s *Server) createTokenInOrg(orgID, name string) (TokenResponse, error) {
+	orgID, err := validateOrgID(orgID)
+	if err != nil {
+		return TokenResponse{}, err
+	}
+	if _, err := s.getOrganization(orgID); err != nil {
+		return TokenResponse{}, err
+	}
 	if strings.TrimSpace(name) == "" {
 		name = "token"
 	}
@@ -163,7 +212,7 @@ func (s *Server) createToken(name string) (TokenResponse, error) {
 	if err != nil {
 		return TokenResponse{}, err
 	}
-	result, err := s.db.Exec(`insert into cli_tokens(name, token_hash) values(?, ?)`, name, sha256Hex([]byte(token)))
+	result, err := s.db.Exec(`insert into cli_tokens(org_id, name, token_hash) values(?, ?, ?)`, orgID, name, sha256Hex([]byte(token)))
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -171,7 +220,25 @@ func (s *Server) createToken(name string) (TokenResponse, error) {
 	if err != nil {
 		return TokenResponse{}, err
 	}
-	return TokenResponse{ID: id, Name: name, Token: token, CreatedAt: time.Now().UTC()}, nil
+	return TokenResponse{ID: id, OrgID: orgID, Name: name, Token: token, CreatedAt: time.Now().UTC()}, nil
+}
+
+func currentOrgID(c *fiber.Ctx) string {
+	if orgID, ok := c.Locals("org_id").(string); ok && orgID != "" {
+		return orgID
+	}
+	return defaultOrgID
+}
+
+func currentUserID(c *fiber.Ctx) int64 {
+	switch value := c.Locals("user_id").(type) {
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	default:
+		return 0
+	}
 }
 
 func randomToken() (string, error) {

@@ -1,0 +1,58 @@
+name: Server
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/webui/package-lock.json
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -count=1 ./...
+
+      - name: Install WebUI dependencies
+        working-directory: server/webui
+        run: npm ci
+
+      - name: Check WebUI
+        working-directory: server/webui
+        run: npm run check
+
+      - name: Build WebUI
+        working-directory: server/webui
+        run: npm run build
+
+      - name: Admin runtime drill
+        working-directory: ${{ github.workspace }}
+        run: scripts/test_admin_runtime.sh
+
+      - name: Install operations drill dependencies
+        run: sudo apt-get update && sudo apt-get install -y sqlite3 rsync
+
+      - name: Backup and restore drill
+        working-directory: ${{ github.workspace }}
+        run: scripts/test_backup_restore.sh

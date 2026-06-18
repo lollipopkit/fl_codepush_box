@@ -16,6 +16,7 @@ FCB="${FCB_BIN:-fcb}"
 SERVER="${SERVER_BIN:-fcb_server}"
 SERVER_PID=""
 FCB_CLI_TOKEN=""
+COOKIE_JAR="$WORKDIR/cookies.txt"
 
 if [[ "$FCB" == */* ]]; then
     FCB=$(cd "$(dirname "$FCB")" && pwd)/$(basename "$FCB")
@@ -190,6 +191,15 @@ SETUP_RESULT=$(curl -s -X POST "http://$SERVER_ADDR/api/auth/setup" \
     -d '{"username":"admin","password":"e2e-password","token_name":"e2e"}')
 FCB_CLI_TOKEN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"$SETUP_RESULT")
 export FCB_CLI_TOKEN
+LOGIN_STATUS=$(curl -s -o "$WORKDIR/login.json" -w '%{http_code}' -c "$COOKIE_JAR" \
+    -X POST "http://$SERVER_ADDR/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d '{"username":"admin","password":"e2e-password"}')
+if [ "$LOGIN_STATUS" != "200" ]; then
+    echo "FAIL: admin login returned HTTP $LOGIN_STATUS"
+    cat "$WORKDIR/login.json"
+    exit 1
+fi
 
 echo "=== Init ==="
 cd "$WORKDIR"
@@ -252,6 +262,33 @@ grep -q '"interpret"' .fcb/patches/1.0.0+1/1/ios/arm64/patch_report.json || {
     echo "FAIL: iOS patch_report missing linker interpret list"
     exit 1
 }
+python3 - <<'PY'
+from pathlib import Path
+payload = Path(".fcb/patches/1.0.0+1/1/ios/arm64/payload.bin")
+if payload.read_bytes()[:4] != b"FCBM":
+    raise SystemExit("FAIL: iOS bytecode payload is not binary FCBM")
+PY
+
+echo "=== Promote iOS bytecode ==="
+"$FCB" --server "http://$SERVER_ADDR" promote --release-version 1.0.0+1 --patch-number 1 --platform ios --arch arm64 --rollout-percentage 100
+
+echo "=== Check --install iOS bytecode ==="
+"$FCB" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --platform ios --arch arm64 --current-patch-number 0 --client-id e2e-ios-bytecode --install --cache-dir .fcb/cache-ios-bytecode
+test -f .fcb/cache-ios-bytecode/patches/1/payload.bin || { echo "FAIL: iOS bytecode payload not installed"; exit 1; }
+python3 - <<'PY'
+import json
+from pathlib import Path
+cache = Path(".fcb/cache-ios-bytecode")
+payload = cache / "patches/1/payload.bin"
+if payload.read_bytes()[:4] != b"FCBM":
+    raise SystemExit("FAIL: installed iOS bytecode payload is not binary FCBM")
+state = json.loads((cache / "state.json").read_text())
+installed = state["installed"][0]
+if installed["backend"] != "bytecode":
+    raise SystemExit("FAIL: installed iOS patch backend is not bytecode")
+if installed.get("artifact_path") is not None:
+    raise SystemExit("FAIL: bytecode install should not materialize artifact_path")
+PY
 
 echo "=== Promote ==="
 "$FCB" --server "http://$SERVER_ADDR" promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 100
@@ -363,5 +400,45 @@ echo "$SECOND_CHECK" | grep -q "$SECOND_APP_ID" || { echo "FAIL: second app chec
 FIRST_CHECK=$("$FCB" --app "$APP_ID" --server "http://$SERVER_ADDR" check --release-version 1.0.0+1 --current-patch-number 0 --client-id e2e-test)
 echo "$FIRST_CHECK"
 echo "$FIRST_CHECK" | grep -q "$APP_ID" || { echo "FAIL: first app check did not stay isolated"; exit 1; }
+
+echo "=== Org-scoped CLI check ==="
+curl -fsS -b "$COOKIE_JAR" -X POST "http://$SERVER_ADDR/api/admin/orgs" \
+    -H 'Content-Type: application/json' \
+    -d '{"id":"acme","name":"Acme"}' >/dev/null
+ACME_TOKEN_RESULT=$(curl -fsS -b "$COOKIE_JAR" -X POST "http://$SERVER_ADDR/api/admin/orgs/acme/cli-tokens" \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"acme-e2e"}')
+ACME_TOKEN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"$ACME_TOKEN_RESULT")
+ACME_DIR="$WORKDIR/acme_cli"
+mkdir -p "$ACME_DIR"
+cd "$ACME_DIR"
+ACME_INIT_OUTPUT=$(FCB_CLI_TOKEN="$ACME_TOKEN" "$FCB" --server "http://$SERVER_ADDR" init --name SharedOrgApp)
+echo "$ACME_INIT_OUTPUT"
+ACME_APP_ID=$(printf '%s\n' "$ACME_INIT_OUTPUT" | awk -F= '$1 == "APP_ID" { print $2; exit }')
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 30;
+}
+
+void main() {
+  mainValue();
+}
+DART
+FCB_CLI_TOKEN="$ACME_TOKEN" "$FCB" --server "http://$SERVER_ADDR" release android --release-version 2.0.0+1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
+cat >"$PROJECT_DIR/lib/main.dart" <<'DART'
+int mainValue() {
+  return 31;
+}
+
+void main() {
+  mainValue();
+}
+DART
+FCB_CLI_TOKEN="$ACME_TOKEN" "$FCB" --server "http://$SERVER_ADDR" patch android --release-version 2.0.0+1 --patch-number 1 --project "$PROJECT_DIR" --flutter "$FAKE_FLUTTER"
+FCB_CLI_TOKEN="$ACME_TOKEN" "$FCB" --server "http://$SERVER_ADDR" promote --release-version 2.0.0+1 --patch-number 1 --rollout-percentage 100
+ACME_CHECK=$(FCB_CLI_TOKEN="$ACME_TOKEN" "$FCB" --server "http://$SERVER_ADDR" check --release-version 2.0.0+1 --current-patch-number 0 --client-id acme-e2e)
+echo "$ACME_CHECK"
+echo "$ACME_CHECK" | grep -q '"patch_available": true' || { echo "FAIL: org-scoped CLI check did not find acme patch"; exit 1; }
+echo "$ACME_CHECK" | grep -q "$ACME_APP_ID" || { echo "FAIL: org-scoped CLI check did not return acme app"; exit 1; }
 
 echo "=== All e2e tests passed ==="

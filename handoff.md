@@ -1,29 +1,58 @@
 **目标**
-`PLAN-now.md` 的自动推导 Patch 计划已按当前仓库状态落地；本轮补上 E：bytecode pipeline 不跑 platform-specific `flutter build ios/apk`，改跑 `flutter build bundle` 生成真实 `app.dill` 供 Kernel inventory/linker 使用。
+继续完成 `plans/phase_e_dart_vm.md`。生产 bytecode install 路径已修复；已完成 Future 的 async 子集继续扩展到语句级 if-return，以及 await-local 后接 if-return 且分支内 immediate await。Phase E 仍未完成，剩余重点是 Dart `_Closure` 暴露、真正挂起的 `await` continuation、VM unwinder 级 stack unwinding。
 
 **硬约束**
-- 不要 stage/commit 未跟踪的 `vendor/depot_tools/`、`vendor/flutter/`、`vendor/sdk/`。
-- `PLAN-now.md` 是目标来源但当前未跟踪，未修改。
-- 输出中文；单源码文件当前均低于 1500 行。
+- 单一真源：Dart VM / engine 逻辑只放在 `vendor/flutter/engine/src/flutter/third_party/dart`。
+- 不要恢复 `engine_patch/`、`dart_sdk_patch/`、`scripts/sync_dart_vm_patch.sh`。
+- 顶层 `vendor/sdk/` 暂不删除，除非用户明确允许。
+- 工作树很脏且可能有并行 agent；不要 revert 无关改动，不要整理暂存区。
+- 单源码文件最多 1500 行；`fcb_patch_runtime.cc` 1486 行，不要继续膨胀主解释器文件；`updater/src/tests.rs` 1509 行是既有超限，本轮未改。
 
 **已完成**
-- `cli/src/auto.rs`：`run_flutter_build(platform, arch, backend, build)` 按 backend 分流；`bytecode` 走 `flutter build bundle --target-platform ...`，`snapshot_replace` 继续只支持 Android `flutter build apk`。
-- `cli/src/auto.rs`：bytecode build-output hash 改为 bundle 产物语义：assets 取 `build/flutter_assets/AssetManifest.bin.json|bin|json`，native 固定 `missing`，plugins 取项目根 `.flutter-plugins-dependencies`。
-- `crates/fcb_core/src/build_info.rs`：`BUILD_INFO_SCHEMA_VERSION` bump 到 3，避免旧 release cache 与 bundle hash 语义混用。
-- `cli/src/main.rs`：release/patch 都统一调用 backend-aware build，不再用 `requires_platform_build`。
-- `tool/fcb_kernel_manifest.dart`：project root 使用 resolved symlink path，修复 macOS `/tmp -> /private/tmp` 导致 file URI 前缀匹配失败、inventory 为空的问题。
-- `tests/e2e/test_e2e.sh`：fake Flutter 增加 `bundle` 分支，真实 `dart compile kernel --no-link-platform` 编译 `lib/main.dart` 到 `.dart_tool/flutter_build/<hash>/app.dill`；fixture 增加 `main()`，确保 `mainValue` 进入 Kernel inventory。
+- Rust bytecode schema/reader 已下沉到 `crates/fcb_core/src/bytecode.rs`；`crates/fcb_bytecode/src/format.rs` 重导出 `fcb_core::bytecode::*`。
+- `crates/fcb_core/src/state.rs` 的 bytecode install contract 已改为 envelope-only：支持 binary FCBM + JSON，只做最小结构校验，未知 opcode 留给 VM fallback。
+- `crates/fcb_core/src/state_tests.rs` 新增 binary FCBM install 测试，覆盖 `GetField 0x43` + `CallStatic 0x50`；新增 unknown opcode payload 安装成功测试。
+- `tests/e2e/test_e2e.sh` 新增 iOS bytecode `promote` + updater `check --install --platform ios --arch arm64` 分支，真实 FCBM 经 updater install 落盘且没有 `artifact_path`。
+- `tool/fcb_kernel_closure_audit.dart` 避免 fallback Kernel 下访问未绑定 `interfaceTarget`；`cli/src/auto.rs` 与 `tool/fcb_kernel_manifest.dart` 用 `FCB_KERNEL_TOOL_DIR` 固定 snapshot helper 目录。
+- `_Closure` 边界本轮只做安全修复：`Value::List` / `Value::Map` 遇到内部 bytecode closure 不再递归 materialize 成含 `null` 的 Dart 容器；VM helper 参数转换走 `TryMaterializeDartObject`，遇到 `ValueKind::kBytecodeClosure` 显式失败并 fallback。
+- `vendor/.../runtime/vm/fcb_patch_entry.cc` 已把 return conversion failure 纳入 bad patch fallback：解释器返回内部 bytecode closure 等无法转换回 Dart 的值时，disable patch、上报 interpret failure、记录 AOT call，并返回 false 给原 AOT/JIT，而不是向调用者返回 `ApiError`。
+- `vendor/.../runtime/vm/fcb_patch_runtime_bytecode_closure_test.cc` 新增 `FcbPatchEntryFallsBackOnEscapingBytecodeClosure`，覆盖 escaping bytecode closure 返回 Dart 边界时 patch 进入 `kDisabledBadPatch`。
+- `tool/fcb_kernel_async_expr.dart` 已支持 async 语句级 if-return 内部的 immediate await string interpolation：`if (enabled) return 'patched ${await Future.value('awaited')}'; return ...;` 会降级为 `JumpIfFalse 0x31` + `StringConcat 0x42` + `_Future.value<T>`，仍不支持真正挂起的 await continuation。
+- `tests/e2e/test_kernel_compile_from_plan.sh` 用现有 `awaitedLabel(bool enabled)` 覆盖该形态。
+- `tool/fcb_kernel_async_expr.dart` 的 await-local tail 现在走 async-aware tail helper；`awaitedLocalLabel()` 覆盖 `try { final prefix = await Future.value(...); if (...) return '$prefix ${await Future.value(...)}'; return ...; } catch (e) { ... }`，生成 `TryBegin 0x61`、`StoreLocal 0x04`、`JumpIfFalse 0x31`、`StringConcat 0x42` 与 `_Future.value<String>`。
+- `scripts/test_vendor_vm_runtime.sh` standalone 编译源列表已加入 `fcb_patch_runtime_value.cc`，避免拆分 `Value` 实现后链接缺符号。
+- `plans/phase_e_dart_vm.md` 已记录 bytecode install 三处分叉修复、bytecode closure materialization guard、return conversion fallback、语句级 if-return immediate await 与 await-local tail if-return；仍明确 Dart `_Closure` 暴露和真正挂起 await 未完成。
 
 **已验证**
-- `bash -n tests/e2e/test_e2e.sh`: pass。
-- `cargo fmt --check`: pass。
-- `cargo test`: pass，46 个测试通过。
-- `FCB_BIN=target/debug/fcb SERVER_BIN=./fcb_server tests/e2e/test_e2e.sh`: pass，包含 Android snapshot diff、iOS bytecode `bytecode_module` patch、promote/check/install/rollback、多 app isolation。
+- `cargo test -p fcb_core`：通过。
+- `cargo test --workspace`：通过。
+- `cd server && go test ./...`：通过；仓库根 `go test ./...` 失败是预期，根目录不是 Go module。
+- `cargo build -p fcb` 与 `cd server && go build -o ../target/debug/fcb_server .`：通过。
+- `FCB_BIN=target/debug/fcb SERVER_BIN=target/debug/fcb_server tests/e2e/test_e2e.sh`：通过，含新增 iOS bytecode updater install 分支。
+- `scripts/test_vendor_vm_runtime.sh`：通过，生成 `target/fcb/vendor-vm-test/summary.txt`。
+- `VPYTHON_VIRTUALENV_ROOT=/private/tmp/fcb-vpython-root PATH="$PWD/vendor/depot_tools:$PATH" ninja -C vendor/flutter/engine/src/out/host_release_arm64 run_vm_tests`：通过，目标已最新。
+- `vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests FcbPatchRuntimeRejectsBytecodeClosureDartMaterialization`：通过。
+- `vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests FcbPatchEntryFallsBackOnEscapingBytecodeClosure`：通过。
+- `vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests FcbPatchRuntimeCallClosureNamed`：通过。
+- `vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests FcbPatchRuntimeTryCatchesCallClosureException`：通过。
+- `vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests FcbPatchRuntimeReturningBytecodeClosureCapturesContext`：通过。
+- `DART_BIN=vendor/flutter/bin/dart tests/e2e/test_kernel_compile_from_plan.sh`：通过，输出 `kernel compile-from-plan drill passed` 与 `kernel binary compile-from-plan drill passed`。
+- `vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests FcbPatchRuntimeNewObjectFutureValue`：通过。
+- `git diff --check` 针对本轮相关文件：通过。
 
 **当前状态**
-- 待提交相关修改：`cli/src/auto.rs`、`cli/src/main.rs`、`crates/fcb_core/src/build_info.rs`、`tests/e2e/test_e2e.sh`、`tool/fcb_kernel_manifest.dart`、`handoff.md`。
-- 未跟踪且不要碰：`PLAN-now.md`、`vendor/depot_tools/`、`vendor/flutter/`、`vendor/sdk/`。
+- `fcb_bytecode` crate 仍存在以兼容现有 imports，但不再拥有 schema/opcode 实现。
+- VM loader 侧仍有 C++ schema/loader，这是 runtime 权威；Rust 侧已消除 CLI/updater schema drift 和 install gate 断裂。
+- `_Closure` 仍不能作为真实 Dart `_Closure` 暴露；当前只是避免错误地把 bytecode closure 当作 `null` 传入 Dart helper，或作为无法转换的返回值泄漏成 `ApiError`。
+- async/await 仍不支持真正挂起 continuation；当前只覆盖 `_Future.value<T>` 可证明已完成的同步降级子集。
+- 重要行数：`fcb_patch_runtime.cc` 1486，`fcb_patch_entry.cc` 835，`fcb_patch_runtime_vm.cc` 1286，`fcb_patch_runtime_value.cc` 109，`fcb_patch_runtime_bytecode_closure_test.cc` 622，`fcb_patch_runtime_call_closure_test.cc` 350，`tool/fcb_kernel_async_expr.dart` 339，`tests/e2e/test_kernel_compile_from_plan.sh` 1497，`crates/fcb_core/src/bytecode.rs` 952，`tests/e2e/test_e2e.sh` 444。
 
-**后续建议**
-1. 如需文档化 bytecode plugin 边界，可在正式计划/README 中补一句：bytecode patch 信任 `pubspec.lock` 与 `.flutter-plugins-dependencies` 作为 plugin 边界，不做平台 framework/native artifact hash。
-2. `_resolveDill` 仍按最新 `.dart_tool/flutter_build/**/app.dill` 选择，已有 warning；后续可加 build config key 精确匹配。
+**下一步**
+1. 设计并实现真正 Dart `_Closure` 暴露：需要 VM trampoline、Function/Closure/Context 协议、GC root 和 fallback 语义，不能用普通 Object/Map/null 伪装。
+2. 推进真正挂起的 `await` continuation / `_FutureImpl` state-machine 恢复；当前只覆盖无 `await` async return、immediate `await Future.value(...)`、immediate await string interpolation、语句级 if-return immediate await、await-local 和 await-local tail if-return。
+3. 推进 VM unwinder 级 Dart stack unwinding；当前仅有 `StackTrace::ToCString()` 文本层 `<fcb patch>` 多帧追加。
+
+**完整计划仍缺**
+- Dart `_Closure` 暴露。
+- async/await continuation。
+- VM unwinder 级 Dart stack unwinding。

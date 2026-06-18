@@ -48,6 +48,15 @@ int _phaseDStaticCounterValue() =>
 String _phaseDStatusLabel() => direct_source.statusLabel();
 
 @pragma('vm:never-inline')
+String _phaseDWidgetTreeLabel() => direct_source.widgetTreeLabel();
+
+@pragma('vm:never-inline')
+String _phaseDFieldStatusLabel(direct_source.PricingOffer offer) =>
+    direct_source.fieldStatusLabel(
+      offer,
+    );
+
+@pragma('vm:never-inline')
 int _phaseDQuadInput(int value) {
   if (DateTime.now().microsecondsSinceEpoch == -1) {
     return value + 1;
@@ -72,15 +81,26 @@ class CounterApp extends StatefulWidget {
 
 class _CounterAppState extends State<CounterApp> {
   final _codePush = FcbCodePush.instance;
+  final _pricingOffer = direct_source.PricingOffer(
+    baseLabel: 'base-field',
+    patchLabel: 'patched-field',
+  );
   bool _busy = true;
   bool _configured = false;
   int? _currentPatch;
+  int? _lastKnownGoodPatch;
+  List<CrashRollbackEvent> _rollbackHistory = const [];
+  InterpreterStats? _interpreterStats;
   int _counter = 1;
   int _adjustedCounter = 8;
   int _staticMethodValue = 7;
   String _statusLabel = 'base';
+  String _widgetTreeLabel = 'baseline widget tree';
+  String _fieldStatusLabel = 'base-field';
   int _quadCounter = 10;
   bool _ready = false;
+  bool _methodChannelReady = false;
+  String _methodChannelCacheDir = 'unavailable';
   UpdateCheckResult? _check;
   DownloadResult? _download;
   String? _error;
@@ -106,16 +126,21 @@ class _CounterAppState extends State<CounterApp> {
           baselineArtifactPath:
               _baselineArtifactPath.isEmpty ? null : _baselineArtifactPath,
         );
+        debugPrint('FCB configured result: $_configured');
       }
       _counter = direct_source.initialCounterValue();
       _adjustedCounter = _phaseDAdjustedCounterValue();
       _staticMethodValue = _phaseDStaticCounterValue();
       _statusLabel = _phaseDStatusLabel();
+      _widgetTreeLabel = _phaseDWidgetTreeLabel();
+      _fieldStatusLabel = _phaseDFieldStatusLabel(_pricingOffer);
       _quadCounter = _phaseDQuadCounterValue();
       debugPrint('FCB initialCounterValue result: $_counter');
       debugPrint('FCB adjustedCounterValue result: $_adjustedCounter');
       debugPrint('FCB staticCounterValue result: $_staticMethodValue');
       debugPrint('FCB statusLabel result: $_statusLabel');
+      debugPrint('FCB widgetTreeLabel result: $_widgetTreeLabel');
+      debugPrint('FCB fieldStatusLabel result: $_fieldStatusLabel');
       debugPrint('FCB quadCounterValue result: $_quadCounter');
       await _refreshState();
       if (_configured && _autoInstallOnStartup) {
@@ -130,7 +155,26 @@ class _CounterAppState extends State<CounterApp> {
 
   Future<void> _refreshState() async {
     _currentPatch = await _codePush.currentPatchNumber();
+    _lastKnownGoodPatch = await _codePush.lastKnownGoodPatchNumber();
+    _rollbackHistory = await _codePush.crashRollbackHistory();
+    _interpreterStats = await _codePush.interpreterStats();
     _ready = await _codePush.isNewPatchReadyToInstall();
+    final platformPaths = await _codePush.platformPaths();
+    _methodChannelCacheDir = platformPaths['cacheDir'] ?? 'unavailable';
+    _methodChannelReady = _methodChannelCacheDir != 'unavailable';
+    debugPrint(
+      'FCB plugin method channel cacheDir result: $_methodChannelCacheDir',
+    );
+    debugPrint('FCB currentPatchNumber result: ${_currentPatch ?? 0}');
+    debugPrint('FCB readyToInstall result: $_ready');
+    if (_interpreterStats != null) {
+      debugPrint(
+        'FCB interpreterStats result: '
+        '${_interpreterStats!.interpretedFunctionCalls}/'
+        '${_interpreterStats!.aotFunctionCalls}/'
+        '${_interpreterStats!.interpreterRatio.toStringAsFixed(6)}',
+      );
+    }
   }
 
   Future<void> _checkForUpdate() async {
@@ -178,6 +222,7 @@ class _CounterAppState extends State<CounterApp> {
         setState(() {
           _busy = false;
         });
+        debugPrint('FCB setState applied widget state');
       }
     }
   }
@@ -198,12 +243,39 @@ class _CounterAppState extends State<CounterApp> {
                 style: Theme.of(context).textTheme.titleMedium),
             Text('Status: $_statusLabel',
                 style: Theme.of(context).textTheme.titleMedium),
+            Text('Widget tree: $_widgetTreeLabel',
+                style: Theme.of(context).textTheme.titleMedium),
+            Text('Field status: $_fieldStatusLabel',
+                style: Theme.of(context).textTheme.titleMedium),
             Text('Quad: $_quadCounter',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
             _StatusTile(label: 'Configured', value: _configured ? 'yes' : 'no'),
+            _StatusTile(
+              label: 'Method channel',
+              value: _methodChannelReady ? _methodChannelCacheDir : 'no',
+            ),
             _StatusTile(label: 'Current patch', value: '${_currentPatch ?? 0}'),
+            _StatusTile(
+                label: 'Last known good', value: '${_lastKnownGoodPatch ?? 0}'),
             _StatusTile(label: 'Ready to apply', value: _ready ? 'yes' : 'no'),
+            if (_interpreterStats != null)
+              _StatusTile(
+                label: 'Interpreter',
+                value:
+                    '${_interpreterStats!.interpretedFunctionCalls}/${_interpreterStats!.aotFunctionCalls} '
+                    '(${(_interpreterStats!.interpreterRatio * 100).toStringAsFixed(2)}%)',
+              ),
+            if (_rollbackHistory.isNotEmpty)
+              _StatusTile(
+                label: 'Rollback history',
+                value: _rollbackHistory
+                    .take(5)
+                    .map((event) =>
+                        'p${event.patchNumber} attempts=${event.bootAttempts} '
+                        'lkg=${event.lastKnownGoodPatchNumber ?? 0}')
+                    .join('; '),
+              ),
             if (_check != null)
               _StatusTile(
                 label: 'Update',

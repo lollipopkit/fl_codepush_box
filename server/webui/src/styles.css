@@ -811,6 +811,85 @@ header.content-header p.app-id-display {
   box-shadow: none;
 }
 
+.patch-stats-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.patch-stats-totals {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.patch-stats-chart {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
+  gap: 6px;
+  min-height: 72px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+}
+.patch-stats-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.patch-stats-bars {
+  height: 42px;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+}
+.patch-stats-bars .bar {
+  width: 6px;
+  min-height: 4px;
+  border-radius: 4px 4px 0 0;
+}
+.patch-stats-bars .install {
+  background: var(--color-primary);
+}
+.patch-stats-bars .success {
+  background: var(--color-success);
+}
+.patch-stats-bars .failure {
+  background: var(--color-error);
+}
+.patch-stats-day small {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top-failures-list {
+  display: grid;
+  gap: 4px;
+}
+.top-failures-list div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.top-failures-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top-failures-list strong {
+  color: var(--color-error);
+}
+
 .promote-box {
   display: flex;
   flex-direction: column;

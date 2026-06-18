@@ -6,8 +6,23 @@
     abi: string[];
   };
 
+  type Organization = {
+    id: string;
+    name: string;
+    created_at?: string;
+  };
+
+  type OrgMember = {
+    org_id: string;
+    user_id: number;
+    username: string;
+    role: string;
+    created_at?: string;
+  };
+
   type AppConfig = {
     id: string;
+    org_id?: string;
     name: string;
     channel: string;
     public_key: string;
@@ -41,18 +56,34 @@
 
   type Token = {
     id: number;
+    org_id?: string;
     name: string;
     token?: string;
     created_at: string;
   };
 
+  type PatchStatsDay = {
+    date: string;
+    counts: Record<string, number>;
+  };
+
+  type PatchStats = {
+    totals: Record<string, number>;
+    last_7_days: PatchStatsDay[];
+    top_failures: { reason: string; count: number }[];
+  };
+
   let setupRequired = true;
   let authenticated = false;
   let username = '';
+  let orgs: Organization[] = [];
+  let selectedOrgId = '';
+  let members: OrgMember[] = [];
   let apps: AppConfig[] = [];
   let selectedAppId = '';
   let releases: ReleaseManifest[] = [];
   let patches: PatchManifest[] = [];
+  let patchStats: Record<string, PatchStats> = {};
   let tokens: Token[] = [];
   let error = '';
   let setupToken = '';
@@ -61,9 +92,13 @@
   let setupPassword = '';
   let loginUsername = 'admin';
   let loginPassword = '';
+  let newOrgId = '';
+  let newOrgName = '';
   let newAppName = '';
   let newAppId = crypto.randomUUID();
   let tokenName = 'local-cli';
+  let memberUsername = '';
+  let memberRole = 'member';
 
   // State for config editor
   let showConfig = false;
@@ -83,6 +118,10 @@
 
   // Dictionary for custom rollout percentages of patches
   let promotePercentages: Record<string, number> = {};
+
+  function patchKey(patch: PatchManifest) {
+    return `${patch.release_version}-${patch.patch_number}-${patch.platform}-${patch.arch}`;
+  }
 
   // Toast notification
   let successToast = '';
@@ -118,8 +157,7 @@
         const me = await request<{ authenticated: boolean; username: string }>('/api/auth/me');
         authenticated = me.authenticated;
         username = me.username;
-        await loadApps();
-        await loadTokens();
+        await loadOrgs();
       } catch {
         authenticated = false;
       }
@@ -162,11 +200,97 @@
   async function logout() {
     await request('/api/auth/logout', { method: 'POST', body: '{}' });
     authenticated = false;
+    orgs = [];
+    selectedOrgId = '';
+    members = [];
+    apps = [];
+    selectedAppId = '';
     showToast("Signed out successfully");
   }
 
+  function orgBase() {
+    return `/api/admin/orgs/${encodeURIComponent(selectedOrgId)}`;
+  }
+
+  async function loadOrgs() {
+    orgs = (await request<Organization[] | null>('/api/admin/orgs')) ?? [];
+    if (!selectedOrgId && orgs.length > 0) {
+      selectedOrgId = orgs[0].id;
+    }
+    if (selectedOrgId && !orgs.some((org) => org.id === selectedOrgId)) {
+      selectedOrgId = orgs[0]?.id ?? '';
+    }
+    await loadOrgScoped();
+  }
+
+  async function loadOrgScoped() {
+    selectedAppId = '';
+    releases = [];
+    patches = [];
+    patchStats = {};
+    if (!selectedOrgId) {
+      members = [];
+      apps = [];
+      tokens = [];
+      return;
+    }
+    await Promise.all([loadMembers(), loadApps(), loadTokens()]);
+  }
+
+  async function createOrg() {
+    await run(async () => {
+      const id = newOrgId.trim();
+      if (!id) throw new Error('missing org id');
+      await request('/api/admin/orgs', {
+        method: 'POST',
+        body: JSON.stringify({ id, name: newOrgName || id })
+      });
+      selectedOrgId = id;
+      newOrgId = '';
+      newOrgName = '';
+      showToast(`Org "${id}" created`);
+      await loadOrgs();
+    });
+  }
+
+  async function loadMembers() {
+    members = (await request<OrgMember[] | null>(`${orgBase()}/members`)) ?? [];
+  }
+
+  async function addMember() {
+    await run(async () => {
+      await request(`${orgBase()}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ username: memberUsername, role: memberRole })
+      });
+      showToast(`Member "${memberUsername}" added`);
+      memberUsername = '';
+      memberRole = 'member';
+      await loadMembers();
+    });
+  }
+
+  async function updateMemberRole(member: OrgMember, role: string) {
+    await run(async () => {
+      await request(`${orgBase()}/members/${member.user_id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ role })
+      });
+      showToast(`Member "${member.username || member.user_id}" role updated`);
+      await loadMembers();
+    });
+  }
+
+  async function removeMember(member: OrgMember) {
+    await run(async () => {
+      await request(`${orgBase()}/members/${member.user_id}`, { method: 'DELETE' });
+      showToast(`Member "${member.username || member.user_id}" removed`);
+      await loadMembers();
+    });
+  }
+
   async function loadApps() {
-    apps = (await request<AppConfig[] | null>('/api/admin/apps')) ?? [];
+    apps = (await request<AppConfig[] | null>(`${orgBase()}/apps`)) ?? [];
     if (!selectedAppId && apps.length > 0) {
       selectedAppId = apps[0].id;
     }
@@ -184,13 +308,27 @@
     hydrateConfigForm(app);
 
     releases =
-      (await request<ReleaseManifest[] | null>(`/api/admin/apps/${encodeURIComponent(selectedAppId)}/releases`)) ?? [];
+      (await request<ReleaseManifest[] | null>(`${orgBase()}/apps/${encodeURIComponent(selectedAppId)}/releases`)) ?? [];
     patches =
-      (await request<PatchManifest[] | null>(`/api/admin/apps/${encodeURIComponent(selectedAppId)}/patches`)) ?? [];
+      (await request<PatchManifest[] | null>(`${orgBase()}/apps/${encodeURIComponent(selectedAppId)}/patches`)) ?? [];
+    patchStats = {};
+    await Promise.all(
+      patches.map(async (patch) => {
+        const key = patchKey(patch);
+        const query = new URLSearchParams({
+          release_version: patch.release_version,
+          platform: patch.platform,
+          arch: patch.arch
+        });
+        patchStats[key] = await request<PatchStats>(
+          `${orgBase()}/apps/${encodeURIComponent(selectedAppId)}/patches/${patch.patch_number}/stats?${query}`
+        );
+      })
+    );
 
     // Initialize custom rollout percentage for each loaded patch
     patches.forEach(patch => {
-      const key = `${patch.release_version}-${patch.patch_number}-${patch.platform}-${patch.arch}`;
+      const key = patchKey(patch);
       if (promotePercentages[key] === undefined) {
         promotePercentages[key] = patch.active ? (patch.active_rollout_percentage ?? 100) : 100;
       }
@@ -199,12 +337,12 @@
   }
 
   async function loadTokens() {
-    tokens = (await request<Token[] | null>('/api/admin/tokens')) ?? [];
+    tokens = (await request<Token[] | null>(`${orgBase()}/cli-tokens`)) ?? [];
   }
 
   async function createApp() {
     await run(async () => {
-      await request('/api/admin/apps', {
+      await request(`${orgBase()}/apps`, {
         method: 'POST',
         body: JSON.stringify({
           id: newAppId,
@@ -226,7 +364,7 @@
       const app = apps.find(a => a.id === selectedAppId);
       const name = appNameInput || app?.name || selectedAppId;
 
-      await request(`/api/admin/apps/${encodeURIComponent(selectedAppId)}`, {
+      await request(`${orgBase()}/apps/${encodeURIComponent(selectedAppId)}`, {
         method: 'PUT',
         body: JSON.stringify({
           id: selectedAppId,
@@ -245,7 +383,7 @@
 
   async function deleteApp() {
     await run(async () => {
-      await request(`/api/admin/apps/${encodeURIComponent(selectedAppId)}`, {
+      await request(`${orgBase()}/apps/${encodeURIComponent(selectedAppId)}`, {
         method: 'DELETE'
       });
       const deletedId = selectedAppId;
@@ -258,7 +396,7 @@
 
   async function promote(patch: PatchManifest, rollout: number) {
     await run(async () => {
-      await request('/api/admin/patches/promote', {
+      await request(`${orgBase()}/patches/promote`, {
         method: 'POST',
         body: JSON.stringify({
           app_id: patch.app_id,
@@ -277,7 +415,7 @@
 
   async function rollback(patch: PatchManifest) {
     await run(async () => {
-      await request('/api/admin/patches/rollback', {
+      await request(`${orgBase()}/patches/rollback`, {
         method: 'POST',
         body: JSON.stringify({
           app_id: patch.app_id,
@@ -294,7 +432,7 @@
 
   async function createToken() {
     await run(async () => {
-      const token = await request<Token>('/api/admin/tokens', {
+      const token = await request<Token>(`${orgBase()}/cli-tokens`, {
         method: 'POST',
         body: JSON.stringify({ name: tokenName })
       });
@@ -306,7 +444,7 @@
 
   async function revokeToken(id: number, name: string) {
     await run(async () => {
-      await request(`/api/admin/tokens/${id}`, { method: 'DELETE' });
+      await request(`${orgBase()}/cli-tokens/${id}`, { method: 'DELETE' });
       showToast(`CLI Token "${name}" revoked`);
       await loadTokens();
     });
@@ -372,6 +510,38 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
+  function statsFailureTotal(stats: PatchStats): number {
+    return (stats.totals.launch_failure ?? 0) + (stats.totals.crash_rollback ?? 0);
+  }
+
+  function dayMetric(day: PatchStatsDay, metric: 'install' | 'launch_success' | 'failure'): number {
+    if (metric === 'failure') {
+      return (day.counts.launch_failure ?? 0) + (day.counts.crash_rollback ?? 0);
+    }
+    return day.counts[metric] ?? 0;
+  }
+
+  function maxDailyMetric(stats: PatchStats): number {
+    return Math.max(
+      1,
+      ...stats.last_7_days.flatMap((day) => [
+        dayMetric(day, 'install'),
+        dayMetric(day, 'launch_success'),
+        dayMetric(day, 'failure')
+      ])
+    );
+  }
+
+  function chartHeight(stats: PatchStats, day: PatchStatsDay, metric: 'install' | 'launch_success' | 'failure'): number {
+    return Math.max(4, Math.round((dayMetric(day, metric) / maxDailyMetric(stats)) * 100));
+  }
+
+  function shortDate(value: string): string {
+    const parts = value.split('-');
+    if (parts.length === 3) return `${parts[1]}/${parts[2]}`;
+    return value;
+  }
+
   refreshAuth();
 </script>
 
@@ -435,6 +605,26 @@
           <span class="user-name">{username}</span>
           <span class="user-role">Administrator</span>
         </div>
+      </div>
+
+      <div class="create-app-card">
+        <h4>
+          <span>Organization</span>
+        </h4>
+        <label>
+          Active Org
+          <select bind:value={selectedOrgId} on:change={loadOrgScoped}>
+            {#each orgs as org}
+              <option value={org.id}>{org.name || org.id}</option>
+            {/each}
+          </select>
+        </label>
+        <input placeholder="Org ID (e.g. acme)" bind:value={newOrgId} />
+        <input placeholder="Org Name" bind:value={newOrgName} />
+        <button on:click={createOrg}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Add Org
+        </button>
       </div>
 
       <div class="create-app-card">
@@ -532,6 +722,15 @@
             <div class="stat-info">
               <span class="stat-label">Active Patches</span>
               <span class="stat-value">{patches.filter(p => p.active).length}</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon primary">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Members</span>
+              <span class="stat-value">{members.length}</span>
             </div>
           </div>
         </section>
@@ -677,7 +876,8 @@
                   <span style="text-align: right;">Actions</span>
                 </div>
                 {#each patches as patch}
-                  {@const patchKey = `${patch.release_version}-${patch.patch_number}-${patch.platform}-${patch.arch}`}
+                  {@const key = patchKey(patch)}
+                  {@const stats = patchStats[key]}
                   <div class="table-row">
                     <div>
                       <span class="badge version" title="Release Version">{patch.release_version}</span>
@@ -715,21 +915,54 @@
                             min="0"
                             max="100"
                             step="5"
-                            bind:value={promotePercentages[patchKey]}
+                            bind:value={promotePercentages[key]}
                           />
-                          <span>{promotePercentages[patchKey] ?? 100}%</span>
+                          <span>{promotePercentages[key] ?? 100}%</span>
                         </div>
                         <div class="promote-presets">
-                          <button on:click={() => { promotePercentages[patchKey] = 10; promote(patch, 10); }}>10%</button>
-                          <button on:click={() => { promotePercentages[patchKey] = 50; promote(patch, 50); }}>50%</button>
-                          <button on:click={() => { promotePercentages[patchKey] = 100; promote(patch, 100); }}>100%</button>
-                          <button class="secondary" on:click={() => promote(patch, promotePercentages[patchKey] ?? 100)}>Set</button>
+                          <button on:click={() => { promotePercentages[key] = 10; promote(patch, 10); }}>10%</button>
+                          <button on:click={() => { promotePercentages[key] = 50; promote(patch, 50); }}>50%</button>
+                          <button on:click={() => { promotePercentages[key] = 100; promote(patch, 100); }}>100%</button>
+                          <button class="secondary" on:click={() => promote(patch, promotePercentages[key] ?? 100)}>Set</button>
                         </div>
                       </div>
                       {#if patch.active}
                         <button class="danger" style="min-height: auto; height: 34px; padding: 0 10px;" on:click={() => rollback(patch)}>
                           Rollback
                         </button>
+                      {/if}
+                      {#if stats}
+                        <div class="patch-stats-panel">
+                          <div class="patch-stats-totals">
+                            <span>install {stats.totals.install ?? 0}</span>
+                            <span>success {stats.totals.launch_success ?? 0}</span>
+                            <span>failure {statsFailureTotal(stats)}</span>
+                          </div>
+                          {#if stats.last_7_days.length > 0}
+                            <div class="patch-stats-chart" aria-label="Last 7 days patch events">
+                              {#each stats.last_7_days as day}
+                                <div class="patch-stats-day" title={`${day.date}: install ${dayMetric(day, 'install')}, success ${dayMetric(day, 'launch_success')}, failure ${dayMetric(day, 'failure')}`}>
+                                  <div class="patch-stats-bars">
+                                    <span class="bar install" style="height: {chartHeight(stats, day, 'install')}%"></span>
+                                    <span class="bar success" style="height: {chartHeight(stats, day, 'launch_success')}%"></span>
+                                    <span class="bar failure" style="height: {chartHeight(stats, day, 'failure')}%"></span>
+                                  </div>
+                                  <small>{shortDate(day.date)}</small>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                          {#if stats.top_failures.length > 0}
+                            <div class="top-failures-list">
+                              {#each stats.top_failures as failure}
+                                <div>
+                                  <span>{failure.reason}</span>
+                                  <strong>{failure.count}</strong>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
                       {/if}
                     </div>
                   </div>
@@ -781,6 +1014,69 @@
                       <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
                         {formatBytes(release.artifact_size)}
                       </div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </article>
+
+          <!-- Org Members Card -->
+          <article class="glass-card full-width">
+            <h2>
+              <span class="title-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="align-self: center;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>
+                Organization Members
+              </span>
+            </h2>
+
+            <div class="token-tools-modern">
+              <label style="flex: 1;">
+                Username
+                <input bind:value={memberUsername} placeholder="teammate" />
+              </label>
+              <label style="width: 160px;">
+                Role
+                <select bind:value={memberRole}>
+                  <option value="member">member</option>
+                  <option value="admin">admin</option>
+                  <option value="owner">owner</option>
+                </select>
+              </label>
+              <button on:click={addMember}>
+                Add Member
+              </button>
+            </div>
+
+            {#if members.length === 0}
+              <p style="color: var(--text-muted); text-align: center; padding: 24px;">No members in this org.</p>
+            {:else}
+              <div class="custom-table tokens-table">
+                <div class="table-row header">
+                  <span>Username</span>
+                  <span>Role</span>
+                  <span>Joined</span>
+                  <span style="text-align: right;">Action</span>
+                </div>
+                {#each members as member}
+                  <div class="table-row">
+                    <div style="font-weight: 600; color: var(--color-accent);">
+                      {member.username || member.user_id}
+                    </div>
+                    <div>
+                      <select value={member.role} on:change={(e) => updateMemberRole(member, e.currentTarget.value)}>
+                        <option value="member">member</option>
+                        <option value="admin">admin</option>
+                        <option value="owner">owner</option>
+                      </select>
+                    </div>
+                    <div style="color: var(--text-secondary);">
+                      {member.created_at ? new Date(member.created_at).toLocaleString() : ''}
+                    </div>
+                    <div class="actions-cell">
+                      <button class="danger secondary" on:click={() => removeMember(member)}>
+                        Remove
+                      </button>
                     </div>
                   </div>
                 {/each}

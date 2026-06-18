@@ -260,6 +260,10 @@ bootstrap_git_dep() {
   revision="$(git_dep_revision "$dep_path")"
 
   if [ -d "$checkout_dir/.git" ]; then
+    if [ "$(git -C "$checkout_dir" rev-parse HEAD 2>/dev/null || true)" = "$revision" ]; then
+      echo "unchanged git dep: $checkout_dir@$revision" >&2
+      return 0
+    fi
     run git -C "$checkout_dir" fetch origin "$revision" --depth 1
     run git -C "$checkout_dir" checkout --detach "$revision"
   elif [ -e "$checkout_dir" ]; then
@@ -365,7 +369,7 @@ bootstrap_cipd_tool() {
   shift
   local package version
   package="$(cipd_dep package "$@")"
-  package="${package//\$\{\{platform\}\}/\$\{platform\}}"
+  package="$(python3 -c 'import sys; print(sys.argv[1].replace("${{platform}}", "${platform}"))' "$package")"
   version="$(cipd_dep version "$@")"
   cipd_ensure_one "$root" "$package" "$version"
 }

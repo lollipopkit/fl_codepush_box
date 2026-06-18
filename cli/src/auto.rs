@@ -10,6 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use uuid::Uuid;
+
+const INTERPRETER_RATIO_WARNING_THRESHOLD: f64 = 0.05;
 
 #[derive(Clone, Debug, Default, ClapArgs)]
 pub(crate) struct BuildOptions {
@@ -103,6 +106,35 @@ impl PatchReport {
             messages: Vec::new(),
         }
     }
+}
+
+pub(crate) fn estimated_interpreter_ratio(plan: &LinkerPlan) -> f64 {
+    let total = plan.interpret.len() + plan.unchanged.len();
+    if total == 0 {
+        0.0
+    } else {
+        plan.interpret.len() as f64 / total as f64
+    }
+}
+
+pub(crate) fn interpreter_ratio_warning(plan: &LinkerPlan) -> Option<String> {
+    let ratio = estimated_interpreter_ratio(plan);
+    if ratio <= INTERPRETER_RATIO_WARNING_THRESHOLD {
+        return None;
+    }
+    Some(format!(
+        "warning: estimated interpreter_ratio {:.2}% exceeds {:.2}%; consider shipping a new release",
+        ratio * 100.0,
+        INTERPRETER_RATIO_WARNING_THRESHOLD * 100.0,
+    ))
+}
+
+pub(crate) fn record_interpreter_ratio_warning(report: &mut PatchReport) -> Option<String> {
+    let warning = interpreter_ratio_warning(report.linker_plan.as_ref()?)?;
+    if !report.messages.iter().any(|message| message == &warning) {
+        report.messages.push(warning.clone());
+    }
+    Some(warning)
 }
 
 pub(crate) trait BuildContext {
@@ -351,7 +383,7 @@ pub(crate) fn collect_build_info(
         flavor: build.flavor.clone(),
         flutter_tool_rev: flutter_tool_rev(&build.flutter),
         engine_fork_rev: git_rev(engine_root),
-        dart_sdk_rev: dart_sdk_git_rev(&build.flutter),
+        dart_sdk_rev: dart_sdk_git_rev(build),
         pubspec_lock_hash: hash_optional_file(&build.project.join("pubspec.lock"))?,
         asset_hash: hash_build_assets(platform, backend, build)?,
         native_hash: hash_build_native(platform, backend, build)?,
@@ -401,7 +433,7 @@ pub(crate) fn collect_prebuild_build_info(
         flavor: build.flavor.clone(),
         flutter_tool_rev: flutter_tool_rev(&build.flutter),
         engine_fork_rev: git_rev(engine_root),
-        dart_sdk_rev: dart_sdk_git_rev(&build.flutter),
+        dart_sdk_rev: dart_sdk_git_rev(build),
         pubspec_lock_hash: hash_optional_file(&build.project.join("pubspec.lock"))?,
         asset_hash: release.asset_hash.clone(),
         native_hash: release.native_hash.clone(),
@@ -436,43 +468,15 @@ pub(crate) fn write_release_cache(
 }
 
 pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelInventory> {
-    let tool = kernel_inventory_tool_path()?;
-    let display_tool = tool.display().to_string();
-    if !tool.exists() {
-        return Err(err(format!(
-            "missing kernel inventory tool {}",
-            tool.display()
-        )));
-    }
-    let dart = flutter_dart_path(&build.flutter);
-    let cache_dir = fcb_dir().join("tool-cache");
-    fs::create_dir_all(&cache_dir)?;
-    let tool_hash = hash_optional_file(&tool)?;
-    let dart_rev = dart_sdk_rev(&build.flutter)?;
-    let key = crypto::sha256_hex(format!("{dart_rev}\n{tool_hash}").as_bytes());
-    let key_path = cache_dir.join("fcb_kernel_manifest.key");
-    let snapshot = cache_dir.join("fcb_kernel_manifest.dart.snapshot");
-    let current_key = fs::read_to_string(&key_path).unwrap_or_default();
-    if current_key != key || !snapshot.exists() {
-        let status = ProcessCommand::new(&dart)
-            .arg("compile")
-            .arg("kernel")
-            .arg(&tool)
-            .arg("-o")
-            .arg(&snapshot)
-            .status()?;
-        if !status.success() {
-            return Err(err(format!("failed to compile {display_tool}")));
-        }
-        fs::write(&key_path, &key)?;
-    }
-    let output = ProcessCommand::new(&dart)
-        .arg(&snapshot)
+    let tool = KernelManifestTool::prepare(build)?;
+    let output = ProcessCommand::new(&tool.dart)
+        .arg(&tool.snapshot)
         .arg("--project")
         .arg(&build.project)
         .arg("--target")
         .arg(&build.target)
-        .env("FCB_KERNEL_SDK_ROOT", kernel_sdk_root(&tool))
+        .env("FCB_KERNEL_SDK_ROOT", &tool.sdk_root)
+        .env("FCB_KERNEL_TOOL_DIR", &tool.tool_dir)
         .output()?;
     if !output.stderr.is_empty() {
         eprint!("{}", String::from_utf8_lossy(&output.stderr));
@@ -484,6 +488,143 @@ pub(crate) fn generate_kernel_inventory(build: &ResolvedBuild) -> Result<KernelI
     let inventory: KernelInventory = serde_json::from_slice(&output.stdout)?;
     inventory.validate()?;
     Ok(inventory)
+}
+
+pub(crate) fn compile_kernel_plan(
+    build: &ResolvedBuild,
+    plan: &LinkerPlan,
+) -> Result<Option<Vec<u8>>> {
+    if plan.interpret.is_empty() {
+        return Ok(None);
+    }
+    let patch_dill = newest_non_empty_app_dill(&build.project).ok_or_else(|| {
+        err(format!(
+            "missing Flutter app.dill under {}; rerun flutter build bundle before compiling bytecode",
+            build.project.join(".dart_tool/flutter_build").display()
+        ))
+    })?;
+    let tool = KernelManifestTool::prepare(build)?;
+    let temp = std::env::temp_dir().join(format!("fcb-kernel-compile-{}", Uuid::new_v4()));
+    fs::create_dir_all(&temp)?;
+    let plan_path = temp.join("linker_plan.json");
+    let out_path = temp.join("module.fcbm");
+    manifest::write_json(&plan_path, plan)?;
+    let output = ProcessCommand::new(&tool.dart)
+        .arg(&tool.snapshot)
+        .arg("--compile-from-plan")
+        .arg(&plan_path)
+        .arg("--patch")
+        .arg(&patch_dill)
+        .arg("--project")
+        .arg(&build.project)
+        .arg("--target")
+        .arg(&build.target)
+        .arg("--format")
+        .arg("binary")
+        .arg("-o")
+        .arg(&out_path)
+        .env("FCB_KERNEL_SDK_ROOT", &tool.sdk_root)
+        .env("FCB_KERNEL_TOOL_DIR", &tool.tool_dir)
+        .output()?;
+    if !output.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+    if !output.status.success() {
+        let _ = fs::remove_dir_all(&temp);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(err(format!("kernel bytecode compiler failed: {stderr}")));
+    }
+    let bytes = fs::read(&out_path)?;
+    let _ = fs::remove_dir_all(&temp);
+    Ok(Some(bytes))
+}
+
+struct KernelManifestTool {
+    dart: PathBuf,
+    snapshot: PathBuf,
+    sdk_root: PathBuf,
+    tool_dir: PathBuf,
+}
+
+impl KernelManifestTool {
+    fn prepare(build: &ResolvedBuild) -> Result<Self> {
+        let tool = kernel_inventory_tool_path()?;
+        let display_tool = tool.display().to_string();
+        if !tool.exists() {
+            return Err(err(format!(
+                "missing kernel inventory tool {}",
+                tool.display()
+            )));
+        }
+        let dart = flutter_dart_path(&build.flutter);
+        let cache_dir = fcb_dir().join("tool-cache");
+        fs::create_dir_all(&cache_dir)?;
+        let tool_hash = hash_optional_file(&tool)?;
+        let dart_rev = dart_sdk_rev(&build.flutter)?;
+        let key = crypto::sha256_hex(format!("{dart_rev}\n{tool_hash}").as_bytes());
+        let key_path = cache_dir.join("fcb_kernel_manifest.key");
+        let snapshot = cache_dir.join("fcb_kernel_manifest.dart.snapshot");
+        let current_key = fs::read_to_string(&key_path).unwrap_or_default();
+        if current_key != key || !snapshot.exists() {
+            let status = ProcessCommand::new(&dart)
+                .arg("compile")
+                .arg("kernel")
+                .arg(&tool)
+                .arg("-o")
+                .arg(&snapshot)
+                .status()?;
+            if !status.success() {
+                return Err(err(format!("failed to compile {display_tool}")));
+            }
+            fs::write(&key_path, &key)?;
+        }
+        Ok(Self {
+            dart,
+            snapshot,
+            sdk_root: kernel_sdk_root(&tool, build),
+            tool_dir: tool
+                .parent()
+                .unwrap_or_else(|| Path::new("tool"))
+                .to_path_buf(),
+        })
+    }
+}
+
+fn newest_non_empty_app_dill(project: &Path) -> Option<PathBuf> {
+    let build_root = project.join(".dart_tool/flutter_build");
+    let mut candidates = Vec::new();
+    collect_app_dill_candidates(&build_root, &mut candidates);
+    candidates.sort_by(|a, b| {
+        let a_time = a
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let b_time = b
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        b_time.cmp(&a_time)
+    });
+    candidates.into_iter().next()
+}
+
+fn collect_app_dill_candidates(dir: &Path, candidates: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_app_dill_candidates(&path, candidates);
+        } else if path.file_name().and_then(|name| name.to_str()) == Some("app.dill")
+            && path
+                .metadata()
+                .map(|metadata| metadata.len() > 0)
+                .unwrap_or(false)
+        {
+            candidates.push(path);
+        }
+    }
 }
 
 fn kernel_inventory_tool_path() -> Result<PathBuf> {
@@ -505,14 +646,23 @@ fn kernel_inventory_tool_path() -> Result<PathBuf> {
     Ok(cwd_tool)
 }
 
-fn kernel_sdk_root(tool: &Path) -> PathBuf {
+fn kernel_sdk_root(tool: &Path, build: &ResolvedBuild) -> PathBuf {
+    if let Some(path) = std::env::var_os("FCB_KERNEL_SDK_ROOT") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return path;
+        }
+    }
+    if let Some(path) = embedded_dart_sdk_root(build) {
+        return path;
+    }
     for ancestor in tool.ancestors() {
-        let candidate = ancestor.join("vendor/sdk");
+        let candidate = ancestor.join("vendor/flutter/engine/src/flutter/third_party/dart");
         if candidate.exists() {
             return candidate;
         }
     }
-    PathBuf::from("vendor/sdk")
+    PathBuf::from("vendor/flutter/engine/src/flutter/third_party/dart")
 }
 
 pub(crate) fn read_release_cache(release_dir: &Path) -> Result<ReleaseCacheMetadata> {
@@ -582,13 +732,32 @@ fn flutter_tool_rev(flutter: &Path) -> String {
     git_rev(&flutter_sdk_root(flutter))
 }
 
-fn dart_sdk_git_rev(flutter: &Path) -> String {
+fn dart_sdk_git_rev(build: &ResolvedBuild) -> String {
+    if let Some(sdk_root) = embedded_dart_sdk_root(build) {
+        let rev = git_rev(&sdk_root);
+        if rev != "unknown" {
+            return rev;
+        }
+    }
+    let flutter = &build.flutter;
     let sdk_root = flutter_sdk_root(flutter).join("bin/cache/dart-sdk");
     let rev = git_rev(&sdk_root);
     if rev != "unknown" {
         return rev;
     }
-    git_rev(&PathBuf::from("vendor/sdk"))
+    "unknown".to_string()
+}
+
+fn embedded_dart_sdk_root(build: &ResolvedBuild) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(engine_src) = &build.local_engine_src_path {
+        candidates.push(engine_src.join("flutter/third_party/dart"));
+        candidates.push(engine_src.join("third_party/dart"));
+    }
+    candidates.push(flutter_sdk_root(&build.flutter).join("engine/src/flutter/third_party/dart"));
+    candidates
+        .into_iter()
+        .find(|path| path.join("runtime/vm").exists())
 }
 
 fn flutter_sdk_root(flutter: &Path) -> PathBuf {

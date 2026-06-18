@@ -1,0 +1,23 @@
+baseline counter_app release rendered
+mode: nopatch
+pid: 18364
+tombstones_before: 24
+tombstones_after: 24
+initialCounterValue_expected: 1
+initialCounterValue_observed: 1
+adjustedCounterValue_expected: 8
+adjustedCounterValue_observed: 8
+staticCounterValue_expected: 7
+staticCounterValue_observed: 7
+statusLabel_expected: base
+statusLabel_observed: base
+widgetTreeLabel_expected: baseline widget tree
+widgetTreeLabel_observed: baseline widget tree
+setState_observed: true
+methodChannelCacheDir_observed: /data/user/0/com.example.fcb_counter_app/code_cache/fcb
+fieldStatusLabel_expected: base-field
+fieldStatusLabel_observed: base-field
+quadCounterValue_expected: 10
+quadCounterValue_observed: 10
+logcat: /Users/lk/proj/fl_codepush_box/target/fcb/android-widget-method-acceptance/nopatch/logs/logcat.txt
+summary: target/fcb/android-widget-method-acceptance/summary.txt

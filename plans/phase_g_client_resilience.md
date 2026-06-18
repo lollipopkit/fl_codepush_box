@@ -5,6 +5,21 @@
 **前置依赖**：无（与 E/F/H 完全独立）
 **并行性**：可与 E、F 并行
 
+## 进度更新（2026-06-17）
+
+🟢 **主体完成**，`cargo test --workspace` 全绿。
+
+| 子阶段 | 状态 | 证据 |
+|--------|------|------|
+| G1 state v2 + LKG | ✅ | `state.rs`：`schema_version=2`、`boot_attempts`、`last_known_good_patch_number`、`migrate_state`（v1→v2 搬 current 到 LKG）；`launch_patch` 选择优先级 pending→current→lkg、`boot_attempts>=3` 自动回滚；`prune` 保护 current/pending/lkg 目录；`state_tests.rs` 覆盖 |
+| G2 重试 + 单飞 + 续传 | ✅ | `server_api.rs`：指数退避 50/200/800/3200ms + ±25% jitter、仅 5xx/连接错误重试；`download_bytes_from_with_cancel` 走 Range + 分块取消；`updater/src/lib.rs` 单飞（`CHECK_FLIGHTS`）+ `fcb_cancel_pending_operations` + `resume_offset`（取 progress/part 较小值）|
+| G3 crash rollback 上报 | ✅ | `state.rs` 回滚时 append `events.log`（上限 50）；`fcb_drain_rollback_events` + `flush_rollback_events` POST `/v1/events`；`updater/tests/rollback_events.rs` |
+| G4 Dart API + overlay | ✅ | `fcb_code_push.dart`：`lastKnownGoodPatchNumber`/`crashRollbackHistory`/`interpreterStats`/`configure(orgId:)`；`counter_app/lib/main.dart` debug overlay 显示 LKG/ratio/最近 crash |
+
+**剩余**：真实 VM dispatch 的 interpreter/AOT 计数接线（依赖 E2/E5）、真机三次 crash→LKG 验收（H3）。
+
+> ✅ 已修复（2026-06-17）：续传场景下，若 `.part` 已是完整长度但内容静默损坏，下次续传 `Range: bytes=<full>-` 会触发 416（4xx 不重试）→ 永久卡死。注意**不能**简单地在 hash 失败时删 `.part`——那会破坏正常的「下载中断后续传」语义（已有测试覆盖）。实际修复落在 `server_api.rs::download_bytes_from_with_cancel`：当带 offset 的请求收到 416 时，自动回退为无 Range 的全量下载（`effective_offset = 0`），调用方据 `append=false` 覆写 `.part`。新增回归测试 `download_resume_falls_back_to_full_on_416`。
+
 ## 目标
 
 让 updater 在生产环境中具备：

@@ -1,0 +1,19 @@
+baseline counter_app release rendered
+platform: android-arm64
+source: target/fcb/android-arm64-baseline/result.txt
+
+mode: nopatch
+pid: 8130
+tombstones_before: 6
+tombstones_after: 6
+initialCounterValue_expected: 1
+initialCounterValue_observed: 1
+adjustedCounterValue_expected: 8
+adjustedCounterValue_observed: 8
+staticCounterValue_expected: 7
+staticCounterValue_observed: 7
+statusLabel_expected: base
+statusLabel_observed: base
+quadCounterValue_expected: 10
+quadCounterValue_observed: 10
+logcat: /Users/lk/proj/fl_codepush_box/target/fcb/android-arm64-baseline/logs/logcat.txt

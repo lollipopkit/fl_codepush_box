@@ -5,6 +5,22 @@
 **前置依赖**：无（与 E/G/H 完全独立）
 **并行性**：可与 E、G 并行
 
+## 进度更新（2026-06-17）
+
+🟢 **主体完成**，`go vet ./...` + `go test ./...` 全绿。
+
+| 子阶段 | 状态 | 证据 |
+|--------|------|------|
+| F1 Schema 迁移 + org 路由 | ✅ | `store.go` migration v4（`migrateDefaultOrgMultitenancy`）+ v5（`migrateOrgScopedAppIDs`，apps/releases/patches/events 全部加 `org_id` 主键）；所有查询 `*InOrg` 带 `org_id` 过滤；跨 org 返回 404（`notFound`→404）；admin org switcher 在 webui |
+| F2 对象存储抽象 | ✅ | `server/storage.go`：`Storage` interface + `LocalFSStorage` + `S3Storage`（aws-sdk-go-v2，presign）；`FCB_STORAGE_DRIVER` 切换；非 default org 走 `orgs/<org>/...` key（`orgScopedPayloadKey`）|
+| F3 Rollout cohort | ✅ | `util.go:cohort/eligible`：`fnv32(app|release|client)%10000`，与 patch_number 解耦，单调递增；`main_test.go` 覆盖 sticky+单调 |
+| F4 事件持久化 + 仪表盘 | ✅ | `event` handler 写 `patch_events`；`adminPatchStats*` 返回 totals/7 日分布/top10 失败原因；`metricsHandler`；`startEventRetentionCleanup`（默认 90 天）|
+| F5 备份 + 运维文档 | ✅ | `scripts/server_backup.sh`/`server_restore.sh`、`docs/operations.md`、`/healthz`+`/metrics` |
+
+**剩余**：真实 GitHub Actions/部署环境跑通 server + S3/MinIO drill（归 H）。
+
+> ✅ 已修复（2026-06-17）：`handlers.go` createPatch 之前在 payload 对象已存在（正常 409 冲突）时也 `metrics.StorageErrors.Add(1)`，污染 storage error 监控指标；现已移除该误计数，只有真正的存储异常才计入。
+
 ## 目标
 
 把当前单租户 SQLite server 升级为：

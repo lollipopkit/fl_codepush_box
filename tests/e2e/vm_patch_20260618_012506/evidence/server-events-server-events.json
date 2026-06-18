@@ -1,0 +1,16 @@
+{
+  "event_type": "launch_success",
+  "platform": "android-arm64",
+  "source": "local-device-acceptance",
+  "result_file": "target/fcb/android-arm64-patch/result.txt",
+  "restart_result_file": "target/fcb/android-arm64-restart/result.txt",
+  "interpreter_ratio": 0.001,
+  "observed_patch_number": 1,
+  "observed_values": {
+    "initialCounterValue": 42,
+    "adjustedCounterValue": 42,
+    "staticCounterValue": 42,
+    "statusLabel": "patched",
+    "quadCounterValue": 42
+  }
+}

@@ -1,0 +1,28 @@
+restart kept patch active
+platform: android-arm64
+source: target/fcb/android-arm64-restart/result.txt
+
+mode: nopatch
+pid: 8342
+tombstones_before: 6
+tombstones_after: 6
+initialCounterValue_expected: 42
+initialCounterValue_observed: 42
+adjustedCounterValue_expected: 42
+adjustedCounterValue_observed: 42
+staticCounterValue_expected: 42
+staticCounterValue_observed: 42
+statusLabel_expected: patched
+statusLabel_observed: patched
+quadCounterValue_expected: 42
+quadCounterValue_observed: 42
+logcat: /Users/lk/proj/fl_codepush_box/target/fcb/android-arm64-restart/logs/logcat.txt
+
+log excerpt:
+06-18 01:23:36.689 I/Flutter ( 8342): FCB VM bytecode patch registered: /data/user/0/com.example.fcb_counter_app/code_cache/fcb/patches/1/payload.bin
+06-18 01:23:36.689 I/Flutter ( 8342): FCB VM bytecode patch 1 selected
+06-18 01:23:36.699 I/flutter ( 8342): FCB initialCounterValue result: 42
+06-18 01:23:36.699 I/flutter ( 8342): FCB adjustedCounterValue result: 42
+06-18 01:23:36.699 I/flutter ( 8342): FCB staticCounterValue result: 42
+06-18 01:23:36.699 I/flutter ( 8342): FCB statusLabel result: patched
+06-18 01:23:36.699 I/flutter ( 8342): FCB quadCounterValue result: 42

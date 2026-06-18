@@ -28,13 +28,17 @@ Environment:
   FCB_UPDATER_RUSTFLAGS    Rust flags for the updater staticlib.
                            Default: current RUSTFLAGS plus -C panic=abort
   FCB_UNWIND_STATICLIB     Existing ABI-matching Android libunwind.a.
-  FCB_SKIP_SYNC            Skip sync scripts. Default: 0
   FCB_SKIP_GN              Skip GN generation. Default: 0
   FCB_SKIP_NINJA           Skip ninja build after GN generation. Default: 0
   FCB_SKIP_POSTPROCESS     Skip local-engine artifact refresh after ninja.
                            Default: 0
   FCB_SKIP_HOST_GEN_SNAPSHOT
                            Skip host gen_snapshot refresh. Default: 0
+  FCB_NO_PREBUILT_DART_SDK Build Dart SDK artifacts from source instead of
+                           using Engine prebuilt Dart SDK. Default: 0
+  FCB_SYNC_ANDROID_JNILIBS Copy cargo-ndk libfcb_updater.so into the Flutter
+                           package Android jniLibs for the selected ABI.
+                           Default: 1
   FCB_LOCAL_ENGINE_HOST    Host Engine output used by Flutter builds.
                            Default: host_release
   FCB_SKIP_ENGINE_DEPS_CHECK
@@ -85,8 +89,8 @@ validate_engine_deps() {
     fi
   done
 
-  if ! compgen -G "$ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/stdlib.h" >/dev/null; then
-    echo "missing Engine dependency: $ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/stdlib.h" >&2
+  if ! compgen -G "$ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/*/sysroot/usr/include/stdlib.h" >/dev/null; then
+    echo "missing Engine dependency: $ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/*/sysroot/usr/include/stdlib.h" >&2
     missing=1
   fi
 
@@ -145,6 +149,32 @@ android_clang_lib_arch_for_cpu() {
   esac
 }
 
+ndk_prebuilt_host_tag() {
+  local base="$ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk"
+  local preferred=()
+  case "$(uname -s)" in
+    Darwin) preferred=(darwin-x86_64 darwin-arm64) ;;
+    Linux) preferred=(linux-x86_64) ;;
+    *) preferred=() ;;
+  esac
+
+  local tag
+  for tag in "${preferred[@]}"; do
+    if compgen -G "$base/*/toolchains/llvm/prebuilt/$tag/sysroot/usr/include/stdlib.h" >/dev/null; then
+      echo "$tag"
+      return 0
+    fi
+  done
+
+  local match
+  while IFS= read -r match; do
+    echo "$(basename "$(dirname "$(dirname "$(dirname "$match")")")")"
+    return 0
+  done < <(compgen -G "$base/*/toolchains/llvm/prebuilt/*/sysroot/usr/include/stdlib.h" | sort)
+
+  die "missing Android NDK prebuilt sysroot under: $base/*/toolchains/llvm/prebuilt/*"
+}
+
 gn_out_name() {
   local cpu="$1"
   local mode="$2"
@@ -169,9 +199,10 @@ resolve_unwind_staticlib() {
     return 0
   fi
 
-  local arch pattern
+  local arch host_tag pattern
   arch="$(android_clang_lib_arch_for_cpu "$ANDROID_CPU")"
-  pattern="$ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/*/lib/linux/$arch/libunwind.a"
+  host_tag="$(ndk_prebuilt_host_tag)"
+  pattern="$ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/$host_tag/lib/clang/*/lib/linux/$arch/libunwind.a"
 
   local matches=()
   while IFS= read -r path; do
@@ -182,7 +213,8 @@ resolve_unwind_staticlib() {
     die "missing Android libunwind.a matching: $pattern"
   fi
 
-  echo "${matches[-1]}"
+  local last_index=$((${#matches[@]} - 1))
+  echo "${matches[$last_index]}"
 }
 
 parse_extra_args() {
@@ -196,18 +228,19 @@ parse_extra_args() {
 }
 
 strip_tool_for_cpu() {
-  local triple ndk_strip
+  local triple ndk_strip host_tag
   triple="$(android_triple_for_cpu "$ANDROID_CPU")"
   if command -v "${triple}-strip" >/dev/null 2>&1; then
     echo "${triple}-strip"
     return 0
   fi
+  host_tag="$(ndk_prebuilt_host_tag)"
   while IFS= read -r ndk_strip; do
     if [ -x "$ndk_strip" ]; then
       echo "$ndk_strip"
       return 0
     fi
-  done < <(compgen -G "$ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" | sort -r)
+  done < <(compgen -G "$ENGINE_SRC_DIR/third_party/android_tools/sdk/ndk/*/toolchains/llvm/prebuilt/$host_tag/bin/llvm-strip" | sort -r)
   if command -v llvm-strip >/dev/null 2>&1; then
     echo "llvm-strip"
     return 0
@@ -253,6 +286,11 @@ refresh_android_engine_artifacts() {
   run ninja -C "$out_dir" clang_x64/gen_snapshot
   require_file "$out_dir/clang_x64/gen_snapshot"
   run cp "$out_dir/clang_x64/gen_snapshot" "$out_dir/gen_snapshot"
+  run ninja -C "$out_dir" flutter/lib/snapshot:strong_platform
+  require_file "$out_dir/flutter_patched_sdk/platform_strong.dill"
+  rm -rf "$out_dir/flutter_patched_sdk_product"
+  cp -R "$out_dir/flutter_patched_sdk" "$out_dir/flutter_patched_sdk_product"
+  require_file "$out_dir/flutter_patched_sdk_product/platform_strong.dill"
 }
 
 refresh_host_gen_snapshot() {
@@ -264,19 +302,37 @@ refresh_host_gen_snapshot() {
     return 0
   fi
 
-  run "${GN_RUNNER[@]}" --runtime-mode "$RUNTIME_MODE"
+  local host_gn_cmd=("${GN_RUNNER[@]}" --runtime-mode "$RUNTIME_MODE")
+  if [ "${FCB_NO_PREBUILT_DART_SDK:-0}" = "1" ]; then
+    host_gn_cmd+=(--no-prebuilt-dart-sdk)
+  fi
+  run "${host_gn_cmd[@]}"
   run ninja -C "$host_out_dir" gen_snapshot
+  run ninja -C "$host_out_dir" flutter/lib/snapshot:strong_platform
+  rm -rf "$host_out_dir/flutter_patched_sdk_product"
+  cp -R "$host_out_dir/flutter_patched_sdk" "$host_out_dir/flutter_patched_sdk_product"
+  run ninja -C "$host_out_dir" flutter/flutter_frontend_server:frontend_server
   require_file "$host_out_dir/gen_snapshot"
+  require_file "$host_out_dir/flutter_patched_sdk/platform_strong.dill"
+  require_file "$host_out_dir/flutter_patched_sdk_product/platform_strong.dill"
+  require_file "$host_out_dir/gen/frontend_server_aot.dart.snapshot"
 }
 
 normalize_gn_arg() {
   local arg="$1"
-  if [[ "$arg" == *=* && "$arg" == *" "* ]]; then
+  if [[ "$arg" == *=* ]]; then
     local key="${arg%%=*}"
     local value="${arg#*=}"
-    value="${value//\\/\\\\}"
-    value="${value//\"/\\\"}"
-    printf '%s="%s"\n' "$key" "$value"
+    case "$value" in
+      true|false|[0-9]*|\"*|\'*|\[*)
+        printf '%s\n' "$arg"
+        ;;
+      *)
+        value="${value//\\/\\\\}"
+        value="${value//\"/\\\"}"
+        printf '%s="%s"\n' "$key" "$value"
+        ;;
+    esac
   else
     printf '%s\n' "$arg"
   fi
@@ -331,6 +387,22 @@ resolve_updater_staticlib() {
   echo "$lib"
 }
 
+sync_android_jnilibs() {
+  if [ "${FCB_SYNC_ANDROID_JNILIBS:-1}" != "1" ]; then
+    return 0
+  fi
+
+  local abi="$1"
+  local so_path="$ROOT_DIR/target/fcb/android-updater/$abi/libfcb_updater.so"
+  local dest="$ROOT_DIR/packages/fcb_code_push/android/src/main/jniLibs/$abi/libfcb_updater.so"
+  if [ ! -f "$so_path" ]; then
+    echo "warning: updater cdylib not found, skipping jniLibs sync: $so_path" >&2
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
+  run cp "$so_path" "$dest"
+}
+
 main() {
   if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     usage
@@ -351,11 +423,6 @@ main() {
     GN_RUNNER=(python3 "$GN_SCRIPT")
   fi
 
-  if [ "${FCB_SKIP_SYNC:-0}" != "1" ]; then
-    run "$ROOT_DIR/scripts/sync_flutter_engine.sh"
-    run "$ROOT_DIR/scripts/sync_dart_vm_patch.sh"
-  fi
-
   if [ "${FCB_SKIP_GN:-0}" != "1" ]; then
     validate_engine_deps
   fi
@@ -363,6 +430,7 @@ main() {
   local updater_staticlib unwind_staticlib
   updater_staticlib="$(resolve_updater_staticlib)"
   unwind_staticlib="$(resolve_unwind_staticlib)"
+  sync_android_jnilibs "$(android_abi_for_cpu "$ANDROID_CPU")"
 
   if [ -d "$DEPOT_TOOLS_DIR" ]; then
     mkdir -p "$DEPOT_HOME" "$VPYTHON_ROOT"
@@ -383,6 +451,9 @@ main() {
     --gn-args "fcb_updater_staticlib=\"$updater_staticlib\""
     --gn-args "fcb_unwind_staticlib=\"$unwind_staticlib\""
   )
+  if [ "${FCB_NO_PREBUILT_DART_SDK:-0}" = "1" ]; then
+    gn_cmd+=(--no-prebuilt-dart-sdk)
+  fi
 
   while IFS= read -r arg; do
     gn_cmd+=(--gn-args "$(normalize_gn_arg "$arg")")

@@ -1,0 +1,6 @@
+FCB VM interpreter executed patch function
+platform: android-arm64
+source: target/fcb/android-field-final-acceptance/patch/logs/logcat.txt
+FCB VM bytecode patch registered
+FCB VM bytecode patch 1 selected
+observed patched results: 42/42/42/patched/patched-field/42

@@ -1,0 +1,28 @@
+patched widget tree, setState, method channel rendered
+platform: android-arm64
+source: target/fcb/android-arm64-patch/result.txt
+
+mode: patch
+pid: 8281
+tombstones_before: 6
+tombstones_after: 6
+initialCounterValue_expected: 42
+initialCounterValue_observed: 42
+adjustedCounterValue_expected: 42
+adjustedCounterValue_observed: 42
+staticCounterValue_expected: 42
+staticCounterValue_observed: 42
+statusLabel_expected: patched
+statusLabel_observed: patched
+quadCounterValue_expected: 42
+quadCounterValue_observed: 42
+logcat: /Users/lk/proj/fl_codepush_box/target/fcb/android-arm64-patch/logs/logcat.txt
+
+log excerpt:
+06-18 01:23:09.497 I/Flutter ( 8281): FCB VM bytecode patch registered: /data/user/0/com.example.fcb_counter_app/code_cache/fcb/patches/1/payload.bin
+06-18 01:23:09.497 I/Flutter ( 8281): FCB VM bytecode patch 1 selected
+06-18 01:23:09.522 I/flutter ( 8281): FCB initialCounterValue result: 42
+06-18 01:23:09.522 I/flutter ( 8281): FCB adjustedCounterValue result: 42
+06-18 01:23:09.522 I/flutter ( 8281): FCB staticCounterValue result: 42
+06-18 01:23:09.522 I/flutter ( 8281): FCB statusLabel result: patched
+06-18 01:23:09.522 I/flutter ( 8281): FCB quadCounterValue result: 42

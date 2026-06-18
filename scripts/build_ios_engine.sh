@@ -10,7 +10,6 @@ DEPOT_TOOLS_DIR="$ROOT_DIR/vendor/depot_tools"
 FCB_IOS_CPU="${FCB_IOS_CPU:-arm64}"          # arm64 (device/simulator) | x64 (simulator)
 FCB_RUNTIME_MODE="${FCB_RUNTIME_MODE:-release}"
 FCB_IOS_SIMULATOR="${FCB_IOS_SIMULATOR:-0}"
-FCB_SKIP_SYNC="${FCB_SKIP_SYNC:-0}"
 FCB_SKIP_GN="${FCB_SKIP_GN:-0}"
 FCB_SKIP_NINJA="${FCB_SKIP_NINJA:-0}"
 FCB_UPDATER_STATICLIB="${FCB_UPDATER_STATICLIB:-}"
@@ -34,7 +33,6 @@ Environment:
   FCB_IOS_CPU          arm64 (device/simulator) or x64 (simulator). Default: arm64
   FCB_IOS_SIMULATOR    Build simulator engine when set to 1. Default: 0
   FCB_RUNTIME_MODE     release | profile | debug. Default: release
-  FCB_SKIP_SYNC        Skip sync_dart_vm_patch.sh when set to 1. Default: 0
   FCB_SKIP_GN          Skip GN generation. Default: 0
   FCB_SKIP_NINJA       Skip ninja build. Default: 0
   FCB_UPDATER_STATICLIB  Path to pre-built libfcb_updater.a for iOS.
@@ -78,11 +76,6 @@ main() {
 
   [ -d "$ENGINE_SRC_DIR" ] || die "Engine src missing: $ENGINE_SRC_DIR. Run scripts/sync_flutter_engine_deps.sh first."
   [ -x "$DEPOT_TOOLS_DIR/gclient" ] || die "depot_tools missing: $DEPOT_TOOLS_DIR"
-
-  if [ "$FCB_SKIP_SYNC" != "1" ]; then
-    echo "Syncing Dart VM patch..."
-    run "$ROOT_DIR/scripts/sync_dart_vm_patch.sh"
-  fi
 
   build_updater_staticlib
 

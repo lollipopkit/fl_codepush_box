@@ -1,0 +1,22 @@
+restart kept patch active
+mode: nopatch
+pid: 18568
+tombstones_before: 24
+tombstones_after: 24
+initialCounterValue_expected: 42
+initialCounterValue_observed: 42
+adjustedCounterValue_expected: 42
+adjustedCounterValue_observed: 42
+staticCounterValue_expected: 42
+staticCounterValue_observed: 42
+statusLabel_expected: patched
+statusLabel_observed: patched
+widgetTreeLabel_expected: patched widget tree
+widgetTreeLabel_observed: patched widget tree
+setState_observed: true
+methodChannelCacheDir_observed: /data/user/0/com.example.fcb_counter_app/code_cache/fcb
+fieldStatusLabel_expected: patched-field
+fieldStatusLabel_observed: patched-field
+quadCounterValue_expected: 42
+quadCounterValue_observed: 42
+logcat: /Users/lk/proj/fl_codepush_box/target/fcb/android-widget-method-restart/logs/logcat.txt

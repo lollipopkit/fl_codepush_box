@@ -1,27 +1,32 @@
 mod auto;
+mod bytecode_payload;
+mod inspect;
 
 use auto::{
     android_app_so_path, build_info_warnings, collect_build_info, collect_prebuild_build_info,
-    collect_release_artifact, generate_kernel_inventory, read_release_cache, resolve_build,
-    run_flutter_build, write_patch_report, write_release_cache, BuildContext, BuildOptions,
-    PatchReport, ResolvedBuild,
+    collect_release_artifact, compile_kernel_plan, generate_kernel_inventory, read_release_cache,
+    record_interpreter_ratio_warning, resolve_build, run_flutter_build, write_patch_report,
+    write_release_cache, BuildContext, BuildOptions, PatchReport, ResolvedBuild,
 };
+use bytecode_payload::{read_bytecode_module, validate_compiled_bytecode_payload};
 use clap::{Parser, Subcommand};
-use fcb_bytecode::{compiler, format::BytecodeModule};
 use fcb_core::config::{LocalAppContext, LocalBuildConfig, RemoteAppConfig, RemotePlatformEntry};
 use fcb_core::crypto;
 use fcb_core::diff::{self, BSDIFF_ZSTD_ALGORITHM};
-use fcb_core::linker::{self, FunctionInventoryEntry, KernelInventory, LinkerPlan};
+#[cfg(test)]
+use fcb_core::linker::LinkerPlan;
+use fcb_core::linker::{self, KernelInventory};
 use fcb_core::manifest::{
     self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest, ReleaseManifest,
 };
 use fcb_core::server_api::{
-    CheckResponse, Client, CreateAppRequest, PatchCheck, PromotePatchRequest,
+    CheckRequest, CheckResponse, Client, CreateAppRequest, PatchCheck, PromotePatchRequest,
 };
 use fcb_core::state::Updater;
 use fcb_core::{err, fcb_dir, Result};
+use inspect::inspect;
+#[cfg(test)]
 use serde_json::Value;
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -238,17 +243,17 @@ fn run() -> Result<()> {
             client_id,
             install,
             cache_dir,
-        } => check(
-            &context,
-            &release_version,
-            &platform,
-            &arch,
-            &channel,
+        } => check(CheckCommandInput {
+            context: &context,
+            release_version: &release_version,
+            platform: &platform,
+            arch: &arch,
+            channel: &channel,
             current_patch_number,
-            &client_id,
-            install,
-            &cache_dir,
-        ),
+            client_id: &client_id,
+            install_patch: install,
+            cache_dir: &cache_dir,
+        }),
         Command::Install {
             manifest,
             payload,
@@ -477,18 +482,18 @@ fn patch(
             path,
         )
     } else {
-        automatic_patch_payload(
+        automatic_patch_payload(AutomaticPatchPayloadInput {
             context,
-            &app,
-            &backend,
+            app: &app,
+            backend: &backend,
             platform,
             build_options,
             release_version,
             patch_number,
             arch,
-            &out,
-            &mut report,
-        )
+            out: &out,
+            report: &mut report,
+        })
     };
 
     let (payload_bytes, payload_kind, diff_algorithm, base_hash, output_hash, artifact) =
@@ -576,6 +581,42 @@ type PatchPayloadResult = (
     Option<Vec<u8>>,
 );
 
+struct AutomaticPatchPayloadInput<'a> {
+    context: &'a ResolvedContext,
+    app: &'a RemoteAppConfig,
+    backend: &'a str,
+    platform: &'a str,
+    build_options: &'a BuildOptions,
+    release_version: &'a str,
+    patch_number: u32,
+    arch: &'a str,
+    out: &'a Path,
+    report: &'a mut PatchReport,
+}
+
+struct CheckCommandInput<'a> {
+    context: &'a ResolvedContext,
+    release_version: &'a str,
+    platform: &'a str,
+    arch: &'a str,
+    channel: &'a str,
+    current_patch_number: u32,
+    client_id: &'a str,
+    install_patch: bool,
+    cache_dir: &'a Path,
+}
+
+struct DownloadInstallInput<'a> {
+    context: &'a ResolvedContext,
+    client: &'a Client,
+    response: &'a CheckResponse,
+    app_id: &'a str,
+    release_version: &'a str,
+    platform: &'a str,
+    arch: &'a str,
+    cache_dir: &'a Path,
+}
+
 fn manual_patch_payload(
     app: &RemoteAppConfig,
     backend: &str,
@@ -598,7 +639,7 @@ fn manual_patch_payload(
             Some(target_artifact),
         )))
     } else if backend == "bytecode" {
-        let module = compile_or_read_bytecode_module(&target_artifact)?;
+        let module = read_bytecode_module(&target_artifact)?;
         Ok(Some((
             module.to_vec()?,
             "bytecode_module",
@@ -613,17 +654,20 @@ fn manual_patch_payload(
 }
 
 fn automatic_patch_payload(
-    context: &ResolvedContext,
-    app: &RemoteAppConfig,
-    backend: &str,
-    platform: &str,
-    build_options: &BuildOptions,
-    release_version: &str,
-    patch_number: u32,
-    arch: &str,
-    out: &Path,
-    report: &mut PatchReport,
+    input: AutomaticPatchPayloadInput<'_>,
 ) -> Result<Option<PatchPayloadResult>> {
+    let AutomaticPatchPayloadInput {
+        context,
+        app,
+        backend,
+        platform,
+        build_options,
+        release_version,
+        patch_number,
+        arch,
+        out,
+        report,
+    } = input;
     let release_dir = release_cache_dir(&app.id, release_version, platform, arch);
     if !release_dir.exists() {
         return Err(err(format!(
@@ -718,28 +762,22 @@ fn automatic_bytecode_payload(
     let release_inventory: KernelInventory =
         manifest::read_json(&release_dir.join("kernel_inventory.json"))?;
     let patch_inventory = generate_kernel_inventory(build)?;
-    bytecode_payload_from_inventories(&release_inventory, &patch_inventory, report)
-}
-
-fn bytecode_payload_from_inventories(
-    release_inventory: &KernelInventory,
-    patch_inventory: &KernelInventory,
-    report: &mut PatchReport,
-) -> Result<Option<PatchPayloadResult>> {
     let plan = linker::plan_bytecode_link(&release_inventory, &patch_inventory)?;
     report.linker_plan = Some(plan.clone());
+    if let Some(warning) = record_interpreter_ratio_warning(report) {
+        eprintln!("{warning}");
+    }
     if plan.has_rejects() {
         return Err(err("bytecode patch rejected; see patch_report.json"));
     }
     if plan.changed_function_count() == 0 {
         return Ok(None);
     }
-    let sources = interpret_sources(patch_inventory, &plan)?;
-    let source_module = serde_json::json!({ "functions": sources });
-    let bytes = serde_json::to_vec(&source_module)?;
-    let module = compile_or_read_bytecode_module(&bytes)?;
+    let Some(bytes) = compile_kernel_plan(build, &plan)? else {
+        return Ok(None);
+    };
     Ok(Some((
-        module.to_vec()?,
+        validate_compiled_bytecode_payload(&bytes)?,
         "bytecode_module",
         None,
         None,
@@ -748,7 +786,32 @@ fn bytecode_payload_from_inventories(
     )))
 }
 
+#[cfg(test)]
+fn bytecode_payload_from_inventories(
+    release_inventory: &KernelInventory,
+    patch_inventory: &KernelInventory,
+    report: &mut PatchReport,
+) -> Result<Option<PatchPayloadResult>> {
+    let plan = linker::plan_bytecode_link(release_inventory, patch_inventory)?;
+    report.linker_plan = Some(plan.clone());
+    record_interpreter_ratio_warning(report);
+    if plan.has_rejects() {
+        return Err(err("bytecode patch rejected; see patch_report.json"));
+    }
+    if plan.changed_function_count() == 0 {
+        return Ok(None);
+    }
+    let _sources = interpret_sources(patch_inventory, &plan)?;
+    Err(err(
+        "test bytecode payload helper no longer compiles source JSON; use Dart compile-from-plan",
+    ))
+}
+
+#[cfg(test)]
 fn interpret_sources(patch_inventory: &KernelInventory, plan: &LinkerPlan) -> Result<Vec<Value>> {
+    use fcb_core::linker::FunctionInventoryEntry;
+    use std::collections::BTreeMap;
+
     let mut functions = BTreeMap::<String, &FunctionInventoryEntry>::new();
     for function in &patch_inventory.functions {
         functions.insert(function.function_id.clone(), function);
@@ -818,55 +881,58 @@ fn rollback(
     Ok(())
 }
 
-fn check(
-    context: &ResolvedContext,
-    release_version: &str,
-    platform: &str,
-    arch: &str,
-    channel: &str,
-    current_patch_number: u32,
-    client_id: &str,
-    install_patch: bool,
-    cache_dir: &Path,
-) -> Result<()> {
-    let authed = authed_client(&context.server, context.token.as_deref())?;
-    let app = resolve_app(&authed, context)?;
-    let client = Client::new(&context.server);
-    let response = client.check(
-        &app.id,
+fn check(input: CheckCommandInput<'_>) -> Result<()> {
+    let CheckCommandInput {
+        context,
         release_version,
         platform,
         arch,
         channel,
         current_patch_number,
         client_id,
-    )?;
+        install_patch,
+        cache_dir,
+    } = input;
+    let authed = authed_client(&context.server, context.token.as_deref())?;
+    let app = resolve_app(&authed, context)?;
+    let client = Client::new(&context.server);
+    let response = client.check(&CheckRequest {
+        org_id: app.org_id.as_deref(),
+        app_id: &app.id,
+        release_version,
+        platform,
+        arch,
+        channel,
+        current_patch_number,
+        client_id,
+    })?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     if install_patch {
-        download_and_install(
+        download_and_install(DownloadInstallInput {
             context,
-            &client,
-            &response,
-            &app.id,
+            client: &client,
+            response: &response,
+            app_id: &app.id,
             release_version,
             platform,
             arch,
             cache_dir,
-        )?;
+        })?;
     }
     Ok(())
 }
 
-fn download_and_install(
-    context: &ResolvedContext,
-    client: &Client,
-    response: &CheckResponse,
-    app_id: &str,
-    release_version: &str,
-    platform: &str,
-    arch: &str,
-    cache_dir: &Path,
-) -> Result<()> {
+fn download_and_install(input: DownloadInstallInput<'_>) -> Result<()> {
+    let DownloadInstallInput {
+        context,
+        client,
+        response,
+        app_id,
+        release_version,
+        platform,
+        arch,
+        cache_dir,
+    } = input;
     let Some(patch) = &response.patch else {
         if response.patch_available {
             return Err(err(
@@ -959,17 +1025,6 @@ fn install(
     Ok(())
 }
 
-fn compile_or_read_bytecode_module(bytes: &[u8]) -> Result<BytecodeModule> {
-    match BytecodeModule::from_slice(bytes) {
-        Ok(module) => Ok(module),
-        Err(module_error) => compiler::compile_source_json(bytes).map_err(|source_error| {
-            err(format!(
-                "invalid bytecode payload: not a module ({module_error}) or supported source ({source_error})"
-            ))
-        }),
-    }
-}
-
 fn release_artifact_path(
     app_id: &str,
     release_version: &str,
@@ -1045,22 +1100,6 @@ fn snapshot_replace_diff_base(
         .display(),
         release.display(),
     )))
-}
-
-fn inspect(kind: &str, path: &Path) -> Result<()> {
-    let bytes = fs::read(path)?;
-    match kind {
-        "patch" => {
-            let manifest: PatchManifest = serde_json::from_slice(&bytes)?;
-            println!("{}", serde_json::to_string_pretty(&manifest)?);
-        }
-        "release" => {
-            let manifest: ReleaseManifest = serde_json::from_slice(&bytes)?;
-            println!("{}", serde_json::to_string_pretty(&manifest)?);
-        }
-        _ => return Err(err("inspect kind must be patch or release")),
-    }
-    Ok(())
 }
 
 fn backend_for(config: &RemoteAppConfig, platform: &str) -> Result<String> {
@@ -1237,11 +1276,15 @@ fn object_key(
 }
 
 #[cfg(test)]
+mod patch_report_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
-        bytecode_payload_from_inventories, compile_or_read_bytecode_module, interpret_sources,
-        manual_patch_payload,
+        bytecode_payload_from_inventories, interpret_sources, manual_patch_payload,
+        validate_compiled_bytecode_payload,
     };
+    use fcb_bytecode::format::{BytecodeFunction, BytecodeModule, Constant, OpCode, BINARY_MAGIC};
     use fcb_core::config::RemoteAppConfig;
     use fcb_core::linker::{
         FunctionDecision, FunctionInventoryEntry, KernelInventory, LinkerPlan,
@@ -1249,39 +1292,24 @@ mod tests {
     };
 
     #[test]
-    fn compiles_restricted_bytecode_source_payload() {
-        let module = compile_or_read_bytecode_module(
-            br#"{
-              "functions": [{
-                "name": "pricing.discount",
-                "params": ["subtotal"],
-                "body": {
-                  "if": {"op": ">", "left": {"arg": "subtotal"}, "right": {"int": 100}},
-                  "then": {"int": 90},
-                  "else": {"int": 100}
-                }
-              }]
-            }"#,
-        )
-        .expect("compile bytecode source");
+    fn compiled_bytecode_payload_preserves_binary_module() {
+        let module = BytecodeModule::new(vec![BytecodeFunction {
+            name: "package:app/main.dart::mainValue".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 1,
+            constants: vec![Constant::String(
+                "package:app/main.dart::helper".to_string(),
+            )],
+            code: vec![OpCode::CallStatic as u8, 0, 0, 0, OpCode::Return as u8],
+            source_map: Vec::new(),
+        }]);
+        let bytes = module.to_binary_vec().expect("binary module");
 
-        assert_eq!(module.functions[0].name, "pricing.discount");
-    }
+        let payload = validate_compiled_bytecode_payload(&bytes).expect("validated payload");
 
-    #[test]
-    fn rejects_unsupported_bytecode_source_payload() {
-        let err = compile_or_read_bytecode_module(
-            br#"{
-              "functions": [{
-                "name": "bad",
-                "params": ["x"],
-                "body": {"op": "%", "left": {"arg": "x"}, "right": {"int": 2}}
-              }]
-            }"#,
-        )
-        .expect_err("unsupported source should fail");
-
-        assert!(err.to_string().contains("invalid bytecode payload"));
+        assert!(payload.starts_with(BINARY_MAGIC));
+        assert_eq!(payload, bytes);
     }
 
     #[test]
@@ -1337,7 +1365,7 @@ mod tests {
     }
 
     #[test]
-    fn automatic_bytecode_payload_compiles_kernel_inventory_source() {
+    fn automatic_bytecode_test_helper_requires_dart_compiler_for_changed_functions() {
         let release = KernelInventory {
             schema_version: KERNEL_INVENTORY_SCHEMA_VERSION,
             functions: vec![FunctionInventoryEntry {
@@ -1367,11 +1395,10 @@ mod tests {
         };
         let mut report = super::PatchReport::new("bytecode", "ios", "arm64", "1.0.0+1", 1);
 
-        let result = bytecode_payload_from_inventories(&release, &patch, &mut report)
-            .expect("bytecode")
-            .expect("payload");
+        let err = bytecode_payload_from_inventories(&release, &patch, &mut report)
+            .expect_err("test helper should not compile source JSON");
 
-        assert_eq!(result.1, "bytecode_module");
+        assert!(err.to_string().contains("Dart compile-from-plan"));
         assert!(report.linker_plan.expect("plan").reject.is_empty());
     }
 
@@ -1381,13 +1408,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("dir");
         let payload_path = dir.join("payload.json");
-        std::fs::write(
-            &payload_path,
-            br#"{"functions":[{"name":"manual","params":[],"body":{"int":7}}]}"#,
-        )
-        .expect("payload");
+        let module = BytecodeModule::new(vec![BytecodeFunction {
+            name: "manual".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 0,
+            constants: vec![Constant::Int(7)],
+            code: vec![OpCode::LoadConst as u8, 0, 0, OpCode::Return as u8],
+            source_map: Vec::new(),
+        }]);
+        std::fs::write(&payload_path, module.to_vec().expect("module json")).expect("payload");
         let app = RemoteAppConfig {
             id: "app".to_string(),
+            org_id: None,
             name: "App".to_string(),
             channel: "stable".to_string(),
             public_key: "key".to_string(),

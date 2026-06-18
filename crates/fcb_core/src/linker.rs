@@ -85,6 +85,12 @@ pub enum RejectReason {
     ClassShapeChanged,
     FieldSignatureChanged,
     UnsupportedKernelNode,
+    EscapingCapturingClosure,
+    ReturningCapturingClosure,
+    PassingCapturingClosure,
+    AsyncAwaitUnsupported,
+    FunctionTypeUnsupported,
+    RecordTypeUnsupported,
     MissingBytecodeSource,
 }
 
@@ -344,5 +350,61 @@ mod tests {
             RejectReason::MissingBytecodeSource
         );
         assert!(plan.interpret.is_empty());
+    }
+
+    #[test]
+    fn preserves_unsupported_kernel_node_reject_reason() {
+        let release = inventory(vec![function("changed", "sig", "old", false)]);
+        let mut unsupported = function("changed", "sig", "new", false);
+        unsupported
+            .unsupported_reasons
+            .push(RejectReason::UnsupportedKernelNode);
+        let patch = inventory(vec![unsupported]);
+
+        let plan = plan_bytecode_link(&release, &patch).expect("plan");
+
+        assert_eq!(
+            plan.reject[0].reject_reason,
+            RejectReason::UnsupportedKernelNode
+        );
+        assert!(plan.interpret.is_empty());
+    }
+
+    #[test]
+    fn preserves_escaping_capturing_closure_reject_reason() {
+        for reason in [
+            RejectReason::EscapingCapturingClosure,
+            RejectReason::ReturningCapturingClosure,
+            RejectReason::PassingCapturingClosure,
+        ] {
+            let release = inventory(vec![function("changed", "sig", "old", false)]);
+            let mut unsupported = function("changed", "sig", "new", false);
+            unsupported.unsupported_reasons.push(reason.clone());
+            let patch = inventory(vec![unsupported]);
+
+            let plan = plan_bytecode_link(&release, &patch).expect("plan");
+
+            assert_eq!(plan.reject[0].reject_reason, reason);
+            assert!(plan.interpret.is_empty());
+        }
+    }
+
+    #[test]
+    fn preserves_structured_unsupported_runtime_reasons() {
+        for reason in [
+            RejectReason::AsyncAwaitUnsupported,
+            RejectReason::FunctionTypeUnsupported,
+            RejectReason::RecordTypeUnsupported,
+        ] {
+            let release = inventory(vec![function("changed", "sig", "old", false)]);
+            let mut unsupported = function("changed", "sig", "new", false);
+            unsupported.unsupported_reasons.push(reason.clone());
+            let patch = inventory(vec![unsupported]);
+
+            let plan = plan_bytecode_link(&release, &patch).expect("plan");
+
+            assert_eq!(plan.reject[0].reject_reason, reason);
+            assert!(plan.interpret.is_empty());
+        }
     }
 }

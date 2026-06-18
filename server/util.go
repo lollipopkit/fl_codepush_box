@@ -11,17 +11,18 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 func (s *Server) objectPath(key string) (string, error) {
-	clean := filepath.Clean(key)
-	if clean == "." || filepath.IsAbs(clean) || clean != key || clean == ".." || strings.HasPrefix(clean, "../") {
-		return "", fmt.Errorf("invalid object key")
+	if fsStorage, ok := s.storage.(*LocalFSStorage); ok {
+		return fsStorage.objectPath(key)
 	}
-	return filepath.Join(s.objectsDir, clean), nil
+	if err := validateObjectKey(key); err != nil {
+		return "", err
+	}
+	return filepath.Join(s.objectsDir, key), nil
 }
 
 func patchManifestBytes(patch PatchManifest) ([]byte, error) {
@@ -45,16 +46,27 @@ func patchPayloadKey(appID, releaseVersion, platform, arch string, patchNumber i
 	return fmt.Sprintf("patches/%s/%s/%s/%s/%d/payload.bin", appID, releaseVersion, platform, arch, patchNumber)
 }
 
-func eligible(appID, releaseVersion string, patchNumber int, clientID string, rollout int) bool {
+func orgScopedPayloadKey(orgID, key string) string {
+	if orgID == "" || orgID == defaultOrgID {
+		return key
+	}
+	return fmt.Sprintf("orgs/%s/%s", orgID, key)
+}
+
+func cohort(appID, releaseVersion, clientID string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(appID + "|" + releaseVersion + "|" + clientID))
+	return int(h.Sum32() % 10000)
+}
+
+func eligible(appID, releaseVersion, clientID string, rollout int) bool {
 	if rollout <= 0 {
 		return false
 	}
 	if rollout >= 100 {
 		return true
 	}
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(fmt.Sprintf("%s%s%d%s", appID, releaseVersion, patchNumber, clientID)))
-	return int(h.Sum32()%100) < rollout
+	return cohort(appID, releaseVersion, clientID) < rollout*100
 }
 
 func activeChannel(patch PatchManifest) string {
@@ -65,14 +77,14 @@ func activeChannel(patch PatchManifest) string {
 }
 
 func activeRollout(patch PatchManifest) int {
-	if patch.ActiveRollout != 0 {
-		return patch.ActiveRollout
-	}
-	return patch.Policy.RolloutPercentage
+	return patch.ActiveRollout
 }
 
-func manifestURL(c *fiber.Ctx, appID, releaseVersion, platform, arch string, patchNumber int) string {
+func manifestURL(c *fiber.Ctx, orgID, appID, releaseVersion, platform, arch string, patchNumber int) string {
 	q := url.Values{}
+	if orgID != "" && orgID != defaultOrgID {
+		q.Set("org_id", orgID)
+	}
 	q.Set("app_id", appID)
 	q.Set("release_version", releaseVersion)
 	q.Set("platform", platform)

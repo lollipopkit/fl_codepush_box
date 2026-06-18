@@ -23,14 +23,15 @@ Usage:
 
 Runs the FCB Android arm64 acceptance suite against the current adb device:
   1. device primary ABI must be arm64-v8a
-  2. no-patch launch must return 1/8/7/base/10
-  3. bytecode-patch launch must return 42/42/42/patched/42
+  2. no-patch launch must return 1/8/7/base/baseline widget tree/base-field/10
+  3. bytecode-patch launch must return 42/42/42/patched/patched widget tree/patched-field/42
 
 By default this script requires the device primary ABI to be arm64-v8a.
 Set FCB_ALLOW_SECONDARY_ABI=1 to also accept x86_64 emulators that support
 arm64-v8a as a secondary ABI via native-bridge. The functional contracts
-(1/8/7/base/10 and 42/42/42/patched/42) remain identical; the summary will
-record abi_mode: secondary to distinguish from a real arm64 device.
+(1/8/7/base/baseline widget tree/base-field/10 and
+42/42/42/patched/patched widget tree/patched-field/42) remain identical; the
+summary will record abi_mode: secondary to distinguish from a real arm64 device.
 
 Environment:
   FCB_WORKDIR             Acceptance root. Default: target/fcb/android-arm64-acceptance
@@ -61,7 +62,9 @@ run_phase() {
   local expected_adjusted="$6"
   local expected_static="$7"
   local expected_status="$8"
-  local expected_quad="$9"
+  local expected_widget_tree="$9"
+  local expected_field_status="${10}"
+  local expected_quad="${11}"
   local phase_workdir="$WORKDIR/$name"
 
   echo "== FCB arm64 acceptance: $name =="
@@ -81,12 +84,15 @@ run_phase() {
     FCB_EXPECTED_ADJUSTED_COUNTER="$expected_adjusted" \
     FCB_EXPECTED_STATIC_COUNTER="$expected_static" \
     FCB_EXPECTED_STATUS_LABEL="$expected_status" \
+    FCB_EXPECTED_WIDGET_TREE_LABEL="$expected_widget_tree" \
+    FCB_EXPECTED_FIELD_STATUS_LABEL="$expected_field_status" \
     FCB_EXPECTED_QUAD_COUNTER="$expected_quad" \
     FCB_PATCH_RETURN_VALUE=42 \
     FCB_PATCH_STRING_VALUE=patched \
     FCB_INCLUDE_ARG_FUNCTION_PATCH=1 \
     FCB_INCLUDE_STATIC_METHOD_PATCH=1 \
     FCB_INCLUDE_STRING_FUNCTION_PATCH=1 \
+    FCB_INCLUDE_FIELD_FUNCTION_PATCH=1 \
     FCB_INCLUDE_QUAD_FUNCTION_PATCH=1 \
     "$TEST_SCRIPT"
   echo "logcat: $phase_workdir/logs/logcat.txt"
@@ -145,7 +151,9 @@ assert_phase_result() {
   local expected_adjusted="$4"
   local expected_static="$5"
   local expected_status="$6"
-  local expected_quad="$7"
+  local expected_widget_tree="$7"
+  local expected_field_status="$8"
+  local expected_quad="$9"
   local result_file="$WORKDIR/$phase/result.txt"
 
   [ -f "$result_file" ] || {
@@ -162,6 +170,11 @@ assert_phase_result() {
   assert_result_field "$result_file" staticCounterValue_observed "$expected_static"
   assert_result_field "$result_file" statusLabel_expected "$expected_status"
   assert_result_field "$result_file" statusLabel_observed "$expected_status"
+  assert_result_field "$result_file" widgetTreeLabel_expected "$expected_widget_tree"
+  assert_result_field "$result_file" widgetTreeLabel_observed "$expected_widget_tree"
+  assert_result_field "$result_file" setState_observed "true"
+  assert_result_field "$result_file" fieldStatusLabel_expected "$expected_field_status"
+  assert_result_field "$result_file" fieldStatusLabel_observed "$expected_field_status"
   assert_result_field "$result_file" quadCounterValue_expected "$expected_quad"
   assert_result_field "$result_file" quadCounterValue_observed "$expected_quad"
 }
@@ -173,7 +186,7 @@ phase_observed_summary() {
     echo "${phase}_logcat_missing: true"
     return 1
   }
-  echo "${phase}_observed: $(log_result_value "$log_file" initialCounterValue)/$(log_result_value "$log_file" adjustedCounterValue)/$(log_result_value "$log_file" staticCounterValue)/$(log_result_value "$log_file" statusLabel)/$(log_result_value "$log_file" quadCounterValue)"
+  echo "${phase}_observed: $(log_result_value "$log_file" initialCounterValue)/$(log_result_value "$log_file" adjustedCounterValue)/$(log_result_value "$log_file" staticCounterValue)/$(log_result_value "$log_file" statusLabel)/$(log_result_value "$log_file" widgetTreeLabel)/$(log_result_value "$log_file" fieldStatusLabel)/$(log_result_value "$log_file" quadCounterValue)"
 }
 
 phase_result_summary() {
@@ -210,11 +223,11 @@ write_summary() {
     echo "primary_abi: ${primary_abi:-unknown}"
     echo "abilist: ${abi_list:-unknown}"
     echo "abi_mode: $abi_mode"
-    echo "nopatch_expected: 1/8/7/base/10"
+    echo "nopatch_expected: 1/8/7/base/baseline widget tree/base-field/10"
     echo "nopatch_logcat: $WORKDIR/nopatch/logs/logcat.txt"
     phase_observed_summary "nopatch"
     phase_result_summary "nopatch"
-    echo "patch_expected: 42/42/42/patched/42"
+    echo "patch_expected: 42/42/42/patched/patched widget tree/patched-field/42"
     echo "patch_logcat: $WORKDIR/patch/logs/logcat.txt"
     phase_observed_summary "patch"
     phase_result_summary "patch"
@@ -242,10 +255,10 @@ main() {
     second_skip_build=1
   fi
 
-  run_phase "nopatch" 0 "$skip_build" "$first_clean" "1" "8" "7" "base" "10"
-  assert_phase_result "nopatch" "nopatch" "1" "8" "7" "base" "10"
-  run_phase "patch" 1 "$second_skip_build" 0 "42" "42" "42" "patched" "42"
-  assert_phase_result "patch" "patch" "42" "42" "42" "patched" "42"
+  run_phase "nopatch" 0 "$skip_build" "$first_clean" "1" "8" "7" "base" "baseline widget tree" "base-field" "10"
+  assert_phase_result "nopatch" "nopatch" "1" "8" "7" "base" "baseline widget tree" "base-field" "10"
+  run_phase "patch" 1 "$second_skip_build" 0 "42" "42" "42" "patched" "patched widget tree" "patched-field" "42"
+  assert_phase_result "patch" "patch" "42" "42" "42" "patched" "patched widget tree" "patched-field" "42"
 
   write_summary
   echo "FCB Android arm64 acceptance passed."

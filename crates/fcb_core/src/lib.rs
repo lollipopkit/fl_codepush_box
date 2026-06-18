@@ -1,4 +1,5 @@
 pub mod build_info;
+pub mod bytecode;
 pub mod config;
 pub mod crypto;
 pub mod diff;

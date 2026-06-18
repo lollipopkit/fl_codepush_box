@@ -5,11 +5,28 @@
 **前置依赖**：Phase E 完成（真机能验证 bytecode 语义），G 完成（crash 自动回滚可测）
 **并行性**：H1 / H2 可与 E/F/G 并行启动；H3 / H4 串行依赖 E、G
 
+## 进度更新（2026-06-17）
+
+🟡 **部分完成**：CI/runbook/drill 入口齐全，顶层 vendor submodule 配置与
+REBASE runbook 已落地；仍缺 gitlink 入库、远端 CI 成功证据、真机、
+TestFlight 与 REBASE 实战证据。
+
+| 子阶段 | 状态 | 证据 |
+|--------|------|------|
+| H1 vendor submodule + 锁定 | 🟡 | `.gitmodules` 已注册 `vendor/flutter` 与 `vendor/depot_tools`；Dart VM patch 单一真源为 `vendor/flutter/engine/src/flutter/third_party/dart`，由 Engine `DEPS` 指向 `lollipopkit/dartsdk` fork。剩余缺口是顶层 vendor gitlink 尚未形成可审计提交 |
+| H2 GitHub Actions CI | 🟡 本地齐全，远端未验 | `.github/workflows/` 有 rust/server/e2e_x64/flutter_package/server_s3/android_emulator/ios_simulator/workflows_lint 八个；`make ci-local-core` 聚合可跑；但远端 main 尚未注册这些 workflow、未取得成功 run（`make check-github-actions-evidence` 仍是缺口 gate）|
+| H3 arm64 真机 drill | ❌ | `scripts/full_arm64_drill.sh` 入口已串 host preflight + device acceptance，但未在真机跑过、无录屏归档 |
+| H4 iPhone + TestFlight | ❌ | `docs/ios_distribution.md`/`docs/apple_compliance.md` runbook 已写；真机与 TestFlight 提交未做 |
+| H5 vendor REBASE 文档 | 🟡 | `vendor/REBASE.md` 与 `make record-vendor-rebase-evidence` 入口已备；首次真实 rebase validation 证据未做 |
+
+**关键依赖**：H3/H4 真机 crash leg 依赖 E（真实 VM dispatch）落地，目前 E 仍 skeleton，故真机端到端无法跑通。
+
 ## 目标
 
 把项目从"本地能跑"提升到"任意人 clone + CI 绿 + 真机/真用户验证"：
 
-1. vendor/{flutter,sdk,depot_tools} 改 git submodule，commit 锁定，文档化 rebase 流程。
+1. `vendor/{flutter,depot_tools}` 改 git submodule，commit 锁定；Flutter Engine
+   embedded Dart 通过 `DEPS` 指向并 pin `lollipopkit/dartsdk` fork；文档化 rebase 流程。
 2. GitHub Actions：Linux runner 构建 + cargo test + e2e；macOS runner 跑 iOS build 与模拟器测试。
 3. arm64-v8a 真机走完整 release → patch → restart → crash → 回滚流程。
 4. iPhone arm64 同样跑一遍；TestFlight 提交 counter_app 验证 Apple 审核通过。
@@ -17,12 +34,12 @@
 
 ## 现状
 
-- vendor/sdk = `github.com/lollipopkit/dartsdk`，HEAD `1b88776798d`（已含 FCB Phase D commits）
+- Engine embedded Dart SDK = `vendor/flutter/engine/src/flutter/third_party/dart`，`DEPS` 指向 `github.com/lollipopkit/dartsdk`，pin 到 `1b88776798d`（已含 FCB Phase D commits）
 - vendor/flutter = `github.com/lollipopkit/flutter`，HEAD `87c1bc51504`（已含 FCB Android + iOS engine hooks）
 - vendor/depot_tools：上游 chromium depot_tools（无 fork 必要，pin commit 即可）
-- 三个目录目前 untracked：handoff.md 明说"不要 stage/commit"
+- 顶层 vendor submodule 配置已写入 `.gitmodules`；当前 audit 仍要求 gitlink 入库后才算 H1 完成
 - `scripts/build_android_engine.sh`、`build_ios_engine.sh`、`test_android_arm64.sh`、`test_ios_sim.sh` 已存在
-- 无 `.github/workflows/`
+- `.github/workflows/` 已有本地 workflow 定义；远端成功 run 证据仍缺
 
 ## 子阶段
 
@@ -30,7 +47,7 @@
 
 **任务**
 
-- 把 3 个 vendor 目录注册为 submodule：
+- 把 2 个顶层 vendor 目录注册为 submodule，并由 Flutter Engine `DEPS` pin Dart SDK fork：
 
 ```
 .gitmodules:
@@ -38,10 +55,6 @@
     path = vendor/flutter
     url = https://github.com/lollipopkit/flutter.git
     branch = fcb-stable
-  [submodule "vendor/sdk"]
-    path = vendor/sdk
-    url = https://github.com/lollipopkit/dartsdk.git
-    branch = fcb-3.12.2
   [submodule "vendor/depot_tools"]
     path = vendor/depot_tools
     url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
@@ -51,14 +64,14 @@
   - `lollipopkit/flutter` 上建 `fcb-stable`（追 Flutter stable + FCB engine hooks）
   - `lollipopkit/dartsdk` 上建 `fcb-3.12.2`（追 Dart 3.12.2 + FCB patch runtime）
 - 锁定 commit：`git submodule add` 后会自动锁到当前 HEAD。
-- 删除 handoff.md 里"不要 stage vendor"的告诫。
+- 不再维护顶层 `vendor/sdk`、`engine_patch/`、`dart_sdk_patch/` 或同步脚本；开发期直接在
+  `vendor/flutter` 与 embedded Dart checkout 上开分支，稳定后更新 pinned commits。
 - `scripts/bootstrap.sh`：`git submodule update --init --recursive --depth 100`（depth 100 平衡完整性与下载量）。
 
 **关键文件**
 
-- 新建 `.gitmodules`
-- 新建 `scripts/bootstrap.sh`
-- 修改 `handoff.md`
+- `.gitmodules`
+- `scripts/bootstrap.sh`
 - 修改 `README.md`：加 clone 步骤
 
 **验收**
@@ -200,7 +213,8 @@
 
 ## 退出标准
 
-- vendor 三目录 submodule 化，PR diff 清晰显示 commit 变化。
+- `vendor/flutter` 与 `vendor/depot_tools` submodule 化，PR diff 清晰显示 commit 变化；
+  embedded Dart SDK commit 由 Flutter Engine `DEPS` 清晰锁定。
 - main 分支 CI 三个 workflow 持续绿。
 - arm64-v8a 真机 drill 全流程通过且录屏归档。
 - iPhone 真机验证通过，TestFlight 至少进入 External Testing。

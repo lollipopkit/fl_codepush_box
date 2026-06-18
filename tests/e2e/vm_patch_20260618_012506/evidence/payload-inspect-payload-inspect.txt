@@ -1,0 +1,12 @@
+payload inspect evidence
+platform: android-arm64
+android_payload: target/fcb/android-arm64-patch/manual-bytecode-patch/payload.bin
+manifest: {"schema_version":1,"patch_number":1,"release_version":"1.0.0+1","backend":"bytecode","payload":{"kind":"bytecode_module","hash":"manual-device-smoke"}}
+state: {"schema_version":1,"release_version":"1.0.0+1","current_patch_number":0,"pending_patch_number":1,"bad_patches":[],"last_launch":null,"installed":[{"patch_number":1,"backend":"bytecode","manifest_path":"patches/1/manifest.json","payload_path":"patches/1/payload.bin","artifact_path":null,"installed_at":"manual-device-smoke"}]}
+android_payload_prefix: {"ve
+android_payload_functions: 10
+FCBM runtime reader present: true
+source_map runtime reader present: true
+uses_call_static: true
+true
+notes: Android device smoke uses JSON bytecode payload; embedded Dart VM runtime also contains FCBM binary and source_map reader support verified by vendor VM/local CI evidence.

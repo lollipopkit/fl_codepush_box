@@ -11,33 +11,30 @@ This directory contains local upstream/fork checkouts used by FCB.
   - Modern stable checkouts include the Engine source under `engine/`.
   - The Engine revision is pinned by `flutter/bin/internal/engine.version`.
 
-- `sdk/`
-  - Remote: `https://github.com/lollipopkit/dartsdk`
-  - Branch: `stable`
-  - This is the Dart SDK checkout. Dart VM changes live under `runtime/vm/`.
+- `flutter/engine/src/flutter/third_party/dart/`
+  - Remote: `https://github.com/lollipopkit/dartsdk` through Flutter Engine
+    `DEPS`.
+  - This is the embedded Dart SDK checkout. Dart VM patch changes live under
+    `runtime/vm/` here; there is no separate top-level `vendor/sdk` mirror.
 
 - `depot_tools/`
   - Chromium build toolchain providing `gclient`, `gn`, and `ninja`.
   - Required by `build_android_engine.sh`, `bootstrap_engine_min_deps.sh`, and
     `sync_flutter_engine_deps.sh`.
 
-## Sync Dart VM Patch
+## Dart VM Patch Source
 
-After making changes to `vendor/sdk`, sync them into the Engine's embedded Dart
-SDK checkout:
-
-```sh
-scripts/sync_dart_vm_patch.sh
-```
-
-This runs `git pull origin stable` inside:
+Dart VM patch code is maintained directly in the Engine embedded Dart SDK
+checkout:
 
 ```text
-vendor/flutter/engine/src/flutter/third_party/dart
+vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/
 ```
 
-That directory is a git clone of `vendor/sdk` (local path as origin), so the
-pull fast-forwards it to the latest FCB commit.
+During development, create branches and commits in that embedded checkout.
+During rebase/release, update the Flutter Engine `DEPS` Dart pin to the
+corresponding `lollipopkit/dartsdk` commit. Do not restore `dart_sdk_patch/`,
+`engine_patch/`, or `scripts/sync_dart_vm_patch.sh`.
 
 ## Android Engine FCB Wiring
 
@@ -58,8 +55,8 @@ The Engine hook initializes the updater with `<engineCachesPath>/fcb`, resolves
 an installed `bytecode` launch patch, and registers it from
 `Settings::root_isolate_create_callback` before user Dart code runs. The Android
 bridge directly includes `third_party/dart/runtime/vm/fcb_patch_api.h`, so the
-Dart VM patch files must be synced into the Engine's Dart SDK checkout before
-building with `fcb_enable_code_push=true`.
+Dart VM patch files must be present in the Engine's embedded Dart SDK checkout
+before building with `fcb_enable_code_push=true`.
 
 Flutter `DEPS` pins the Engine Dart SDK checkout at:
 
@@ -67,11 +64,8 @@ Flutter `DEPS` pins the Engine Dart SDK checkout at:
 vendor/flutter/engine/src/flutter/third_party/dart
 ```
 
-After `gclient sync` has populated that directory, sync the local VM patch:
-
-```sh
-scripts/sync_dart_vm_patch.sh
-```
+After `gclient sync` has populated that directory, check out the desired
+`lollipopkit/dartsdk` branch or commit there if you are doing local development.
 
 ## Build Android Engine
 
@@ -150,7 +144,7 @@ vendor/flutter/engine/src/out/android_release_x64/gen_snapshot
 
 By default the wrapper:
 
-- syncs the local Dart VM overlay from `vendor/sdk` into the Engine Dart SDK;
+- uses the Dart VM patch files already present in the Engine embedded Dart SDK;
 - builds `libfcb_updater.a` with `cargo-ndk` when
   `FCB_UPDATER_STATICLIB` is not provided;
 - runs Engine GN for Android with `fcb_enable_code_push=true` and an absolute
@@ -373,7 +367,8 @@ static functions are rewritten to FCB AOT stubs.
 ## Notes
 
 - Do not add `-stable` suffixes to vendor directory names.
-- Keep `vendor/flutter` and `vendor/sdk` on their `stable` branches.
+- Keep `vendor/flutter` on its stable FCB branch and keep the embedded Dart SDK
+  checkout on the matching `lollipopkit/dartsdk` branch or pinned commit.
 - `flutter/engine` on GitHub is archived/read-only. For current stable, use the
   Engine source embedded in `vendor/flutter/engine/`.
 - If `vendor/engine/` or `vendor/flutter/engine.incomplete-*` exists, treat it

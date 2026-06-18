@@ -1,0 +1,60 @@
+name: Android Emulator Nightly
+
+on:
+  schedule:
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  android-x64:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Bootstrap vendor
+        run: |
+          scripts/bootstrap.sh --check
+          test -x scripts/build_android_engine.sh
+          test -x scripts/test_android_x64.sh
+
+      - name: Cache Android engine output
+        uses: actions/cache@v4
+        with:
+          path: vendor/flutter/engine/src/out/android_release_x64
+          key: android-engine-x64-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'scripts/build_android_engine.sh', 'vendor/flutter/engine/src/flutter/DEPS') }}
+          restore-keys: |
+            android-engine-x64-${{ runner.os }}-
+
+      - name: Build Android x64 engine
+        run: |
+          FCB_ANDROID_CPU=x64 \
+          FCB_ANDROID_ARCH=x64 \
+          FCB_RUNTIME_MODE=release \
+          scripts/build_android_engine.sh
+
+      - name: Start Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          script: |
+            FCB_FLUTTER_CLEAN=1 \
+            FCB_LAUNCH_WAIT_SECONDS=15 \
+            scripts/test_android_x64.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-x64-fcb-logs
+          path: target/fcb/android-x64
+          if-no-files-found: ignore

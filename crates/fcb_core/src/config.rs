@@ -100,6 +100,8 @@ impl LocalBuildConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteAppConfig {
     pub id: String,
+    #[serde(default)]
+    pub org_id: Option<String>,
     pub name: String,
     pub channel: String,
     pub public_key: String,
@@ -137,6 +139,7 @@ mod tests {
     fn selects_platforms() {
         let config = RemoteAppConfig {
             id: "app".to_string(),
+            org_id: None,
             name: "App".to_string(),
             channel: "stable".to_string(),
             public_key: "key".to_string(),

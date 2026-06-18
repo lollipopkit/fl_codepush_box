@@ -1,4 +1,4 @@
-.PHONY: all up down restart status clean build-webui build-server
+.PHONY: all up down restart status clean build-webui build-server audit-plan-completion check-workflows check-github-actions-inventory check-github-actions-evidence check-phase-h-runbooks ci-local-core record-testflight-evidence record-vendor-rebase-evidence record-vm-patch-evidence test-s3-storage test-admin-runtime test-crash-rollback test-kernel-compile test-flutter-package test-vendor-vm-runtime
 
 # Default port and database path configuration
 FCB_SERVER_ADDR ?= 127.0.0.1:8080
@@ -8,8 +8,69 @@ FCB_SERVER_LOG ?= .fcb/server/server.log
 FCB_WEBUI_DIST ?= server/webui/dist
 FCB_LEGACY_SERVER_PID ?= server.pid
 FCB_LEGACY_SERVER_LOG ?= server.log
+FLUTTER ?= flutter
 
 all: build-webui build-server
+
+audit-plan-completion:
+	@echo "Auditing plan completion evidence..."
+	scripts/audit_plan_completion.sh
+
+check-workflows:
+	@echo "Linting GitHub Actions workflows..."
+	scripts/check_workflows.sh
+
+check-github-actions-inventory:
+	@echo "Checking GitHub Actions workflow inventory..."
+	scripts/check_github_actions_inventory.sh
+
+check-github-actions-evidence:
+	@echo "Checking GitHub Actions evidence..."
+	scripts/check_github_actions_evidence.sh
+
+check-phase-h-runbooks:
+	@echo "Checking Phase H runbook generation..."
+	scripts/check_phase_h_runbooks.sh
+
+ci-local-core:
+	@echo "Running local core CI..."
+	scripts/ci_local_core.sh
+
+record-testflight-evidence:
+	@echo "Recording TestFlight evidence..."
+	scripts/record_testflight_evidence.sh
+
+record-vendor-rebase-evidence:
+	@echo "Recording vendor rebase evidence..."
+	scripts/record_vendor_rebase_evidence.sh
+
+record-vm-patch-evidence:
+	@echo "Recording VM patch evidence..."
+	scripts/record_vm_patch_evidence.sh
+
+test-s3-storage:
+	@echo "Running S3 storage drill..."
+	scripts/test_s3_storage.sh
+
+test-admin-runtime:
+	@echo "Running admin runtime drill..."
+	scripts/test_admin_runtime.sh
+
+test-crash-rollback:
+	@echo "Running crash rollback drill..."
+	scripts/test_crash_rollback.sh
+
+test-kernel-compile:
+	@echo "Running Kernel compile-from-plan drill..."
+	tests/e2e/test_kernel_compile_from_plan.sh
+
+test-flutter-package:
+	@echo "Running fcb_code_push Flutter package tests..."
+	cd packages/fcb_code_push && $(FLUTTER) test
+
+test-vendor-vm-runtime:
+	@echo "Running vendor Dart VM FCB runtime test..."
+	scripts/test_vendor_vm_runtime.sh
 
 # Build the Web UI static assets
 build-webui:
