@@ -2,7 +2,15 @@ use crate::{err, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-pub const FORMAT_VERSION: u32 = 1;
+/// Highest bytecode-module container version this build can parse/produce.
+pub const FORMAT_VERSION: u32 = 2;
+/// Lowest container version this build still accepts. The reader accepts the
+/// inclusive range `MIN_SUPPORTED_MODULE_VERSION..=FORMAT_VERSION` so that a
+/// device built today keeps accepting older patches after FORMAT_VERSION is
+/// bumped — only a genuinely newer container (> FORMAT_VERSION) is rejected,
+/// and that degrades gracefully (patch skipped, baseline keeps running) rather
+/// than forcing a store release for every additive format change.
+pub const MIN_SUPPORTED_MODULE_VERSION: u32 = 1;
 pub const BINARY_MAGIC: &[u8; 4] = b"FCBM";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +42,8 @@ pub enum OpCode {
     CallClosure = 0x53,
     MakeClosure = 0x54,
     NewObject = 0x55,
+    Throw = 0x60,
+    TryBegin = 0x61,
     Return = 0xff,
 }
 
@@ -66,6 +76,8 @@ impl OpCode {
             0x53 => Self::CallClosure,
             0x54 => Self::MakeClosure,
             0x55 => Self::NewObject,
+            0x60 => Self::Throw,
+            0x61 => Self::TryBegin,
             0xff => Self::Return,
             _ => return None,
         })
@@ -90,6 +102,7 @@ impl OpCode {
             | Self::CallOriginal
             | Self::CallClosure
             | Self::NewObject => 3,
+            Self::TryBegin => 4,
             Self::LoadArg | Self::LoadLocal | Self::StoreLocal => 1,
             Self::Add
             | Self::Sub
@@ -97,6 +110,7 @@ impl OpCode {
             | Self::Div
             | Self::Greater
             | Self::Equal
+            | Self::Throw
             | Self::Return => 0,
         }
     }
@@ -127,12 +141,20 @@ pub struct BytecodeFunction {
     pub code: Vec<u8>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_map: Vec<SourceMapEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub debug_locals: Vec<DebugLocalEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceMapEntry {
     pub bytecode_offset: u32,
     pub source_location: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DebugLocalEntry {
+    pub slot: u16,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -209,6 +231,17 @@ impl BytecodeModule {
                     source_location: reader.string()?,
                 });
             }
+            let mut debug_locals = Vec::new();
+            if version >= 2 {
+                let debug_local_count = reader.u16()? as usize;
+                debug_locals = Vec::with_capacity(debug_local_count);
+                for _ in 0..debug_local_count {
+                    debug_locals.push(DebugLocalEntry {
+                        slot: reader.u16()?,
+                        name: reader.string()?,
+                    });
+                }
+            }
             functions.push(BytecodeFunction {
                 name,
                 return_convention,
@@ -217,6 +250,7 @@ impl BytecodeModule {
                 constants,
                 code,
                 source_map,
+                debug_locals,
             });
         }
         reader.finish()?;
@@ -232,7 +266,7 @@ impl BytecodeModule {
         self.validate()?;
         let mut out = Vec::new();
         out.extend_from_slice(BINARY_MAGIC);
-        out.extend_from_slice(&self.version.to_be_bytes());
+        out.extend_from_slice(&FORMAT_VERSION.to_be_bytes());
         write_u16(&mut out, self.functions.len(), "function count")?;
         for function in &self.functions {
             write_string(&mut out, &function.name, "function name")?;
@@ -259,6 +293,11 @@ impl BytecodeModule {
                 out.extend_from_slice(&entry.bytecode_offset.to_be_bytes());
                 write_string(&mut out, &entry.source_location, "source location")?;
             }
+            write_u16(&mut out, function.debug_locals.len(), "debug locals count")?;
+            for entry in &function.debug_locals {
+                out.extend_from_slice(&entry.slot.to_be_bytes());
+                write_string(&mut out, &entry.name, "debug local name")?;
+            }
         }
         Ok(out)
     }
@@ -272,10 +311,10 @@ impl BytecodeModule {
     }
 
     pub fn validate_envelope(&self) -> Result<()> {
-        if self.version != FORMAT_VERSION {
+        if self.version < MIN_SUPPORTED_MODULE_VERSION || self.version > FORMAT_VERSION {
             return Err(err(format!(
-                "unexpected bytecode module version {}, expected {}",
-                self.version, FORMAT_VERSION
+                "unexpected bytecode module version {}, supported range {}..={}",
+                self.version, MIN_SUPPORTED_MODULE_VERSION, FORMAT_VERSION
             )));
         }
         if self.functions.is_empty() {
@@ -326,8 +365,60 @@ impl BytecodeModule {
                     )));
                 }
             }
+            for entry in &function.debug_locals {
+                if entry.slot as usize
+                    >= function.param_count as usize + function.local_count as usize
+                {
+                    return Err(err(format!(
+                        "debug_locals for function {} targets out-of-range slot {}",
+                        function.name, entry.slot
+                    )));
+                }
+                if entry.name.trim().is_empty() {
+                    return Err(err(format!(
+                        "debug_locals for function {} has empty name",
+                        function.name
+                    )));
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Function ids this module invokes via `CallOriginal` (i.e. the original
+    /// AOT implementation). Each must survive AOT compilation with a real entry
+    /// point in the release, otherwise the patch would dispatch into a
+    /// tree-shaken/inlined function at runtime. See ADR-#2.
+    pub fn call_original_targets(&self) -> Vec<String> {
+        let mut targets = BTreeSet::new();
+        for function in &self.functions {
+            let mut pos = 0usize;
+            while pos < function.code.len() {
+                let Some(opcode) = OpCode::from_byte(function.code[pos]) else {
+                    break;
+                };
+                let operand_start = pos + 1;
+                if opcode == OpCode::CallOriginal && operand_start + 2 <= function.code.len() {
+                    let idx = read_u16(&function.code, operand_start) as usize;
+                    if let Some(Constant::String(target)) = function.constants.get(idx) {
+                        targets.insert(target.clone());
+                    }
+                }
+                pos = operand_start + opcode.operand_len();
+            }
+        }
+        targets.into_iter().collect()
+    }
+
+    /// `CallOriginal` targets NOT present in `aot_present` (the set of function
+    /// ids that survived AOT with a real entry point). Non-empty means the patch
+    /// would call into a function the AOT snapshot no longer contains, and the
+    /// patch must be rejected at build time rather than crashing at runtime.
+    pub fn missing_aot_targets(&self, aot_present: &BTreeSet<String>) -> Vec<String> {
+        self.call_original_targets()
+            .into_iter()
+            .filter(|target| !aot_present.contains(target))
+            .collect()
     }
 }
 
@@ -391,6 +482,42 @@ pub fn validate_bytecode(function: &BytecodeFunction) -> Result<()> {
                     "LoadConst at offset {pos} references missing constant {idx}"
                 )));
             }
+        } else if opcode == OpCode::LoadArg {
+            let idx = function.code[operand_start] as usize;
+            if idx >= function.param_count as usize {
+                return Err(err(format!(
+                    "LoadArg at offset {pos} references missing argument {idx}"
+                )));
+            }
+        } else if opcode == OpCode::LoadLocal || opcode == OpCode::StoreLocal {
+            let idx = function.code[operand_start] as usize;
+            if idx >= function.local_count as usize {
+                return Err(err(format!(
+                    "{opcode:?} at offset {pos} references missing local {idx}"
+                )));
+            }
+        } else if opcode == OpCode::CallClosure {
+            let metadata_idx = read_u16(&function.code, operand_start);
+            if metadata_idx != 0 {
+                let idx = metadata_idx as usize - 1;
+                let Some(Constant::String(value)) = function.constants.get(idx) else {
+                    return Err(err(format!(
+                        "CallClosure at offset {pos} references missing metadata constant {idx}"
+                    )));
+                };
+                if !value.starts_with(";named:") {
+                    return Err(err(format!(
+                        "CallClosure metadata at offset {pos} must start with ;named:"
+                    )));
+                }
+                let argc = function.code[operand_start + 2] as usize;
+                let named_count = count_named_arguments(value, true);
+                if named_count > argc {
+                    return Err(err(format!(
+                        "CallClosure at offset {pos} has {named_count} named arguments but argc is {argc}"
+                    )));
+                }
+            }
         } else if matches!(
             opcode,
             OpCode::GetField
@@ -409,6 +536,20 @@ pub fn validate_bytecode(function: &BytecodeFunction) -> Result<()> {
                     "{opcode:?} at offset {pos} references missing string constant {idx}"
                 )));
             }
+            if matches!(
+                opcode,
+                OpCode::CallDynamic | OpCode::CallOriginal | OpCode::NewObject
+            ) {
+                if let Some(Constant::String(value)) = function.constants.get(idx) {
+                    let argc = function.code[operand_start + 2] as usize;
+                    let named_count = count_named_arguments(value, false);
+                    if named_count > argc {
+                        return Err(err(format!(
+                            "{opcode:?} at offset {pos} has {named_count} named arguments but argc is {argc}"
+                        )));
+                    }
+                }
+            }
         }
         pos = next;
     }
@@ -425,7 +566,7 @@ pub fn validate_bytecode(function: &BytecodeFunction) -> Result<()> {
         let operand_start = pos + 1;
         if matches!(
             opcode,
-            OpCode::Jump | OpCode::JumpIfFalse | OpCode::JumpIfTrue
+            OpCode::Jump | OpCode::JumpIfFalse | OpCode::JumpIfTrue | OpCode::TryBegin
         ) {
             let target = read_u16(&function.code, operand_start) as usize;
             if target >= function.code.len() {
@@ -440,6 +581,27 @@ pub fn validate_bytecode(function: &BytecodeFunction) -> Result<()> {
                     opcode, pos, target
                 )));
             }
+            if opcode == OpCode::TryBegin {
+                let end = read_u16(&function.code, operand_start + 2) as usize;
+                if end >= function.code.len() {
+                    return Err(err(format!(
+                        "TryBegin at offset {} has out-of-range end offset {}",
+                        pos, end
+                    )));
+                }
+                if !starts.contains(&end) {
+                    return Err(err(format!(
+                        "TryBegin at offset {} has non-instruction end offset {}",
+                        pos, end
+                    )));
+                }
+                if target <= pos || target >= end {
+                    return Err(err(format!(
+                        "TryBegin at offset {} requires current < handler < end",
+                        pos
+                    )));
+                }
+            }
         }
         pos = operand_start + opcode.operand_len();
     }
@@ -448,6 +610,20 @@ pub fn validate_bytecode(function: &BytecodeFunction) -> Result<()> {
 
 fn read_u16(code: &[u8], pos: usize) -> u16 {
     u16::from_be_bytes([code[pos], code[pos + 1]])
+}
+
+fn count_named_arguments(metadata: &str, require_prefix: bool) -> usize {
+    const MARKER: &str = ";named:";
+    let Some(marker_start) = metadata.find(MARKER) else {
+        return 0;
+    };
+    if require_prefix && marker_start != 0 {
+        return 0;
+    }
+    metadata[marker_start + MARKER.len()..]
+        .split(',')
+        .filter(|name| !name.is_empty())
+        .count()
 }
 
 fn write_u16(out: &mut Vec<u8>, value: usize, label: &str) -> Result<()> {
@@ -583,7 +759,8 @@ impl<'a> BinaryReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::{
-        validate_bytecode, BytecodeFunction, BytecodeModule, Constant, OpCode, SourceMapEntry,
+        validate_bytecode, BytecodeFunction, BytecodeModule, Constant, DebugLocalEntry, OpCode,
+        SourceMapEntry,
     };
 
     #[test]
@@ -604,6 +781,7 @@ mod tests {
                 OpCode::Return as u8,
             ],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         let err = validate_bytecode(&function).expect_err("target into operand should fail");
@@ -613,13 +791,83 @@ mod tests {
 
     #[test]
     fn rejects_unexpected_module_version() {
-        let bytes = br#"{"version":2,"functions":[]}"#;
+        let bytes = format!(
+            r#"{{"version":{},"functions":[]}}"#,
+            super::FORMAT_VERSION + 1
+        );
 
-        let err = BytecodeModule::from_slice(bytes).expect_err("version should fail");
+        let err = BytecodeModule::from_slice(bytes.as_bytes()).expect_err("version should fail");
 
         assert!(err
             .to_string()
             .contains("unexpected bytecode module version"));
+    }
+
+    #[test]
+    fn call_original_targets_and_missing_aot_gate() {
+        use std::collections::BTreeSet;
+        let module = BytecodeModule::new(vec![BytecodeFunction {
+            name: "package:app/main.dart::caller".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 0,
+            constants: vec![Constant::String("package:app/main.dart::helper".to_string())],
+            code: vec![OpCode::CallOriginal as u8, 0, 0, 0, OpCode::Return as u8],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        }]);
+
+        assert_eq!(
+            module.call_original_targets(),
+            vec!["package:app/main.dart::helper".to_string()]
+        );
+
+        // Target absent from the AOT set -> reported as missing (fail-closed).
+        let empty: BTreeSet<String> = BTreeSet::new();
+        assert_eq!(
+            module.missing_aot_targets(&empty),
+            vec!["package:app/main.dart::helper".to_string()]
+        );
+
+        // Target present in the AOT set -> nothing missing.
+        let present: BTreeSet<String> =
+            ["package:app/main.dart::helper".to_string()].into_iter().collect();
+        assert!(module.missing_aot_targets(&present).is_empty());
+    }
+
+    #[test]
+    fn module_version_accepts_inclusive_supported_range() {
+        // Invariant: the accepted range is well-formed and the current producer
+        // version sits inside it. When FORMAT_VERSION is later bumped while
+        // MIN_SUPPORTED_MODULE_VERSION stays low, older patches keep parsing.
+        assert!(super::MIN_SUPPORTED_MODULE_VERSION <= super::FORMAT_VERSION);
+
+        // A version below the supported floor is rejected with the range message.
+        let below = super::MIN_SUPPORTED_MODULE_VERSION.saturating_sub(1);
+        let mut module = BytecodeModule::new(vec![BytecodeFunction {
+            name: "f".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 0,
+            constants: vec![],
+            code: vec![OpCode::Return as u8],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        }]);
+        module.version = below;
+        if below < super::MIN_SUPPORTED_MODULE_VERSION {
+            let err = module
+                .validate_envelope()
+                .expect_err("below-floor version should fail");
+            assert!(err.to_string().contains("supported range"));
+        }
+
+        // The current producer version is accepted.
+        let mut current = module.clone();
+        current.version = super::FORMAT_VERSION;
+        current
+            .validate_envelope()
+            .expect("current version must be accepted");
     }
 
     #[test]
@@ -634,6 +882,7 @@ mod tests {
             )],
             code: vec![OpCode::CallStatic as u8, 0, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         validate_bytecode(&function).expect("string callee constant should validate");
@@ -657,6 +906,7 @@ mod tests {
                 OpCode::Return as u8,
             ],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         validate_bytecode(&function).expect("string method constant should validate");
@@ -672,6 +922,7 @@ mod tests {
             constants: vec![Constant::String("dart:core::identical".to_string())],
             code: vec![OpCode::CallOriginal as u8, 0, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         validate_bytecode(&function).expect("string original callee should validate");
@@ -695,11 +946,169 @@ mod tests {
                 OpCode::Return as u8,
             ],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         assert_eq!(OpCode::from_byte(0x53), Some(OpCode::CallClosure));
         assert_eq!(OpCode::CallClosure.operand_len(), 3);
         validate_bytecode(&function).expect("closure call opcode should validate");
+    }
+
+    #[test]
+    fn validates_call_closure_named_metadata() {
+        let function = BytecodeFunction {
+            name: "closure_caller_named".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 1,
+            local_count: 1,
+            constants: vec![Constant::String(";named:path".to_string())],
+            code: vec![
+                OpCode::LoadArg as u8,
+                0,
+                OpCode::CallClosure as u8,
+                0,
+                1,
+                1,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        validate_bytecode(&function).expect("named closure metadata should validate");
+    }
+
+    #[test]
+    fn rejects_call_closure_bad_metadata() {
+        let function = BytecodeFunction {
+            name: "closure_caller_bad_metadata".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 1,
+            local_count: 1,
+            constants: vec![Constant::String("path".to_string())],
+            code: vec![
+                OpCode::LoadArg as u8,
+                0,
+                OpCode::CallClosure as u8,
+                0,
+                1,
+                1,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        let err = validate_bytecode(&function).expect_err("bad metadata should fail");
+
+        assert!(err.to_string().contains("must start with ;named:"));
+    }
+
+    #[test]
+    fn rejects_call_closure_missing_metadata_constant() {
+        let function = BytecodeFunction {
+            name: "closure_caller_missing_metadata".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 1,
+            local_count: 1,
+            constants: vec![],
+            code: vec![
+                OpCode::LoadArg as u8,
+                0,
+                OpCode::CallClosure as u8,
+                0,
+                1,
+                1,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        let err = validate_bytecode(&function).expect_err("missing metadata should fail");
+
+        assert!(err.to_string().contains("missing metadata constant"));
+    }
+
+    #[test]
+    fn rejects_call_closure_named_count_greater_than_argc() {
+        let function = BytecodeFunction {
+            name: "closure_caller_too_many_named".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 1,
+            local_count: 1,
+            constants: vec![Constant::String(";named:path,query".to_string())],
+            code: vec![
+                OpCode::LoadArg as u8,
+                0,
+                OpCode::CallClosure as u8,
+                0,
+                1,
+                1,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        let err = validate_bytecode(&function).expect_err("too many named args should fail");
+
+        assert!(err.to_string().contains("2 named arguments"));
+    }
+
+    #[test]
+    fn rejects_inline_named_count_greater_than_argc() {
+        let function = BytecodeFunction {
+            name: "named_dynamic_too_many".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 1,
+            local_count: 1,
+            constants: vec![Constant::String("replace;named:path,query".to_string())],
+            code: vec![
+                OpCode::LoadArg as u8,
+                0,
+                OpCode::CallDynamic as u8,
+                0,
+                0,
+                1,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        let err = validate_bytecode(&function).expect_err("too many named args should fail");
+
+        assert!(err.to_string().contains("2 named arguments"));
+    }
+
+    #[test]
+    fn rejects_missing_argument_or_local_reference() {
+        let load_arg = BytecodeFunction {
+            name: "bad_arg".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 0,
+            constants: vec![],
+            code: vec![OpCode::LoadArg as u8, 0, OpCode::Return as u8],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+        let err = validate_bytecode(&load_arg).expect_err("missing arg should fail");
+        assert!(err.to_string().contains("missing argument"));
+
+        let load_local = BytecodeFunction {
+            name: "bad_local".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 0,
+            constants: vec![],
+            code: vec![OpCode::LoadLocal as u8, 0, OpCode::Return as u8],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+        let err = validate_bytecode(&load_local).expect_err("missing local should fail");
+        assert!(err.to_string().contains("missing local"));
     }
 
     #[test]
@@ -712,6 +1121,7 @@ mod tests {
             constants: vec![Constant::String("dart:core::identical".to_string())],
             code: vec![OpCode::MakeClosure as u8, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         assert_eq!(OpCode::from_byte(0x54), Some(OpCode::MakeClosure));
@@ -731,6 +1141,7 @@ mod tests {
             )],
             code: vec![OpCode::NewObject as u8, 0, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         assert_eq!(OpCode::from_byte(0x55), Some(OpCode::NewObject));
@@ -750,9 +1161,102 @@ mod tests {
             )],
             code: vec![OpCode::NewObject as u8, 0, 0, 2, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         validate_bytecode(&function).expect("named new object opcode should validate");
+    }
+
+    #[test]
+    fn validates_throw_and_try_begin_opcodes() {
+        let function = BytecodeFunction {
+            name: "try_throw".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 1,
+            constants: vec![Constant::String("caught".to_string())],
+            code: vec![
+                OpCode::TryBegin as u8,
+                0,
+                8,
+                0,
+                12,
+                OpCode::LoadConst as u8,
+                0,
+                0,
+                OpCode::Throw as u8,
+                OpCode::LoadConst as u8,
+                0,
+                0,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        assert_eq!(OpCode::from_byte(0x60), Some(OpCode::Throw));
+        assert_eq!(OpCode::Throw.operand_len(), 0);
+        assert_eq!(OpCode::from_byte(0x61), Some(OpCode::TryBegin));
+        assert_eq!(OpCode::TryBegin.operand_len(), 4);
+        validate_bytecode(&function).expect("try/throw opcodes should validate");
+    }
+
+    #[test]
+    fn rejects_try_begin_handler_inside_operand() {
+        let function = BytecodeFunction {
+            name: "bad_try_handler".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 1,
+            constants: vec![Constant::String("caught".to_string())],
+            code: vec![
+                OpCode::TryBegin as u8,
+                0,
+                6,
+                0,
+                10,
+                OpCode::LoadConst as u8,
+                0,
+                0,
+                OpCode::Throw as u8,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        let err = validate_bytecode(&function).expect_err("handler in operand should fail");
+
+        assert!(err.to_string().contains("non-instruction offset"));
+    }
+
+    #[test]
+    fn rejects_try_begin_end_out_of_range() {
+        let function = BytecodeFunction {
+            name: "bad_try_end".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 1,
+            constants: vec![Constant::String("caught".to_string())],
+            code: vec![
+                OpCode::TryBegin as u8,
+                0,
+                8,
+                0,
+                99,
+                OpCode::LoadConst as u8,
+                0,
+                0,
+                OpCode::Throw as u8,
+                OpCode::Return as u8,
+            ],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        };
+
+        let err = validate_bytecode(&function).expect_err("end past code should fail");
+
+        assert!(err.to_string().contains("out-of-range end offset"));
     }
 
     #[test]
@@ -765,6 +1269,7 @@ mod tests {
             constants: vec![Constant::Int(7)],
             code: vec![OpCode::CallStatic as u8, 0, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         let err = validate_bytecode(&function).expect_err("non-string callee should fail");
@@ -789,6 +1294,7 @@ mod tests {
                 OpCode::Return as u8,
             ],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         validate_bytecode(&function).expect("field name constant should validate");
@@ -811,6 +1317,7 @@ mod tests {
                 OpCode::Return as u8,
             ],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         validate_bytecode(&function).expect("type name constant should validate");
@@ -833,6 +1340,7 @@ mod tests {
                 OpCode::Return as u8,
             ],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         let err = validate_bytecode(&function).expect_err("non-string field should fail");
@@ -857,6 +1365,7 @@ mod tests {
                 OpCode::Return as u8,
             ],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         };
 
         let err = validate_bytecode(&function).expect_err("non-string type should fail");
@@ -898,6 +1407,10 @@ mod tests {
                     source_location: "lib/main.dart:9:17".to_string(),
                 },
             ],
+            debug_locals: vec![DebugLocalEntry {
+                slot: 0,
+                name: "cachedTotal".to_string(),
+            }],
         }]);
 
         let encoded = module.to_binary_vec().expect("encode binary module");
@@ -906,6 +1419,78 @@ mod tests {
         let decoded = BytecodeModule::from_slice(&encoded).expect("decode binary module");
 
         assert_eq!(decoded, module);
+    }
+
+    #[test]
+    fn binary_v1_without_debug_locals_is_still_accepted() {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(super::BINARY_MAGIC);
+        encoded.extend_from_slice(&1u32.to_be_bytes());
+        encoded.extend_from_slice(&1u16.to_be_bytes());
+        super::write_string(
+            &mut encoded,
+            "package:app/main.dart::legacy",
+            "function name",
+        )
+        .expect("write function name");
+        encoded.push(0); // tagged return convention
+        encoded.push(0); // param_count
+        encoded.push(0); // local_count
+        encoded.extend_from_slice(&0u16.to_be_bytes()); // constants
+        encoded.extend_from_slice(&1u32.to_be_bytes()); // code length
+        encoded.push(OpCode::Return as u8);
+        encoded.extend_from_slice(&0u16.to_be_bytes()); // source_map
+
+        let decoded = BytecodeModule::from_slice(&encoded).expect("decode v1 module");
+
+        assert_eq!(decoded.version, 1);
+        assert!(decoded.functions[0].debug_locals.is_empty());
+    }
+
+    #[test]
+    fn binary_v2_round_trips_debug_locals() {
+        let module = BytecodeModule::new(vec![BytecodeFunction {
+            name: "package:app/main.dart::withLocals".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 1,
+            local_count: 1,
+            constants: vec![],
+            code: vec![OpCode::LoadArg as u8, 0, OpCode::Return as u8],
+            source_map: Vec::new(),
+            debug_locals: vec![DebugLocalEntry {
+                slot: 0,
+                name: "input".to_string(),
+            }],
+        }]);
+
+        let encoded = module.to_binary_vec().expect("encode v2 module");
+        let decoded = BytecodeModule::from_slice(&encoded).expect("decode v2 module");
+
+        assert_eq!(decoded.version, super::FORMAT_VERSION);
+        assert_eq!(
+            decoded.functions[0].debug_locals,
+            module.functions[0].debug_locals
+        );
+    }
+
+    #[test]
+    fn binary_writer_always_emits_current_format_version() {
+        let mut module = BytecodeModule::new(vec![BytecodeFunction {
+            name: "package:app/main.dart::current".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 0,
+            constants: vec![],
+            code: vec![OpCode::Return as u8],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        }]);
+        module.version = super::MIN_SUPPORTED_MODULE_VERSION;
+
+        let encoded = module.to_binary_vec().expect("encode binary module");
+        let decoded = BytecodeModule::from_slice(&encoded).expect("decode binary module");
+
+        assert_eq!(decoded.version, super::FORMAT_VERSION);
     }
 
     #[test]
@@ -921,6 +1506,7 @@ mod tests {
                 bytecode_offset: 1,
                 source_location: "lib/main.dart:1:1".to_string(),
             }],
+            debug_locals: Vec::new(),
         }]);
 
         let err = module.validate().expect_err("offset past code should fail");
@@ -941,6 +1527,7 @@ mod tests {
                 bytecode_offset: 0,
                 source_location: "   ".to_string(),
             }],
+            debug_locals: Vec::new(),
         }]);
 
         let err = module

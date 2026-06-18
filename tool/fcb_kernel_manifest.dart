@@ -282,7 +282,7 @@ Map<String, Object?> _compileModuleFromPlan({
     stderr.writeln('linker plan has no interpreted functions to compile');
     exit(2);
   }
-  return {'version': 1, 'functions': compiled};
+  return {'version': 2, 'functions': compiled};
 }
 
 Map<String, Object?> _compileSourceFunction(
@@ -313,6 +313,7 @@ Map<String, Object?> _compileSourceFunction(
     'local_count': compiler.localCount,
     'constants': compiler.constants,
     'code': compiler.code,
+    if (compiler.debugLocals.isNotEmpty) 'debug_locals': compiler.debugLocals,
     if (sourceLocation != null && sourceLocation.trim().isNotEmpty)
       'source_map': [
         {'bytecode_offset': 0, 'source_location': sourceLocation},
@@ -352,9 +353,13 @@ const _opReturn = 0xff;
 class _RestrictedBytecodeCompiler {
   _RestrictedBytecodeCompiler(List<String> params)
     : args = {for (var i = 0; i < params.length; i++) params[i]: i},
+      debugLocals = [
+        for (var i = 0; i < params.length; i++) {'slot': i, 'name': params[i]},
+      ],
       localCount = params.length + 1;
 
   final Map<String, int> args;
+  final List<Map<String, Object?>> debugLocals;
   final List<Map<String, Object?>> constants = [];
   final Map<String, int> constantIndexes = {};
   final Map<int, int> scopedLocals = {};
@@ -975,6 +980,7 @@ class _RestrictedBytecodeCompiler {
       }
       final local = item.cast<String, Object?>();
       final id = local['id'];
+      final name = local['name'];
       final value = local['value'];
       if (id is! int || value is! Map) {
         stderr.writeln('let local requires id and value');
@@ -984,6 +990,12 @@ class _RestrictedBytecodeCompiler {
       compileExpr(value.cast<String, Object?>());
       op(_opStoreLocal);
       u8(localIndex);
+      if (name is String && name.trim().isNotEmpty) {
+        debugLocals.add({
+          'slot': args.length + localIndex,
+          'name': name.trim(),
+        });
+      }
       previous[id] = scopedLocals[id];
       scopedLocals[id] = localIndex;
     }

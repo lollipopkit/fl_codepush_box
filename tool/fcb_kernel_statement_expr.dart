@@ -48,7 +48,12 @@ Map<String, Object?>? _letBodySourceExpr(
     if (value == null) return null;
     final id = nextLocalId++;
     localIds[statement] = id;
-    locals.add({'id': id, 'value': value});
+    locals.add({
+      'id': id,
+      if (statement.name != null && statement.name!.isNotEmpty)
+        'name': statement.name,
+      'value': value,
+    });
   }
   if (locals.isEmpty && closures.isEmpty) return null;
   final bodyExpr = _tailStatementsSourceExpr(

@@ -92,6 +92,10 @@ pub enum RejectReason {
     FunctionTypeUnsupported,
     RecordTypeUnsupported,
     MissingBytecodeSource,
+    /// A `CallOriginal` target has no entry point in the release AOT snapshot
+    /// (tree-shaken/inlined), so the patch would dispatch to a missing function
+    /// at runtime. Gated at build time. See ADR-#2.
+    OriginalTargetNotInAot,
 }
 
 pub fn plan_bytecode_link(

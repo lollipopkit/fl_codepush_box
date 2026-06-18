@@ -229,9 +229,9 @@ Future<String> asyncLabel() async {
   return 'base-async';
 }
 
-Future<String> awaitedLabel(bool enabled) async { if (enabled) return 'base ${await Future.value('awaited')}'; return 'base disabled'; }
+Future<String> awaitedLabel(bool enabled) async { if (await Future.value(enabled)) return 'base ${await Future.value('awaited')}'; return 'base disabled'; }
 
-Future<String> awaitedLocalLabel(String name) async { try { final prefix = await Future.value('base-local'); if (name == 'Ada') return '$prefix ${await Future.value('done')}'; return '$prefix $name'; } catch (e) { return 'base-caught $e'; } }
+Future<String> awaitedLocalLabel(String name) async { try { final base = 'base-local'; final prefix = await Future.value(base); if (name == 'Ada') return '$prefix ${await Future.value('done')}'; return '$prefix $name'; } catch (e) { return 'base-caught $e'; } }
 List<String> names(bool enabled, bool premium) {
   return ['base'];
 }
@@ -495,9 +495,9 @@ Future<String> asyncLabel() async {
   return 'patched-async';
 }
 
-Future<String> awaitedLabel(bool enabled) async { if (enabled) return 'patched ${await Future.value('awaited')}'; return 'patched disabled'; }
+Future<String> awaitedLabel(bool enabled) async { if (await Future.value(enabled)) return 'patched ${await Future.value('awaited')}'; return 'patched disabled'; }
 
-Future<String> awaitedLocalLabel(String name) async { try { final prefix = await Future.value('patched-local'); if (name == 'Ada') return '$prefix ${await Future.value('done')}'; return '$prefix $name'; } catch (e) { return 'patched-caught $e'; } }
+Future<String> awaitedLocalLabel(String name) async { try { final base = 'patched-local'; final prefix = await Future.value(base); if (name == 'Ada') return '$prefix ${await Future.value('done')}'; return '$prefix $name'; } catch (e) { return 'patched-caught $e'; } }
 List<String> names(bool enabled, bool premium) {
   return ['patched', ...['spread-a', 'spread-b'], for (final value in ['for-a', 'for-b']) value, if (enabled) 'live' else 'off', if (premium) 'pro', 'tail'];
 }
@@ -861,8 +861,8 @@ if awaited.get("body", {}).get("new_object", {}).get("constructor") != "dart:asy
     raise SystemExit(f"expected awaitedLabel _Future.value source, got {awaited}")
 awaited_local = patch_by_member.get("awaitedLocalLabel", {}).get("bytecode_source", {})
 awaited_local_let = awaited_local.get("body", {}).get("new_object", {}).get("args", [{}])[0].get("try_catch", {}).get("body", {}).get("let", {})
-if len(awaited_local_let.get("locals", [])) != 1 or awaited_local_let.get("body", {}).get("conditional") is None:
-    raise SystemExit(f"expected awaitedLocalLabel try/catch await-local if-return source, got {awaited_local}")
+if len(awaited_local_let.get("locals", [])) != 2 or awaited_local_let.get("body", {}).get("conditional") is None:
+    raise SystemExit(f"expected awaitedLocalLabel try/catch mixed-local if-return source, got {awaited_local}")
 
 null_sources = [
     f.get("bytecode_source", {}).get("body")
@@ -908,7 +908,7 @@ import json
 import sys
 
 module = json.load(open(sys.argv[1]))
-assert module["version"] == 1, module
+assert module["version"] == 2, module
 assert len(module["functions"]) == 51, module
 function = next(
     item for item in module["functions"] if item["name"].endswith("::mainValue")
@@ -941,8 +941,13 @@ awaited_label = next(
     item for item in module["functions"] if item["name"].endswith("::awaitedLabel")
 )
 assert 0x55 in awaited_label["code"] and 0x42 in awaited_label["code"] and 0x31 in awaited_label["code"], awaited_label
+assert {"slot": 0, "name": "enabled"} in awaited_label.get("debug_locals", []), awaited_label
 awaited_local = next(item for item in module["functions"] if item["name"].endswith("::awaitedLocalLabel"))
-assert 0x55 in awaited_local["code"] and 0x04 in awaited_local["code"] and 0x31 in awaited_local["code"] and 0x42 in awaited_local["code"] and 0x61 in awaited_local["code"], awaited_local
+assert 0x55 in awaited_local["code"] and awaited_local["code"].count(0x04) >= 2 and 0x31 in awaited_local["code"] and 0x42 in awaited_local["code"] and 0x61 in awaited_local["code"], awaited_local
+awaited_local_debug_names = {
+    entry.get("name") for entry in awaited_local.get("debug_locals", [])
+}
+assert {"name", "base", "prefix"}.issubset(awaited_local_debug_names), awaited_local
 double_count = sum(
     1
     for constant in function["constants"]
@@ -1476,7 +1481,7 @@ data = open(sys.argv[1], "rb").read()
 assert data[:4] == b"FCBM", data[:4]
 version = struct.unpack(">I", data[4:8])[0]
 function_count = struct.unpack(">H", data[8:10])[0]
-assert version == 1, version
+assert version == 2, version
 assert function_count == 51, function_count
 assert b"\x50" in data, data
 assert b"\x40" in data, data
@@ -1493,5 +1498,7 @@ assert b"\x03" in data, data
 assert b"\x04" in data, data
 assert b"\x31" in data, data
 assert b"\x30" in data, data
+assert b"enabled" in data, data
+assert b"prefix" in data, data
 print("kernel binary compile-from-plan drill passed")
 PY

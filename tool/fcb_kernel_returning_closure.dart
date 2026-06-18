@@ -41,7 +41,12 @@ Map<String, Object?>? _returningClosureSource(
     if (value == null) return null;
     final id = nextLocalId++;
     localIds[statement] = id;
-    locals.add({'id': id, 'value': value});
+    locals.add({
+      'id': id,
+      if (statement.name != null && statement.name!.isNotEmpty)
+        'name': statement.name,
+      'value': value,
+    });
   }
 
   final paramNamesByVariable = <VariableDeclaration, String>{};

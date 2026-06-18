@@ -628,6 +628,7 @@ fn manual_patch_payload(
 ) -> Result<Option<PatchPayloadResult>> {
     let target_artifact = fs::read(path)?;
     if backend == "snapshot_replace" {
+        warn_snapshot_replace_backend();
         let base =
             snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
         Ok(Some((
@@ -742,6 +743,7 @@ fn automatic_snapshot_payload(
     if platform != "android" {
         return Err(err("snapshot_replace is only supported for Android"));
     }
+    warn_snapshot_replace_backend();
     let target_artifact = fs::read(android_app_so_path(&build.project, arch))?;
     let base = snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
     Ok(Some((
@@ -776,14 +778,70 @@ fn automatic_bytecode_payload(
     let Some(bytes) = compile_kernel_plan(build, &plan)? else {
         return Ok(None);
     };
-    Ok(Some((
-        validate_compiled_bytecode_payload(&bytes)?,
-        "bytecode_module",
-        None,
-        None,
-        None,
-        None,
+    let payload = validate_compiled_bytecode_payload(&bytes)?;
+    gate_call_original_aot_presence(release_dir, &payload, report)?;
+    Ok(Some((payload, "bytecode_module", None, None, None, None)))
+}
+
+/// ADR-#2: reject a bytecode patch whose `CallOriginal` targets have no entry
+/// point in the release AOT snapshot (tree-shaken/inlined), so the failure is
+/// caught at build time instead of crashing at runtime. The gate enforces only
+/// when the release cache carries `aot_entry_points.json`; absent that truth
+/// (e.g. legacy caches) it warns and skips rather than blocking.
+fn gate_call_original_aot_presence(
+    release_dir: &Path,
+    payload: &[u8],
+    report: &mut PatchReport,
+) -> Result<()> {
+    let Some(aot_present) = read_aot_entry_points(release_dir)? else {
+        eprintln!(
+            "warning: aot_entry_points.json absent in release cache; skipping call_original AOT-presence gate (ADR-#2)"
+        );
+        return Ok(());
+    };
+    let module = read_bytecode_module(payload)?;
+    let missing = module.missing_aot_targets(&aot_present);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    if let Some(plan) = report.linker_plan.as_mut() {
+        for target in &missing {
+            plan.reject.push(linker::RejectDecision {
+                function_id: target.clone(),
+                source_location: None,
+                reject_reason: linker::RejectReason::OriginalTargetNotInAot,
+                message: "call_original target has no AOT entry point in the release".to_string(),
+            });
+        }
+    }
+    Err(err(format!(
+        "bytecode patch rejected: {} call_original target(s) missing an AOT entry point; see patch_report.json",
+        missing.len()
     )))
+}
+
+/// ADR-#3: snapshot_replace ships native `.so` diffs and is NOT Play/App Store
+/// compliant. It is retained for enterprise/internal distribution only and is a
+/// frozen backend. Surface that loudly whenever it is used.
+fn warn_snapshot_replace_backend() {
+    eprintln!(
+        "warning: backend 'snapshot_replace' is enterprise/internal-only and not Play/App Store \
+         compliant; use the 'bytecode' backend for store distribution (see docs/backends.md)"
+    );
+}
+
+fn read_aot_entry_points(release_dir: &Path) -> Result<Option<std::collections::BTreeSet<String>>> {
+    let path = release_dir.join("aot_entry_points.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    #[derive(serde::Deserialize)]
+    struct AotEntryPoints {
+        #[serde(default)]
+        function_ids: Vec<String>,
+    }
+    let parsed: AotEntryPoints = manifest::read_json(&path)?;
+    Ok(Some(parsed.function_ids.into_iter().collect()))
 }
 
 #[cfg(test)]
@@ -1303,6 +1361,7 @@ mod tests {
             )],
             code: vec![OpCode::CallStatic as u8, 0, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         }]);
         let bytes = module.to_binary_vec().expect("binary module");
 
@@ -1416,6 +1475,7 @@ mod tests {
             constants: vec![Constant::Int(7)],
             code: vec![OpCode::LoadConst as u8, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         }]);
         std::fs::write(&payload_path, module.to_vec().expect("module json")).expect("payload");
         let app = RemoteAppConfig {

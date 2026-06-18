@@ -4,9 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# ADR-#3: snapshot_replace is enterprise/internal-only and not store-compliant.
+# It is a default feature so dev/test/e2e are unchanged, but store builds can
+# drop it (and its bsdiff/zstd deps) via `--no-default-features`.
+[features]
+default = ["snapshot_replace"]
+snapshot_replace = ["dep:bsdiff", "dep:zstd"]
+
 [dependencies]
 base64 = "0.22"
-bsdiff = "0.2"
+bsdiff = { version = "0.2", optional = true }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 getrandom = "0.4"
 hex = "0.4"
@@ -17,4 +24,4 @@ sha2 = "0.11"
 thiserror = "2"
 ureq = { version = "3", features = ["json"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-zstd = "0.13"
+zstd = { version = "0.13", optional = true }

@@ -5,7 +5,8 @@ import 'dart:typed_data';
 Uint8List encodeBinaryModule(Map<String, Object?> module) {
   final writer = _BinaryModuleWriter();
   writer.ascii('FCBM');
-  writer.u32(module['version'] as int? ?? 1);
+  final version = module['version'] as int? ?? 2;
+  writer.u32(version);
   final functions = module['functions'];
   if (functions is! List) {
     stderr.writeln('bytecode module functions must be a list');
@@ -66,6 +67,23 @@ Uint8List encodeBinaryModule(Map<String, Object?> module) {
         sourceEntry['source_location']?.toString() ?? '',
         'source location',
       );
+    }
+    if (version >= 2) {
+      final debugLocals = function['debug_locals'];
+      final debugLocalEntries = debugLocals is List ? debugLocals : const [];
+      writer.u16(debugLocalEntries.length, 'debug locals count');
+      for (final entry in debugLocalEntries) {
+        if (entry is! Map) {
+          stderr.writeln('debug_locals entry must be an object');
+          exit(2);
+        }
+        final debugEntry = entry.cast<String, Object?>();
+        writer.u16(
+          (debugEntry['slot'] as num?)?.toInt() ?? 0,
+          'debug local slot',
+        );
+        writer.string(debugEntry['name']?.toString() ?? '', 'debug local name');
+      }
     }
   }
   return writer.takeBytes();

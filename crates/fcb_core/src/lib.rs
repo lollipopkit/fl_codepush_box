@@ -2,6 +2,7 @@ pub mod build_info;
 pub mod bytecode;
 pub mod config;
 pub mod crypto;
+#[cfg(feature = "snapshot_replace")]
 pub mod diff;
 pub mod linker;
 pub mod manifest;

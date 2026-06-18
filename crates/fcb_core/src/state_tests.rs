@@ -699,6 +699,7 @@ fn install_binary_bytecode_payload_accepts_modern_opcodes() {
             OpCode::Return as u8,
         ],
         source_map: Vec::new(),
+        debug_locals: Vec::new(),
     }])
     .to_binary_vec()
     .expect("encode binary bytecode");
@@ -946,7 +947,7 @@ fn install_bytecode_payload_bytes(
 fn build_binary_bytecode_payload_with_raw_code(code: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(b"FCBM");
-    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(&2u32.to_be_bytes());
     out.extend_from_slice(&1u16.to_be_bytes());
     write_binary_string(&mut out, "package:app/main.dart::futureOpcode");
     out.push(0);
@@ -955,6 +956,7 @@ fn build_binary_bytecode_payload_with_raw_code(code: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&0u16.to_be_bytes());
     out.extend_from_slice(&(code.len() as u32).to_be_bytes());
     out.extend_from_slice(code);
+    out.extend_from_slice(&0u16.to_be_bytes());
     out.extend_from_slice(&0u16.to_be_bytes());
     out
 }

@@ -79,7 +79,7 @@ Map<String, Object?>? _asyncCompletedExpr(
     return {'concat': parts};
   }
   if (expression is ConditionalExpression) {
-    final condition = _expr(
+    final condition = _asyncConditionExpr(
       expression.condition,
       paramsSet,
       libraryUri,
@@ -108,6 +108,16 @@ Map<String, Object?>? _asyncCompletedExpr(
     };
   }
   return null;
+}
+
+Map<String, Object?>? _asyncConditionExpr(
+  Expression expression,
+  Set<String> paramsSet,
+  String libraryUri, [
+  Map<VariableDeclaration, int> locals = const {},
+]) {
+  return _asyncCompletedExpr(expression, paramsSet, libraryUri, locals) ??
+      _expr(expression, paramsSet, libraryUri, locals);
 }
 
 Map<String, Object?>? _awaitedImmediateFutureValueExpr(
@@ -142,20 +152,28 @@ Map<String, Object?>? _asyncImmediateAwaitLocalExpr(
   var tailStart = 0;
   for (; tailStart < body.statements.length; tailStart++) {
     final statement = body.statements[tailStart];
-    if (statement is! VariableDeclaration ||
-        statement.initializer is! AwaitExpression) {
+    if (statement is! VariableDeclaration || statement.initializer == null) {
       break;
     }
-    final value = _awaitedImmediateFutureValueExpr(
-      (statement.initializer! as AwaitExpression).operand,
-      paramsSet,
-      libraryUri,
-      localIds,
-    );
+    final initializer = statement.initializer!;
+    final value = initializer is AwaitExpression
+        ? _awaitedImmediateFutureValueExpr(
+            initializer.operand,
+            paramsSet,
+            libraryUri,
+            localIds,
+          )
+        : _asyncCompletedExpr(initializer, paramsSet, libraryUri, localIds) ??
+              _expr(initializer, paramsSet, libraryUri, localIds);
     if (value == null) return null;
     final id = localIds.length;
     localIds[statement] = id;
-    locals.add({'id': id, 'value': value});
+    locals.add({
+      'id': id,
+      if (statement.name != null && statement.name!.isNotEmpty)
+        'name': statement.name,
+      'value': value,
+    });
   }
   if (locals.isEmpty) return null;
   final bodyExpr = _asyncTailStatementsSourceExpr(
@@ -216,7 +234,12 @@ Map<String, Object?>? _asyncIfReturnBodySourceExpr(
   final first = body.statements.first;
   final second = body.statements.last;
   if (first is! IfStatement || first.otherwise != null) return null;
-  final condition = _expr(first.condition, paramsSet, libraryUri, locals);
+  final condition = _asyncConditionExpr(
+    first.condition,
+    paramsSet,
+    libraryUri,
+    locals,
+  );
   final thenExpr = _asyncSingleReturnExpr(
     first.then,
     paramsSet,
@@ -243,7 +266,12 @@ Map<String, Object?>? _asyncIfReturnExpr(
 ) {
   final otherwise = statement.otherwise;
   if (otherwise == null) return null;
-  final condition = _expr(statement.condition, paramsSet, libraryUri, locals);
+  final condition = _asyncConditionExpr(
+    statement.condition,
+    paramsSet,
+    libraryUri,
+    locals,
+  );
   final thenExpr = _asyncSingleReturnExpr(
     statement.then,
     paramsSet,

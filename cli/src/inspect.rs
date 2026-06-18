@@ -230,6 +230,7 @@ mod tests {
                 bytecode_offset: 0,
                 source_location: "package:app/main.dart:7:10".to_string(),
             }],
+            debug_locals: Vec::new(),
         }]);
 
         let summary = bytecode_summary(&module);
@@ -260,6 +261,7 @@ mod tests {
             )],
             code: vec![OpCode::CallStatic as u8, 0, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
+            debug_locals: Vec::new(),
         }]);
         let bytes = module.to_binary_vec().expect("binary module");
 

@@ -35,9 +35,11 @@ fi
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_test.cc" ] || die "missing FCB VM runtime test source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime.cc" ] || die "missing FCB VM runtime source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_try_test.cc" ] || die "missing FCB VM runtime try test source"
+[ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_closure.cc" ] || die "missing FCB VM runtime closure source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_vm.cc" ] || die "missing FCB VM runtime VM helper source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_value.cc" ] || die "missing FCB VM runtime value source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader.cc" ] || die "missing FCB VM runtime loader source"
+[ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader_test.cc" ] || die "missing FCB VM runtime loader test source"
 command -v "$CXX_BIN" >/dev/null 2>&1 || die "missing C++ compiler: $CXX_BIN"
 
 mkdir -p "$OUT_DIR"
@@ -51,9 +53,11 @@ DART_COMMIT="$(git -C "$SDK_DIR" rev-parse HEAD)"
   -I "$SDK_DIR/runtime" \
   -I "$SDK_DIR/runtime/include" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime.cc" \
+  "$SDK_DIR/runtime/vm/fcb_patch_runtime_closure.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_vm.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_value.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader.cc" \
+  "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader_test.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_test.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_try_test.cc" \
   -o "$BIN" >"$LOG" 2>&1 || {

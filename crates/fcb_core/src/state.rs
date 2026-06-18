@@ -1,4 +1,5 @@
 use crate::bytecode::BytecodeModule;
+#[cfg(feature = "snapshot_replace")]
 use crate::diff;
 use crate::manifest::{self, PatchManifest};
 use crate::{crypto, err, Result};
@@ -150,15 +151,25 @@ impl Updater {
 
         let mut state = self.load_state()?;
         let artifact_path = if manifest.backend == "snapshot_replace" {
-            let artifact = snapshot_replace_chained_diff(
-                &manifest,
-                &payload,
-                &state.installed,
-                &self.cache_dir,
-                baseline_artifact_path,
-            )?;
-            atomic_write_bytes(&patch_dir.join("libapp.so"), &artifact)?;
-            Some(format!("patches/{}/libapp.so", manifest.patch_number))
+            #[cfg(feature = "snapshot_replace")]
+            {
+                let artifact = snapshot_replace_chained_diff(
+                    &manifest,
+                    &payload,
+                    &state.installed,
+                    &self.cache_dir,
+                    baseline_artifact_path,
+                )?;
+                atomic_write_bytes(&patch_dir.join("libapp.so"), &artifact)?;
+                Some(format!("patches/{}/libapp.so", manifest.patch_number))
+            }
+            #[cfg(not(feature = "snapshot_replace"))]
+            {
+                let _ = baseline_artifact_path;
+                return Err(err(
+                    "snapshot_replace backend is not enabled in this build",
+                ));
+            }
         } else {
             None
         };
@@ -401,6 +412,7 @@ fn validate_payload_contract(manifest: &PatchManifest, payload: &[u8]) -> Result
             }
             validate_bytecode_module_payload(payload)
         }
+        #[cfg(feature = "snapshot_replace")]
         "snapshot_replace" => {
             if manifest.payload.kind != "binary_diff" {
                 return Err(err("snapshot_replace backend requires binary_diff payload"));
@@ -420,6 +432,7 @@ fn validate_payload_contract(manifest: &PatchManifest, payload: &[u8]) -> Result
     }
 }
 
+#[cfg(feature = "snapshot_replace")]
 fn snapshot_replace_chained_diff(
     manifest: &PatchManifest,
     payload: &[u8],
@@ -455,6 +468,7 @@ fn snapshot_replace_chained_diff(
     Ok(artifact)
 }
 
+#[cfg(feature = "snapshot_replace")]
 fn find_diff_base(
     expected_hash: &str,
     installed: &[InstalledPatch],
