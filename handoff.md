@@ -1,5 +1,5 @@
 **目标**
-继续完整实现 Phase E Dart VM runtime。当前同步解释器、泛型 threading、同步 finally 和 immediate await 子集在推进中,完整 Phase E 仍未闭合。
+继续完整实现 Phase E Dart VM runtime。当前同步解释器、泛型 threading、同步 finally 和 immediate async 子集在推进中,完整 Phase E 仍未闭合。
 
 **硬约束**
 - Dart VM 真源是 `vendor/flutter/engine/src/flutter/third_party/dart`;不要恢复顶层 `vendor/dart`。
@@ -11,33 +11,33 @@
 - FCBM v3、同步 finally、PatchError/DartException 分层、VM exception bridge、泛型 resolver、bytecode closure/DartEntry/AOT generic type args threading 已完成。
 - AOT generic static-call bridge 已支持 `TypeArguments + 4 user args` 五 raw slot 场景。
 - interpreter VM stack headroom guard 已接入。
-- immediate `Await` 子集已支持:
+- immediate async 子集已支持:
   - 非 Future/FutureOr 值直接通过。
   - 已完成 `_Future.value(...)` 从 `_resultOrListeners` 同步拆箱。
-  - 本轮新增已完成 error Future: `_stateError` 从 `AsyncError.error` 取业务异常,走 `fail_or_throw`,可被 interpreted `TryBegin` catch 捕获。
-- `plans/phase_e_dart_vm.md` 已更新:completed Future value/error await 已完成;真正 suspend/resume 仍未完成。
+  - 已完成 error Future:`_stateError` 从 `AsyncError.error` 取业务异常,走 `fail_or_throw`,可被 interpreted `TryBegin` catch 捕获。
+  - 本轮新增 `AsyncReturn(0x63)` immediate `async_future`:把栈顶值包装成 completed `_Future.value(...)`,并走正常 return/finally 路径。
+- E5 stats 链路已存在:VM bridge weak-call `fcb_record_interpreter_call`/`fcb_record_aot_call`,updater/Dart API/CLI 已有 stats/ratio。
 
 **已验证**
 - `git diff --check`:通过。
 - `git -C vendor/flutter/engine/src/flutter/third_party/dart diff --check`:通过。
 - `cargo fmt --check`:通过。
 - `cargo test -p fcb_core bytecode`:39 个 bytecode 相关测试通过。
-- `clang++ -std=c++20 -fsyntax-only ... runtime/vm/fcb_patch_runtime_async.cc`:通过,覆盖 VM-only `AsyncError.error` helper 语法。
 - `clang++ -std=c++20 -fsyntax-only ... -DFCB_PATCH_RUNTIME_STANDALONE runtime/vm/fcb_patch_runtime.cc`:通过。
-- `scripts/test_vendor_vm_runtime.sh`:通过,summary 在 `target/fcb/vendor-vm-test/summary.txt`。
-- `ninja -C vendor/flutter/engine/src/out/host_debug_unopt_arm64 run_vm_tests`:阻塞于 GN regen,`vpython3 ... Returned 127`;未验证 rebuilt VM unit tests。
+- `scripts/test_vendor_vm_runtime.sh`:通过,summary 在 `target/fcb/vendor-vm-test/summary.txt`;注意该脚本未覆盖新增 VM-only `fcb_patch_runtime_new_object_test.cc`。
+- `ninja -C vendor/flutter/engine/src/out/host_debug_unopt_arm64 run_vm_tests`:阻塞于 GN regen,`vpython3 ... Returned 127`;新增 `FcbPatchRuntimeAsyncReturnCompletedFutureValue` 尚未由 rebuilt VM unit tests 验证。
 
 **当前状态**
 - 根仓库 dirty:`plans/phase_e_dart_vm.md`、`handoff.md`。
-- embedded Dart dirty:`runtime/vm/fcb_patch_runtime_async.cc`、`runtime/vm/fcb_patch_runtime_new_object_test.cc`。
+- embedded Dart dirty:`runtime/vm/fcb_patch_runtime.cc`、`runtime/vm/fcb_patch_runtime_new_object_test.cc`。
 - `vendor/flutter` 外层未修改。
-- 根仓库仍为 `main...origin/main [ahead 13]`;embedded Dart 为 detached HEAD。
+- 根仓库为 `main...origin/main [ahead 14]`;embedded Dart 为 detached HEAD。
 - `runtime/vm/fcb_patch_runtime_vm.cc` 约 1548 行,仍略超 1500,后续继续拆分。
 
 **下一步**
-1. 在 embedded Dart 提交本轮 runtime/test,建议 `fix: propagate fcb await future errors`。
-2. 在根仓库提交 plan/handoff,建议 `docs: update phase e await error progress`。
-3. 修复/刷新 depot_tools bootstrap 后 rebuilt `run_vm_tests`,执行新增 await isolate test。
+1. 提交 embedded Dart,建议 `fix: support fcb async return completed futures`。
+2. 提交根仓库 plan/handoff,建议 `docs: update phase e async return progress`。
+3. 修复/刷新 depot_tools bootstrap 后 rebuilt `run_vm_tests`,验证 `FcbPatchRuntimeAsyncReturnCompletedFutureValue` 和 await isolate tests。
 4. 继续真实 async suspend/resume:pending/chained Future、pending error resume、await 周围 finally。
 
 **完整计划仍缺**

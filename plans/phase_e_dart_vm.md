@@ -34,10 +34,11 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
 
 仍未闭合的执行缺口:
 
-1. **真实 async suspend/resume**:已支持 immediate `await` 子集:非 Future/FutureOr 值、已完成
+1. **真实 async suspend/resume**:已支持 immediate async 子集:非 Future/FutureOr 值、已完成
    `_Future.value(...)` 可在 interpreter 内同步拆箱,已完成 error Future 可把 `AsyncError.error`
-   转成业务 Dart exception 并被 interpreted `TryBegin` 捕获。仍没有 VM continuation 挂起/恢复,
-   未完成 Future、chained Future 仍 fail-closed。
+   转成业务 Dart exception 并被 interpreted `TryBegin` 捕获,`async_future` 的 `AsyncReturn`
+   可生成 completed `_Future.value(...)`。仍没有 VM continuation 挂起/恢复,未完成 Future、
+   chained Future 仍 fail-closed。
 2. **VM unwinder 级异常传播/finally**:同步 `TryFinally`/`EndFinally`/`Rethrow` 已能在
    interpreter 内覆盖 normal/return/throw 三条路径;逃出 patched function 的业务 `Throw` 已变为
    `InterpretResult::DartException`,并由 `fcb_patch_entry.cc` materialize 后调用 VM
@@ -230,6 +231,9 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     `AsyncError` 中取 `error` 字段,作为业务异常进入 `fail_or_throw`,可被 interpreted
     `TryBegin` catch 捕获;VM test 用已完成 `_Future.value` 手动设置 `_stateError` 与
     `AsyncError("boom", null)` 覆盖该路径。
+  - 已完成:`AsyncReturn(0x63)` 的 immediate `async_future` 子集。解释器把栈顶返回值包装成
+    completed `_Future.value(...)`,然后走正常 return/finally 路径;VM test 覆盖直接返回
+    Future 以及 `CallStatic + Await` 拆箱该 completed Future。
   - 未完成:对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
     真正 `Await` suspend 与 resume。
   - 未完成:支持 `await Future.delayed`、chained Future、pending Future error resume、
@@ -272,6 +276,7 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
 - VM tests 新增:
   - `await Future.delayed` resume 后返回 patched value。
   - 已完成的 await error 可被 interpreted catch 捕获;pending Future error resume 仍需覆盖。
+  - `AsyncReturn` immediate `async_future` 返回 completed Future,并可被 interpreted `Await` 消费。
   - uncaught interpreted throw 可被 AOT caller catch 捕获。
   - try/finally 在 return/throw/await resume 三条路径均执行。
   - `T`/`List<T>` is/as 在 generic method 中区分正确。
