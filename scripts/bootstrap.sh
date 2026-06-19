@@ -56,11 +56,20 @@ clone_vendor() {
   local path="$1"
   local remote="$2"
   local ref="$3"
+  local existing="$ROOT_DIR/$path"
   if [ -d "$ROOT_DIR/$path/.git" ]; then
     return
   fi
   if [ -e "$ROOT_DIR/$path" ]; then
-    die "$path exists but is not a git checkout"
+    case "$path" in
+      vendor/flutter/engine/src/flutter|vendor/flutter/engine/src/flutter/third_party/dart)
+        echo "+ replace non-git checkout placeholder $path" >&2
+        rm -rf "$existing"
+        ;;
+      *)
+        die "$path exists but is not a git checkout"
+        ;;
+    esac
   fi
   mkdir -p "$(dirname "$ROOT_DIR/$path")"
   run git clone --depth "$DEPTH" --branch "$ref" "$remote" "$ROOT_DIR/$path"

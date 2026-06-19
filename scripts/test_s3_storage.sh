@@ -9,12 +9,20 @@ MINIO_IMAGE=${FCB_MINIO_IMAGE:-minio/minio:RELEASE.2025-02-28T09-55-16Z}
 MINIO_API_PORT=${FCB_MINIO_API_PORT:-19000}
 MINIO_CONSOLE_PORT=${FCB_MINIO_CONSOLE_PORT:-19001}
 SERVER_ADDR=${FCB_DRILL_SERVER_ADDR:-127.0.0.1:18080}
+SERVER_START_TIMEOUT=${FCB_S3_SERVER_START_TIMEOUT:-180}
 BUCKET=${FCB_S3_BUCKET:-fcb-payloads}
 ACCESS_KEY=${FCB_S3_ACCESS_KEY_ID:-minioadmin}
 SECRET_KEY=${FCB_S3_SECRET_ACCESS_KEY:-minioadmin}
 SERVER_PID=
 
 cleanup() {
+  status=$?
+  if [[ "$status" -ne 0 ]]; then
+    if [[ -f "$WORK_DIR/server.log" ]]; then
+      cp "$WORK_DIR/server.log" "${TMPDIR:-/tmp}/fcb-s3-drill.server.log" >/dev/null 2>&1 || true
+    fi
+    docker logs "$MINIO_CONTAINER" >"${TMPDIR:-/tmp}/fcb-s3-drill.minio.log" 2>&1 || true
+  fi
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
@@ -25,6 +33,7 @@ cleanup() {
   else
     echo "kept work dir: $WORK_DIR"
   fi
+  return "$status"
 }
 trap cleanup EXIT
 
@@ -131,7 +140,7 @@ docker exec "$MINIO_CONTAINER" mc mb --ignore-existing "local/$BUCKET" >/dev/nul
 ) &
 SERVER_PID=$!
 
-wait_http "http://$SERVER_ADDR/healthz" 60
+wait_http "http://$SERVER_ADDR/healthz" "$SERVER_START_TIMEOUT"
 
 setup_response=$(curl_json POST "http://$SERVER_ADDR/api/auth/setup" '{"username":"admin","password":"password123","token_name":"s3-drill"}')
 token=$(printf '%s' "$setup_response" | json_get 'v.token')
