@@ -60,6 +60,7 @@ DART_COMMIT="$(git -C "$SDK_DIR" rev-parse HEAD)"
   -I "$SDK_DIR/runtime/include" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_closure.cc" \
+  "$SDK_DIR/runtime/vm/fcb_patch_runtime_helpers.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_vm.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_value.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader.cc" \

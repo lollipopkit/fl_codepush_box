@@ -38,8 +38,9 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
    async/await 子集;没有 VM continuation 挂起/恢复。
 2. **VM unwinder 级异常传播/finally**:同步 `TryFinally`/`EndFinally`/`Rethrow` 已能在
    interpreter 内覆盖 normal/return/throw 三条路径,但逃出 patched function 的 `Throw` 仍变
-   `InterpretResult::Error` 触发 fallback,不是真 Dart exception;await suspension 周围的 finally
-   也尚未实现。
+   `InterpretResult::DartException` 结果,还不是真 Dart exception;await suspension 周围的 finally
+   也尚未实现。内部 `PatchError` 已和业务 `DartException` 分层,不会再被 caller 的 catch handler
+   当作业务异常吞掉。
 3. **泛型 type parameter 语义**:concrete `List<String>` 已覆盖,但 `T`、`List<T>`、
    generic method/function type args 尚未 threaded 到 `IsInstanceOf`。
 4. **递归深度策略**:仍有固定 `kMaxCallStaticDepth = 64`。
@@ -207,6 +208,8 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - `TryFinally` 维护 pending action(return/throw/await),确保离开 try block 前必跑 finally。
   - 已完成:同步 pending `continue`/`jump`/`return`/`throw` 的 finally 路径,并用 standalone test
     覆盖 normal jump、return override、throw rethrow 到外层 catch。
+  - 已完成:`InterpretResult` 区分 `PatchError` 与 `DartException`;`CallStatic`/bytecode closure
+    只把 `DartException` 送入 catch handler,内部 patch error 直接失败。
   - 未完成:pending `await`、逃出 interpreter 的 Dart exception unwinder、VM stack trace 注入。
 - Async:
   - 对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
