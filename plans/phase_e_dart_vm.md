@@ -227,6 +227,9 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     只把 `DartException` 送入 catch handler,内部 patch error 直接失败。
   - 已完成:`fcb_patch_entry.cc` 对逃出的 `DartException` 调用 VM `Exceptions::Throw`,不再 disable
     patch 或 fallback 到 AOT。
+  - 已完成:entry bridge 抛出的业务 `DartException` 会先用 `Exceptions::CurrentStackTrace()`
+    materialize stack trace,再走 `Exceptions::ThrowWithStackTrace`;已记录的 FCB source-map frame
+    因此会进入 VM `UnhandledException.stacktrace()` 而不是只停留在 interpreter-local buffer。
   - 已完成:immediate `await` 位于 try block 内并离开 try block 时会执行 finally;standalone test
     覆盖 scalar await + normal jump 进入 finally。
   - 已完成:`Rethrow` 会保留 pending throw 的原始 bytecode/source-map offset,不会把异常来源改写成
@@ -235,7 +238,7 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     `runtime_offsets_extracted.h` 的非 PRODUCT/ARM64/non-compressed generated offsets 后,
     `ninja -C vendor/flutter/engine/src/out/host_debug_unopt_arm64 run_vm_tests` 可成功链接
     rebuilt runner,并逐个运行 immediate async / generic type env / try-catch 相关 FCB VM tests。
-  - 未完成:suspended/pending `await` 和 VM stack trace 注入。
+  - 未完成:suspended/pending `await` 和 suspend/resume 周围的 finally resume。
 - Async:
   - 已完成:immediate `Await` 子集。`Await` 可处理非 Future/FutureOr 值和已完成 `_Future.value`
     的 `_stateValue`,并把 `_resultOrListeners` 作为 await 结果压回 interpreter stack。
