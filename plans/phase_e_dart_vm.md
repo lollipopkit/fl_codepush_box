@@ -41,8 +41,9 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
    `InterpretResult::DartException`,并由 `fcb_patch_entry.cc` materialize 后调用 VM
    `Exceptions::Throw`。await suspension 周围的 finally 尚未实现。内部 `PatchError` 已和业务
    `DartException` 分层,不会再被 caller 的 catch handler 当作业务异常吞掉。
-3. **泛型 type parameter 语义**:concrete `List<String>` 已覆盖,但 `T`、`List<T>`、
-   generic method/function type args 尚未 threaded 到 `IsInstanceOf`。
+3. **泛型 type parameter 语义**:concrete `List<String>` 已覆盖;resolver 已支持 runtime type
+   environment 下的 `T` / `List<T>` 解析并传给 `IsInstanceOf`,但入口层还未把 generic
+   method/function 的真实 type args threaded 到 interpreter frame。
 4. **递归深度策略**:固定 `kMaxCallStaticDepth = 64` 已移除;默认 runaway guard 提升为
    `PatchRuntimeOptions::max_call_depth = 4096`,测试覆盖 96 层递归通过和低 guard 清晰失败。
 5. **debugger pause/evaluate 完整性**:active frame 已上报,但 breakpoint/step/pause 与 async
@@ -221,9 +222,10 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - 支持 `await Future.delayed`、await completed future、await error、try/catch/finally around await。
   - `async_star`/`sync_star` 后续接入 async stream controller / sync iterator。
 - 泛型:
-  - FCB frame 保存实际 instantiator/function `TypeArguments`。
-  - `IsType`/`AsType` 对 `T`、`List<T>`、generic method type args 调用 `IsInstanceOf` 时传真实
-    type args。
+  - 已完成:resolver 接受 `RuntimeTypeEnvironment`,支持 `T`、`List<T>` 这类 type parameter
+    引用映射到 concrete type 后调用 `IsInstanceOf`。
+  - 未完成:FCB frame 保存实际 instantiator/function `TypeArguments`。
+  - 未完成:`IsType`/`AsType` 从 generic method/function entry 自动传真实 type args。
 - 递归:
   - 已完成:移除固定语义上限 64;默认 guard 提升为 4096。
   - 已完成:保留可配置 runaway 防护,触发时返回 `PatchError` 并带 function id + depth。
