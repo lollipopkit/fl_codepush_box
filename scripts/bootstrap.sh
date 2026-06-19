@@ -60,9 +60,15 @@ clone_vendor() {
   if [ -d "$ROOT_DIR/$path/.git" ]; then
     return
   fi
+  if [ "$path" = "vendor/flutter/engine/src/flutter" ] \
+    && [ -e "$existing/DEPS" ] \
+    && [ -e "$existing/tools/gn" ]; then
+    echo "+ use framework-provided Engine source $path" >&2
+    return
+  fi
   if [ -e "$ROOT_DIR/$path" ]; then
     case "$path" in
-      vendor/flutter/engine/src/flutter|vendor/flutter/engine/src/flutter/third_party/dart)
+      vendor/flutter/engine/src/flutter/third_party/dart)
         echo "+ replace non-git checkout placeholder $path" >&2
         rm -rf "$existing"
         ;;
@@ -73,6 +79,21 @@ clone_vendor() {
   fi
   mkdir -p "$(dirname "$ROOT_DIR/$path")"
   run git clone --depth "$DEPTH" --branch "$ref" "$remote" "$ROOT_DIR/$path"
+}
+
+validate_engine_source() {
+  local path="$1"
+
+  [ -e "$ROOT_DIR/$path/DEPS" ] || die "$path is missing expected marker: DEPS"
+  [ -e "$ROOT_DIR/$path/tools/gn" ] || die "$path is missing expected marker: tools/gn"
+
+  local commit
+  commit="$(vendor_commit "$path")"
+  if [ -n "$commit" ]; then
+    printf '%-20s %s checkout\n' "$path" "$commit"
+  else
+    printf '%-20s framework-provided source\n' "$path"
+  fi
 }
 
 validate_vendor() {
@@ -115,6 +136,6 @@ fi
 
 echo "Vendor status:"
 validate_vendor vendor/flutter bin/flutter
-validate_vendor vendor/flutter/engine/src/flutter DEPS
+validate_engine_source vendor/flutter/engine/src/flutter
 validate_vendor vendor/flutter/engine/src/flutter/third_party/dart runtime
 validate_vendor vendor/depot_tools gclient
