@@ -17,3 +17,14 @@ pubspec.lock
 
 examples/counter_app/target
 examples/counter_app/android/target
+
+/vendor/flutter/
+/vendor/depot_tools/
+/vendor/sdk/
+/vendor/dart/
+
+/tests/e2e/arm64_drill_*/
+/tests/e2e/ios_drill_*/
+/tests/e2e/testflight_*/
+/tests/e2e/vendor_rebase_*/
+/tests/e2e/vm_patch_*/

@@ -105,6 +105,20 @@ test -f "$ARM_COMPLETE_WORKDIR/evidence/h3-crash-rollback-$(basename "$H3_CRASH_
 test -f "$ARM_COMPLETE_WORKDIR/evidence/h3-server-events-$(basename "$H3_EVENTS_EVIDENCE")" || die "missing staged H3 server events evidence"
 assert_not_contains "$ARM_COMPLETE_WORKDIR/summary.txt" "Manual Phase H3 gap:"
 
+ARM_ARCHIVE_ONLY_WORKDIR="$WORKDIR/arm64-archive-only"
+FCB_WORKDIR="$ARM_ARCHIVE_ONLY_WORKDIR" \
+FCB_ARCHIVE_DIR="$WORKDIR/arm64-archive-only-archive" \
+FCB_ACCEPT_SCRIPT="$FAKE_ACCEPT" \
+FCB_HOST_CRASH_ROLLBACK_SCRIPT="$FAKE_CRASH" \
+FCB_SKIP_ARCHIVE=1 \
+FCB_SKIP_DEVICE_ACCEPTANCE=1 \
+FCB_H3_CRASH_ROLLBACK_EVIDENCE="$H3_CRASH_EVIDENCE" \
+FCB_H3_SERVER_EVENTS_EVIDENCE="$H3_EVENTS_EVIDENCE" \
+  "$ROOT_DIR/scripts/full_arm64_drill.sh" >/dev/null
+assert_contains "$ARM_ARCHIVE_ONLY_WORKDIR/summary.txt" "H3 Android arm64 drill passed"
+assert_contains "$ARM_ARCHIVE_ONLY_WORKDIR/summary.txt" "skip_device_acceptance: 1"
+test ! -e "$ARM_ARCHIVE_ONLY_WORKDIR/device-acceptance/summary.txt" || die "H3 archive-only reran device acceptance"
+
 H3_BAD_CRASH_EVIDENCE="$WORKDIR/h3-bad-crash.log"
 echo "device crashed repeatedly" >"$H3_BAD_CRASH_EVIDENCE"
 if FCB_WORKDIR="$WORKDIR/arm64-bad-evidence" \

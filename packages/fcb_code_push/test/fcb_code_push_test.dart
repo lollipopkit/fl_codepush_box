@@ -32,9 +32,13 @@ void main() {
   test('native library absence is non-fatal for MVP APIs', () async {
     final codePush = FcbCodePush.instance;
 
-    final hasNativeLib = File('native/libfcb_updater.dylib').existsSync() ||
-        File('native/libfcb_updater.so').existsSync() ||
-        File('native/fcb_updater.dll').existsSync();
+    final hasNativeLib = Platform.isMacOS
+        ? File('native/libfcb_updater.dylib').existsSync()
+        : Platform.isLinux
+            ? File('native/libfcb_updater.so').existsSync()
+            : Platform.isWindows
+                ? File('native/fcb_updater.dll').existsSync()
+                : Platform.isAndroid || Platform.isIOS;
     final configured = await codePush.configure(
       appId: '00000000-0000-0000-0000-000000000001',
       releaseVersion: '1.0.0+1',

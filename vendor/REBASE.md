@@ -2,7 +2,7 @@
 
 This runbook describes the quarterly vendor rebase for the Flutter and embedded
 Dart SDK forks used by FCB. It must be exercised during every real rebase before
-the submodule pins and Engine DEPS Dart pin are advanced.
+the local vendor checkout refs and Engine DEPS Dart pin are advanced.
 
 ## Scope
 
@@ -23,8 +23,8 @@ the submodule pins and Engine DEPS Dart pin are advanced.
 4. Resolve conflicts with the conflict strategy below.
 5. Build and test the rebased forks.
 6. Push the rebased fork branches.
-7. Update the root repository `vendor/flutter` gitlink and the Flutter Engine
-   `DEPS` embedded Dart pin to the new fork commits.
+7. Update the local `vendor/flutter` checkout and the Flutter Engine `DEPS`
+   embedded Dart pin to the new fork commits.
 8. Record evidence with `make record-vendor-rebase-evidence`.
 
 ## Conflict Strategy
@@ -48,7 +48,7 @@ after the app is active.
 Run these checks before updating the parent repository:
 
 ```sh
-scripts/bootstrap.sh --check --strict-submodules
+scripts/bootstrap.sh --check
 scripts/build_android_engine.sh
 cargo test --workspace
 tests/e2e/test_e2e.sh
@@ -90,6 +90,6 @@ The generated summary must include `Vendor rebase validation passed`.
 
 If the rebased forks introduce a regression, use the rollback path: restore the
 parent repository to the previous stable `vendor/flutter` / `vendor/depot_tools`
-submodule commits and the previous Engine `DEPS` Dart pin. Keep the failed
+vendor checkout commits and the previous Engine `DEPS` Dart pin. Keep the failed
 evidence archive for postmortem. Do not force-push the fork branches; create a
 fix-forward branch or new rebase attempt instead.

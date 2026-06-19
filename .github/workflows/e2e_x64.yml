@@ -29,6 +29,12 @@ jobs:
       - name: Install Dart
         uses: dart-lang/setup-dart@v1
 
+      - name: Bootstrap Dart SDK sources
+        run: |
+          mkdir -p vendor/flutter/engine/src/flutter/third_party
+          git clone --depth 1 --branch stable https://github.com/lollipopkit/dartsdk.git \
+            vendor/flutter/engine/src/flutter/third_party/dart
+
       - name: Kernel compile-from-plan drill
         run: |
           DART_BIN="$(command -v dart)" make test-kernel-compile

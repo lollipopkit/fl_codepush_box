@@ -1,6 +1,8 @@
 # Vendor Checkouts
 
-This directory contains local upstream/fork checkouts used by FCB.
+This directory contains local upstream/fork checkouts used by FCB. These
+checkouts are not git submodules of the root repository; they are populated by
+bootstrap/rebase tooling and kept out of the root index.
 
 ## Layout
 
@@ -15,7 +17,8 @@ This directory contains local upstream/fork checkouts used by FCB.
   - Remote: `https://github.com/lollipopkit/dartsdk` through Flutter Engine
     `DEPS`.
   - This is the embedded Dart SDK checkout. Dart VM patch changes live under
-    `runtime/vm/` here; there is no separate top-level `vendor/sdk` mirror.
+    `runtime/vm/` here; there is no separate top-level `vendor/dart` or
+    `vendor/sdk` mirror.
 
 - `depot_tools/`
   - Chromium build toolchain providing `gclient`, `gn`, and `ninja`.
@@ -34,7 +37,7 @@ vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/
 During development, create branches and commits in that embedded checkout.
 During rebase/release, update the Flutter Engine `DEPS` Dart pin to the
 corresponding `lollipopkit/dartsdk` commit. Do not restore `dart_sdk_patch/`,
-`engine_patch/`, or `scripts/sync_dart_vm_patch.sh`.
+`engine_patch/`, `vendor/dart/`, or `scripts/sync_dart_vm_patch.sh`.
 
 ## Android Engine FCB Wiring
 

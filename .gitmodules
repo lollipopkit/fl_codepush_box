@@ -1,7 +1,0 @@
-[submodule "vendor/flutter"]
-	path = vendor/flutter
-	url = https://github.com/lollipopkit/flutter.git
-	branch = fcb-stable
-[submodule "vendor/depot_tools"]
-	path = vendor/depot_tools
-	url = https://chromium.googlesource.com/chromium/tools/depot_tools.git

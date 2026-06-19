@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/full-arm64-drill}"
 ARCHIVE_STAMP="${FCB_ARCHIVE_STAMP:-$(date +%Y%m%d_%H%M%S)}"
-ARCHIVE_DIR="${FCB_ARCHIVE_DIR:-$ROOT_DIR/tests/e2e/arm64_drill_$ARCHIVE_STAMP}"
+ARCHIVE_DIR="${FCB_ARCHIVE_DIR:-$ROOT_DIR/target/fcb/evidence/arm64_drill_$ARCHIVE_STAMP}"
 ACCEPT_SCRIPT="${FCB_ACCEPT_SCRIPT:-$ROOT_DIR/scripts/accept_android_arm64.sh}"
 HOST_CRASH_ROLLBACK_SCRIPT="${FCB_HOST_CRASH_ROLLBACK_SCRIPT:-$ROOT_DIR/scripts/test_crash_rollback.sh}"
 SERVER_URL="${FCB_SERVER_URL:-}"
@@ -14,6 +14,7 @@ FCB_SERVER_BIN="${FCB_SERVER_BIN:-$ROOT_DIR/target/debug/fcb_server}"
 APP_DIR="${FCB_APP_DIR:-$ROOT_DIR/examples/counter_app}"
 KEEP_SERVER="${FCB_KEEP_SERVER:-0}"
 SKIP_HOST_CRASH_ROLLBACK="${FCB_SKIP_HOST_CRASH_ROLLBACK:-0}"
+SKIP_DEVICE_ACCEPTANCE="${FCB_SKIP_DEVICE_ACCEPTANCE:-0}"
 SKIP_ARCHIVE="${FCB_SKIP_ARCHIVE:-0}"
 H3_CRASH_ROLLBACK_EVIDENCE="${FCB_H3_CRASH_ROLLBACK_EVIDENCE:-}"
 H3_SERVER_EVENTS_EVIDENCE="${FCB_H3_SERVER_EVENTS_EVIDENCE:-}"
@@ -43,14 +44,17 @@ Phase E exposes that payload from the VM/compiler path.
 
 Environment:
   FCB_WORKDIR       Drill output root. Default: target/fcb/full-arm64-drill
-  FCB_ARCHIVE_DIR   Evidence archive root. Default: tests/e2e/arm64_drill_<timestamp>
+  FCB_ARCHIVE_DIR   Evidence archive root. Default: target/fcb/evidence/arm64_drill_<timestamp>
   FCB_ARCHIVE_STAMP Timestamp suffix used by the default archive dir.
   FCB_ACCEPT_SCRIPT Android acceptance script. Default: scripts/accept_android_arm64.sh
   FCB_HOST_CRASH_ROLLBACK_SCRIPT
                     Host-side crash rollback preflight. Default: scripts/test_crash_rollback.sh
   FCB_SKIP_HOST_CRASH_ROLLBACK
                     Skip the host crash rollback preflight. Default: 0
-  FCB_SKIP_ARCHIVE  Skip copying final evidence into tests/e2e. Default: 0
+  FCB_SKIP_DEVICE_ACCEPTANCE
+                    Skip rerunning accept_android_arm64.sh when archiving
+                    already-recorded device evidence. Default: 0
+  FCB_SKIP_ARCHIVE  Skip copying final evidence into the archive dir. Default: 0
   FCB_SERVER_URL    Optional server URL for remote command log.
   FCB_CLI_TOKEN     Optional CLI token for remote command log.
   FCB_APP_ID        Optional app id for remote command log.
@@ -174,6 +178,7 @@ write_summary() {
     echo "app_dir: $APP_DIR"
     echo "keep_server: $KEEP_SERVER"
     echo "skip_host_crash_rollback: $SKIP_HOST_CRASH_ROLLBACK"
+    echo "skip_device_acceptance: $SKIP_DEVICE_ACCEPTANCE"
     echo
     if [ -n "$H3_CRASH_ROLLBACK_EVIDENCE" ] && [ -n "$H3_SERVER_EVENTS_EVIDENCE" ]; then
       echo "H3 Android arm64 drill passed"
@@ -223,7 +228,9 @@ main() {
   if [ "$SKIP_HOST_CRASH_ROLLBACK" != "1" ]; then
     FCB_WORKDIR="$WORKDIR/host-crash-rollback" run "$HOST_CRASH_ROLLBACK_SCRIPT"
   fi
-  FCB_WORKDIR="$WORKDIR/device-acceptance" run "$ACCEPT_SCRIPT"
+  if [ "$SKIP_DEVICE_ACCEPTANCE" != "1" ]; then
+    FCB_WORKDIR="$WORKDIR/device-acceptance" run "$ACCEPT_SCRIPT"
+  fi
   write_remote_command_log
   write_summary
   archive_evidence
