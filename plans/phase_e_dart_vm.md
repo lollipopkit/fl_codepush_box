@@ -240,6 +240,9 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - 已完成:completed chained Future 的 `_stateChained` 路径。runtime 最多同步跟随 64 层
     `_resultOrListeners` source Future,source 若已完成 value/error 则复用现有 completed
     value/error await 路径;VM test 覆盖 chained `_Future.value` 拆箱。
+  - 已完成:pending Future 仍 fail-closed 为 `PatchError`,不会被 interpreted `TryBegin` catch
+    当作业务异常吞掉;VM test 构造 `_state` 非 completed 的 `_Future` 并验证 source-map
+    location 被记录。真实 suspend/resume 接入前,这是当前安全边界。
   - 已完成:`AsyncReturn(0x63)` 的 immediate `async_future` 子集。解释器把栈顶返回值包装成
     completed `_Future.value(...)`;空栈按 `async { return; }`/`Future<void>` 语义包装成
     completed `Future.value(null)`;两者都走正常 return/finally 路径。VM test 覆盖直接返回
@@ -249,7 +252,8 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - 未完成:对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
     真正 `Await` suspend 与 resume。
   - 未完成:支持 `await Future.delayed`、pending/chained source Future resume、pending Future
-    error resume、try/catch/finally around suspended await。
+    error resume、try/catch/finally around suspended await。当前 pending Future 只保证不可被
+    patch 内 catch 掩盖,还不会挂起/恢复。
   - `async_star`/`sync_star` 后续接入 async stream controller / sync iterator。
 - 泛型:
   - 已完成:resolver 接受 `RuntimeTypeEnvironment`,支持 `T`、`List<T>` 这类 type parameter
@@ -287,7 +291,8 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
 - standalone loader test 覆盖 v3 `async_kind` 与新增 opcode fail-closed。
 - VM tests 新增:
   - `await Future.delayed` resume 后返回 patched value。
-  - 已完成的 await error 可被 interpreted catch 捕获;pending Future error resume 仍需覆盖。
+  - 已完成的 await error 可被 interpreted catch 捕获;pending Future fail-closed 不会被
+    interpreted catch 掩盖;pending Future error resume 仍需覆盖。
   - completed chained Future 可同步 await;pending chained source resume 仍需覆盖。
   - `AsyncReturn` immediate `async_future` 返回 completed Future,含 `Future<void>`/null completion,
     并可被 interpreted `Await` 消费;host_debug_unopt_arm64 rebuilt runner 已验证。
