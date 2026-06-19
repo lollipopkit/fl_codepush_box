@@ -37,10 +37,10 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
 1. **真实 async suspend/resume**:只支持可静态 lowering 为 `_Future.value(...)` 的 immediate
    async/await 子集;没有 VM continuation 挂起/恢复。
 2. **VM unwinder 级异常传播/finally**:同步 `TryFinally`/`EndFinally`/`Rethrow` 已能在
-   interpreter 内覆盖 normal/return/throw 三条路径,但逃出 patched function 的 `Throw` 仍变
-   `InterpretResult::DartException` 结果,还不是真 Dart exception;await suspension 周围的 finally
-   也尚未实现。内部 `PatchError` 已和业务 `DartException` 分层,不会再被 caller 的 catch handler
-   当作业务异常吞掉。
+   interpreter 内覆盖 normal/return/throw 三条路径;逃出 patched function 的业务 `Throw` 已变为
+   `InterpretResult::DartException`,并由 `fcb_patch_entry.cc` materialize 后调用 VM
+   `Exceptions::Throw`。await suspension 周围的 finally 尚未实现。内部 `PatchError` 已和业务
+   `DartException` 分层,不会再被 caller 的 catch handler 当作业务异常吞掉。
 3. **泛型 type parameter 语义**:concrete `List<String>` 已覆盖,但 `T`、`List<T>`、
    generic method/function type args 尚未 threaded 到 `IsInstanceOf`。
 4. **递归深度策略**:仍有固定 `kMaxCallStaticDepth = 64`。
@@ -210,7 +210,10 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     覆盖 normal jump、return override、throw rethrow 到外层 catch。
   - 已完成:`InterpretResult` 区分 `PatchError` 与 `DartException`;`CallStatic`/bytecode closure
     只把 `DartException` 送入 catch handler,内部 patch error 直接失败。
-  - 未完成:pending `await`、逃出 interpreter 的 Dart exception unwinder、VM stack trace 注入。
+  - 已完成:`fcb_patch_entry.cc` 对逃出的 `DartException` 调用 VM `Exceptions::Throw`,不再 disable
+    patch 或 fallback 到 AOT。
+  - 未完成:pending `await`、`ReThrow` stack trace 保留、VM stack trace 注入和 rebuilt
+    `run_vm_tests` 执行验证。
 - Async:
   - 对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
     `Await` suspend 与 resume。
