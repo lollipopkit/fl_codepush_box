@@ -43,7 +43,8 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
    `DartException` 分层,不会再被 caller 的 catch handler 当作业务异常吞掉。
 3. **泛型 type parameter 语义**:concrete `List<String>` 已覆盖,但 `T`、`List<T>`、
    generic method/function type args 尚未 threaded 到 `IsInstanceOf`。
-4. **递归深度策略**:仍有固定 `kMaxCallStaticDepth = 64`。
+4. **递归深度策略**:固定 `kMaxCallStaticDepth = 64` 已移除;默认 runaway guard 提升为
+   `PatchRuntimeOptions::max_call_depth = 4096`,测试覆盖 96 层递归通过和低 guard 清晰失败。
 5. **debugger pause/evaluate 完整性**:active frame 已上报,但 breakpoint/step/pause 与 async
    resume 后逻辑栈仍未完整。
 
@@ -224,8 +225,9 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - `IsType`/`AsType` 对 `T`、`List<T>`、generic method type args 调用 `IsInstanceOf` 时传真实
     type args。
 - 递归:
-  - 移除固定语义上限 64;改用 VM stack/resource guard。
-  - 保留可配置 runaway 防护,触发时返回 `PatchError` 并带 function id + depth。
+  - 已完成:移除固定语义上限 64;默认 guard 提升为 4096。
+  - 已完成:保留可配置 runaway 防护,触发时返回 `PatchError` 并带 function id + depth。
+  - 未完成:接入 VM stack/resource guard 的真实 stack overflow 信号。
 - Debugger:
   - FCB frame 作为可暂停 frame 进入 `DebuggerStackTrace`。
   - 支持 breakpoint/step、locals/args/captured vars evaluate。
