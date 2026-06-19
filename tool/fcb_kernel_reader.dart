@@ -267,7 +267,12 @@ Map<String, Object?>? _bytecodeSource(
       _tryCatchBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _returnBodySourceExpr(function.body, paramsSet);
   if (expr == null) return null;
-  return {'name': '$libraryUri::$qualified', 'params': params, 'body': expr};
+  return {
+    'name': '$libraryUri::$qualified',
+    'return_type': fcbKernelTypeName(function.returnType),
+    'params': params,
+    'body': expr,
+  };
 }
 
 Map<String, Object?>? _returnBodySourceExpr(

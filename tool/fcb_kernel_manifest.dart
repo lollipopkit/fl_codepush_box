@@ -306,9 +306,10 @@ Map<String, Object?> _compileSourceFunction(
   final compiler = _RestrictedBytecodeCompiler(params);
   compiler.compileExpr(body.cast<String, Object?>());
   compiler.op(_opReturn);
+  final returnConvention = _returnConventionForSource(source);
   return {
     'name': name,
-    'return_convention': 'tagged',
+    'return_convention': returnConvention,
     'param_count': params.length,
     'local_count': compiler.localCount,
     'constants': compiler.constants,
@@ -319,6 +320,17 @@ Map<String, Object?> _compileSourceFunction(
         {'bytecode_offset': 0, 'source_location': sourceLocation},
       ],
   };
+}
+
+String _returnConventionForSource(Map<String, Object?> source) {
+  final explicit = source['return_convention']?.toString();
+  if (explicit == 'tagged' || explicit == 'unboxed_int64') {
+    return explicit!;
+  }
+  if (source['return_type']?.toString() == 'int') {
+    return 'unboxed_int64';
+  }
+  return 'tagged';
 }
 
 const _opLoadConst = 0x01;
