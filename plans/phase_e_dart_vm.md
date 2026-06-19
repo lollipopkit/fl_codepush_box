@@ -49,6 +49,8 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
    `FcbPatchStaticCallAot5` runtime entry。
 4. **递归深度策略**:固定 `kMaxCallStaticDepth = 64` 已移除;默认 runaway guard 提升为
    `PatchRuntimeOptions::max_call_depth = 4096`,测试覆盖 96 层递归通过和低 guard 清晰失败。
+   interpreter 入口已接入 VM `OSThread::HasStackHeadroom()` 检查,在 C++ stack headroom 不足时
+   fail-closed 为 `PatchError`;真正 Dart `StackOverflowError` unwinder 语义仍未闭合。
 5. **debugger pause/evaluate 完整性**:active frame 已上报,但 breakpoint/step/pause 与 async
    resume 后逻辑栈仍未完整。
 
@@ -240,7 +242,8 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
 - 递归:
   - 已完成:移除固定语义上限 64;默认 guard 提升为 4096。
   - 已完成:保留可配置 runaway 防护,触发时返回 `PatchError` 并带 function id + depth。
-  - 未完成:接入 VM stack/resource guard 的真实 stack overflow 信号。
+  - 已完成:interpreter 入口接入 VM `OSThread::HasStackHeadroom()` C++ stack headroom guard。
+  - 未完成:把 VM stack/resource guard 命中接成真正 Dart `StackOverflowError` unwinder 信号。
 - Debugger:
   - FCB frame 作为可暂停 frame 进入 `DebuggerStackTrace`。
   - 支持 breakpoint/step、locals/args/captured vars evaluate。
