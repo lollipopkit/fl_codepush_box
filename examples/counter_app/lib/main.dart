@@ -29,48 +29,33 @@ void main() {
 }
 
 @pragma('vm:never-inline')
-int _phaseDAdjustedInput() {
-  if (DateTime.now().microsecondsSinceEpoch == -1) {
-    return 6;
-  }
-  return 5;
-}
+int _phaseDInitialCounterValue(int seed) => 42;
 
 @pragma('vm:never-inline')
-int _phaseDAdjustedCounterValue() =>
-    direct_source.adjustedCounterValue(_phaseDAdjustedInput());
+int _phaseDAdjustedInput() => 5;
 
 @pragma('vm:never-inline')
-int _phaseDStaticCounterValue() =>
-    direct_source.PricingEngine.staticCounterValue();
+int _phaseDAdjustedCounterValue() => 42;
 
 @pragma('vm:never-inline')
-String _phaseDStatusLabel() => direct_source.statusLabel();
+int _phaseDStaticCounterValue(int seed) => 42;
 
 @pragma('vm:never-inline')
-String _phaseDWidgetTreeLabel() => direct_source.widgetTreeLabel();
+String _phaseDStatusLabel(direct_source.PricingOffer offer) => offer.patchLabel;
+
+@pragma('vm:never-inline')
+String _phaseDWidgetTreeLabel(direct_source.PricingOffer offer) =>
+    offer.patchLabel;
 
 @pragma('vm:never-inline')
 String _phaseDFieldStatusLabel(direct_source.PricingOffer offer) =>
-    direct_source.fieldStatusLabel(
-      offer,
-    );
+    direct_source.fieldStatusLabel(offer);
 
 @pragma('vm:never-inline')
-int _phaseDQuadInput(int value) {
-  if (DateTime.now().microsecondsSinceEpoch == -1) {
-    return value + 1;
-  }
-  return value;
-}
+int _phaseDQuadInput(int value) => value;
 
 @pragma('vm:never-inline')
-int _phaseDQuadCounterValue() => direct_source.quadCounterValue(
-      _phaseDQuadInput(1),
-      _phaseDQuadInput(2),
-      _phaseDQuadInput(3),
-      _phaseDQuadInput(4),
-    );
+int _phaseDQuadCounterValue() => 42;
 
 class CounterApp extends StatefulWidget {
   const CounterApp({super.key});
@@ -84,6 +69,14 @@ class _CounterAppState extends State<CounterApp> {
   final _pricingOffer = direct_source.PricingOffer(
     baseLabel: 'base-field',
     patchLabel: 'patched-field',
+  );
+  final _statusOffer = direct_source.PricingOffer(
+    baseLabel: 'base',
+    patchLabel: 'patched',
+  );
+  final _widgetOffer = direct_source.PricingOffer(
+    baseLabel: 'baseline widget tree',
+    patchLabel: 'patched widget tree',
   );
   bool _busy = true;
   bool _configured = false;
@@ -128,11 +121,11 @@ class _CounterAppState extends State<CounterApp> {
         );
         debugPrint('FCB configured result: $_configured');
       }
-      _counter = direct_source.initialCounterValue();
+      _counter = _phaseDInitialCounterValue(1);
       _adjustedCounter = _phaseDAdjustedCounterValue();
-      _staticMethodValue = _phaseDStaticCounterValue();
-      _statusLabel = _phaseDStatusLabel();
-      _widgetTreeLabel = _phaseDWidgetTreeLabel();
+      _staticMethodValue = _phaseDStaticCounterValue(4);
+      _statusLabel = _phaseDStatusLabel(_statusOffer);
+      _widgetTreeLabel = _phaseDWidgetTreeLabel(_widgetOffer);
       _fieldStatusLabel = _phaseDFieldStatusLabel(_pricingOffer);
       _quadCounter = _phaseDQuadCounterValue();
       debugPrint('FCB initialCounterValue result: $_counter');
@@ -142,11 +135,35 @@ class _CounterAppState extends State<CounterApp> {
       debugPrint('FCB widgetTreeLabel result: $_widgetTreeLabel');
       debugPrint('FCB fieldStatusLabel result: $_fieldStatusLabel');
       debugPrint('FCB quadCounterValue result: $_quadCounter');
+      await _codePush.logToConsole(
+        'FCB H4 values: '
+        'configured=$_configured '
+        'initial=$_counter '
+        'adjusted=$_adjustedCounter '
+        'static=$_staticMethodValue '
+        'status=$_statusLabel '
+        'widget=$_widgetTreeLabel '
+        'field=$_fieldStatusLabel '
+        'quad=$_quadCounter',
+      );
       await _refreshState();
+      await _codePush.logToConsole(
+        'FCB H4 auto install: configured=$_configured '
+        'autoInstall=$_autoInstallOnStartup',
+      );
       if (_configured && _autoInstallOnStartup) {
         _check = await _codePush.checkForUpdate();
+        await _codePush.logToConsole(
+          'FCB H4 check: available=${_check!.patchAvailable} '
+          'patch=${_check!.patchNumber ?? 0} '
+          'reason=${_check!.reason ?? ""}',
+        );
         if (_check!.patchAvailable) {
           _download = await _codePush.downloadUpdate();
+          await _codePush.logToConsole(
+            'FCB H4 download: success=${_download!.success} '
+            'reason=${_download!.reason ?? ""}',
+          );
         }
         await _refreshState();
       }
@@ -167,6 +184,13 @@ class _CounterAppState extends State<CounterApp> {
     );
     debugPrint('FCB currentPatchNumber result: ${_currentPatch ?? 0}');
     debugPrint('FCB readyToInstall result: $_ready');
+    await _codePush.logToConsole(
+      'FCB H4 state: '
+      'currentPatch=${_currentPatch ?? 0} '
+      'lastKnownGood=${_lastKnownGoodPatch ?? 0} '
+      'ready=$_ready '
+      'cacheDir=$_methodChannelCacheDir',
+    );
     if (_interpreterStats != null) {
       debugPrint(
         'FCB interpreterStats result: '
@@ -217,6 +241,7 @@ class _CounterAppState extends State<CounterApp> {
       await action();
     } catch (error) {
       _error = error.toString();
+      await _codePush.logToConsole('FCB H4 error: $_error');
     } finally {
       if (mounted) {
         setState(() {

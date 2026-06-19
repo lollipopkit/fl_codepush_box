@@ -328,6 +328,14 @@ class FcbCodePush {
     }
   }
 
+  Future<void> logToConsole(String message) async {
+    try {
+      await _pathsChannel.invokeMethod<void>('log', message);
+    } catch (error, stack) {
+      _debugLookupError('log', error, stack);
+    }
+  }
+
   Future<Map<String, String>> platformPaths() async {
     return _platformPaths(_defaultPlatform());
   }

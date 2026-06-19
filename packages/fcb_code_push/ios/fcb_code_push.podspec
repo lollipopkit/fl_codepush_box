@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license          = { :type => 'MIT' }
   s.author           = { 'FCB' => 'fcb@dev' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*.{h,m}'
+  s.source_files     = 'fcb_code_push/Sources/fcb_code_push/**/*.{h,m}'
   s.ios.deployment_target = '12.0'
 
   # XCFramework bundles both device (arm64) and simulator (arm64+x86_64) slices.

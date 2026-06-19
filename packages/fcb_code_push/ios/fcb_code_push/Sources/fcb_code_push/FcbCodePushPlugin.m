@@ -34,9 +34,9 @@
 
   NSError* error = nil;
   [[NSFileManager defaultManager] createDirectoryAtPath:fcbCacheDir
-                              withIntermediateDirectories:YES
-                                               attributes:nil
-                                                   error:&error];
+                            withIntermediateDirectories:YES
+                                             attributes:nil
+                                                  error:&error];
 
   result(@{@"cacheDir" : fcbCacheDir});
 }
