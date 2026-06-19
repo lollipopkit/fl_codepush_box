@@ -17,6 +17,7 @@
 - Android/iOS scheduled workflows 已补前置依赖：Android 安装 `x86_64-linux-android` target 与 `cargo-ndk`，iOS 安装 `x86_64-apple-ios` target，两者在 bootstrap 后运行 `scripts/bootstrap_engine_min_deps.sh`。
 - `scripts/bootstrap_engine_min_deps.sh` 的 OpenJDK 校验已兼容 macOS CIPD layout：支持 `third_party/java/openjdk/Contents/Home/bin/javac`。
 - `scripts/bootstrap.sh` 已改为使用 Flutter framework checkout 自带的 `vendor/flutter/engine/src/flutter` engine source；该目录不再要求独立 git checkout。`third_party/dart` 仍会替换为独立 `lollipopkit/dartsdk` git checkout。
+- 不需要 macOS/arm64 的 workflows 已迁移到 `[self-hosted, Linux, X64]`：Workflow Lint、Rust、Server、E2E x64、Flutter Package、Server S3 Storage、Android Emulator Nightly。`iOS Simulator Nightly` 保留 `macos-15`。
 
 **已验证**
 - `cargo test -p fcb_core server_api::tests::download_bytes_from_with_cancel_aborts_mid_body`: 通过。
@@ -25,6 +26,7 @@
 - `bash -n scripts/bootstrap_engine_min_deps.sh`: 通过。
 - `bash -n scripts/bootstrap.sh`: 通过。
 - `scripts/bootstrap.sh --check`: 通过。
+- `scripts/check_workflows.sh`: 通过，self-hosted runner labels 的 workflow YAML 校验通过。
 - `origin/main` `ca496d3514e8fdb2997c85d45ce2dc54db2a76e4` push workflows 已全绿：Workflow Lint、Flutter Package、Rust、Server、E2E x64。
 - 远端 Rust run `27827682968` 在 `b4529d1` 上失败，失败测试为 `server_api::tests::download_bytes_from_with_cancel_aborts_mid_body`，panic 为 `timeout: receive body`。
 - 手动 scheduled workflows 在 `ca496d3` 上仍失败：Android/iOS 都卡在 `scripts/bootstrap.sh` 的 nested engine placeholder；Server S3 卡在 `/healthz` 60 秒超时且原脚本未保留 artifact 日志。
@@ -35,13 +37,13 @@
 - 之前本地已验证：`scripts/test_vendor_vm_runtime.sh` 通过；`scripts/check_phase_h_runbooks.sh` 通过；`scripts/audit_plan_completion.sh` 非 0 但剩余为 H2/H4/H5 外部证据。
 
 **当前状态**
-- 根仓库 `main...origin/main` 当前本地新增未提交修复：`scripts/bootstrap.sh`、`handoff.md`。
+- 根仓库 `main...origin/main` 当前本地新增未提交修复：`.github/workflows/*.yml` runner 迁移、`handoff.md`。
 - 工作树仍有大量既有 staged/unstaged 改动，涉及 PLAN/docs、iOS SwiftPM、audit scripts、旧 `tests/e2e/vm_patch_*` 删除、kernel reader/manifest 等；不要盲目纳入本轮 Rust fix commit。
 - 当前需要提交并 push scheduled evidence 修复后，再重新触发三条手动 scheduled workflows。
 
 **下一步**
-1. 提交并 push bootstrap engine source model 修复，commit message 建议 `fix: use framework engine source in bootstrap`。
-2. 重新触发 Android Emulator Nightly、iOS Simulator Nightly，并等待结果。
+1. 提交并 push workflow runner 迁移，commit message 建议 `ci: run linux workflows on self-hosted`。
+2. 等待最新 push workflows；按需重新触发 Android Emulator Nightly、iOS Simulator Nightly、Server S3 Storage。
 3. H2 仍需所有 required push workflows 与 scheduled workflows 绑定新 expected HEAD 成功。
 4. H4 需要真实 App Store Connect `External Testing` 证据。
 5. H5 需要真实 `Vendor rebase validation passed` 证据，并用 record 脚本归档。
