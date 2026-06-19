@@ -253,6 +253,10 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - 已完成:pending Future 仍 fail-closed 为 `PatchError`,不会被 interpreted `TryBegin` catch
     当作业务异常吞掉;VM test 构造 `_state` 非 completed 的 `_Future` 并验证 source-map
     location 被记录。真实 suspend/resume 接入前,这是当前安全边界。
+  - 已完成:`async_future` 尾部 `await pendingFuture; AsyncReturn` 的特殊可安全子集。该路径不需要
+    保存 continuation,解释器直接把原 pending Future 作为函数返回值传出;VM test 覆盖返回的
+    Future 仍保持 pending `_state == 0`。非尾部 pending await、try/finally 内 pending await 仍
+    fail-closed。
   - 已完成:`AsyncReturn(0x63)` 的 immediate `async_future` 子集。解释器把栈顶返回值包装成
     completed `_Future.value(...)`;空栈按 `async { return; }`/`Future<void>` 语义包装成
     completed `Future.value(null)`;两者都走正常 return/finally 路径。VM test 覆盖直接返回
@@ -261,9 +265,9 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     interpreter 控制流测试。
   - 未完成:对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
     真正 `Await` suspend 与 resume。
-  - 未完成:支持 `await Future.delayed`、pending/chained source Future resume、pending Future
-    error resume、try/catch/finally around suspended await。当前 pending Future 只保证不可被
-    patch 内 catch 掩盖,还不会挂起/恢复。
+  - 未完成:支持非尾部 `await Future.delayed`、pending/chained source Future resume、pending
+    Future error resume、try/catch/finally around suspended await。当前只有尾部 await pending
+    Future 可直接返回传播,其它 pending await 仍不会挂起/恢复。
   - `async_star`/`sync_star` 后续接入 async stream controller / sync iterator。
 - 泛型:
   - 已完成:resolver 接受 `RuntimeTypeEnvironment`,支持 `T`、`List<T>` 这类 type parameter
