@@ -34,8 +34,9 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
 
 仍未闭合的执行缺口:
 
-1. **真实 async suspend/resume**:只支持可静态 lowering 为 `_Future.value(...)` 的 immediate
-   async/await 子集;没有 VM continuation 挂起/恢复。
+1. **真实 async suspend/resume**:已支持 immediate `await` 子集:非 Future/FutureOr 值和已完成
+   `_Future.value(...)` 可在 interpreter 内同步拆箱。仍没有 VM continuation 挂起/恢复,未完成
+   Future、chained Future、error Future 仍 fail-closed。
 2. **VM unwinder 级异常传播/finally**:同步 `TryFinally`/`EndFinally`/`Rethrow` 已能在
    interpreter 内覆盖 normal/return/throw 三条路径;逃出 patched function 的业务 `Throw` 已变为
    `InterpretResult::DartException`,并由 `fcb_patch_entry.cc` materialize 后调用 VM
@@ -222,9 +223,11 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - 未完成:pending `await`、`ReThrow` stack trace 保留、VM stack trace 注入和 rebuilt
     `run_vm_tests` 执行验证。
 - Async:
-  - 对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
-    `Await` suspend 与 resume。
-  - 支持 `await Future.delayed`、await completed future、await error、try/catch/finally around await。
+  - 已完成:immediate `Await` 子集。`Await` 可处理非 Future/FutureOr 值和已完成 `_Future.value`
+    的 `_stateValue`,并把 `_resultOrListeners` 作为 await 结果压回 interpreter stack。
+  - 未完成:对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
+    真正 `Await` suspend 与 resume。
+  - 未完成:支持 `await Future.delayed`、chained Future、await error、try/catch/finally around await。
   - `async_star`/`sync_star` 后续接入 async stream controller / sync iterator。
 - 泛型:
   - 已完成:resolver 接受 `RuntimeTypeEnvironment`,支持 `T`、`List<T>` 这类 type parameter
