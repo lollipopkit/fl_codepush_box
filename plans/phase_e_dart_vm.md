@@ -225,8 +225,11 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     patch 或 fallback 到 AOT。
   - 已完成:immediate `await` 位于 try block 内并离开 try block 时会执行 finally;standalone test
     覆盖 scalar await + normal jump 进入 finally。
-  - 未完成:suspended/pending `await`、`ReThrow` stack trace 保留、VM stack trace 注入和 rebuilt
-    `run_vm_tests` 执行验证。
+  - 已完成:host_debug_unopt_arm64 `run_vm_tests` rebuilt 验证通道已恢复。刷新
+    `runtime_offsets_extracted.h` 的非 PRODUCT/ARM64/non-compressed generated offsets 后,
+    `ninja -C vendor/flutter/engine/src/out/host_debug_unopt_arm64 run_vm_tests` 可成功链接
+    rebuilt runner,并逐个运行 immediate async / generic type env / try-catch 相关 FCB VM tests。
+  - 未完成:suspended/pending `await`、`ReThrow` stack trace 保留和 VM stack trace 注入。
 - Async:
   - 已完成:immediate `Await` 子集。`Await` 可处理非 Future/FutureOr 值和已完成 `_Future.value`
     的 `_stateValue`,并把 `_resultOrListeners` 作为 await 结果压回 interpreter stack。
@@ -287,10 +290,10 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - 已完成的 await error 可被 interpreted catch 捕获;pending Future error resume 仍需覆盖。
   - completed chained Future 可同步 await;pending chained source resume 仍需覆盖。
   - `AsyncReturn` immediate `async_future` 返回 completed Future,含 `Future<void>`/null completion,
-    并可被 interpreted `Await` 消费。
+    并可被 interpreted `Await` 消费;host_debug_unopt_arm64 rebuilt runner 已验证。
   - uncaught interpreted throw 可被 AOT caller catch 捕获。
   - try/finally 在 return/throw/immediate await 三条路径均执行;suspended await resume 仍需覆盖。
-  - `T`/`List<T>` is/as 在 generic method 中区分正确。
+  - `T`/`List<T>` is/as 在 generic method 中区分正确;host_debug_unopt_arm64 rebuilt runner 已验证。
   - 深递归不被固定 64 限制,但 runaway guard 有清晰 error。
   - debugger 在 patched frame 停靠后可 evaluate locals/captured vars。
 - `tests/e2e/test_kernel_compile_from_plan.sh` 生成 v3 module 并验证 `async_kind`。
