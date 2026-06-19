@@ -5,7 +5,7 @@ import 'dart:typed_data';
 Uint8List encodeBinaryModule(Map<String, Object?> module) {
   final writer = _BinaryModuleWriter();
   writer.ascii('FCBM');
-  final version = module['version'] as int? ?? 2;
+  final version = module['version'] as int? ?? 3;
   writer.u32(version);
   final functions = module['functions'];
   if (functions is! List) {
@@ -25,6 +25,15 @@ Uint8List encodeBinaryModule(Map<String, Object?> module) {
       'unboxed_int64' => 1,
       final value => _unsupportedReturnConvention(value),
     });
+    if (version >= 3) {
+      writer.u8(switch (function['async_kind']?.toString() ?? 'sync') {
+        'sync' => 0,
+        'async_future' => 1,
+        'async_star' => 2,
+        'sync_star' => 3,
+        final value => _unsupportedAsyncKind(value),
+      });
+    }
     writer.u8(function['param_count'] as int? ?? 0);
     writer.u8(function['local_count'] as int? ?? 0);
     final constants = function['constants'];
@@ -91,6 +100,11 @@ Uint8List encodeBinaryModule(Map<String, Object?> module) {
 
 Never _unsupportedReturnConvention(String value) {
   stderr.writeln('unsupported return_convention $value');
+  exit(2);
+}
+
+Never _unsupportedAsyncKind(String value) {
+  stderr.writeln('unsupported async_kind $value');
   exit(2);
 }
 

@@ -995,7 +995,7 @@ import json
 import sys
 
 module = json.load(open(sys.argv[1]))
-assert module["version"] == 2, module
+assert module["version"] == 3, module
 assert len(module["functions"]) == 57, module
 function = next(
     item for item in module["functions"] if item["name"].endswith("::mainValue")
@@ -1014,6 +1014,7 @@ assert any(
 async_label = next(
     item for item in module["functions"] if item["name"].endswith("::asyncLabel")
 )
+assert async_label.get("async_kind") == "async_future", async_label
 assert 0x55 in async_label["code"], async_label
 assert any(
     constant.get("type") == "String"
@@ -1027,9 +1028,11 @@ assert any(
 awaited_label = next(
     item for item in module["functions"] if item["name"].endswith("::awaitedLabel")
 )
+assert awaited_label.get("async_kind") == "async_future", awaited_label
 assert 0x55 in awaited_label["code"] and 0x42 in awaited_label["code"] and 0x31 in awaited_label["code"], awaited_label
 assert {"slot": 0, "name": "enabled"} in awaited_label.get("debug_locals", []), awaited_label
 awaited_local = next(item for item in module["functions"] if item["name"].endswith("::awaitedLocalLabel"))
+assert awaited_local.get("async_kind") == "async_future", awaited_local
 assert 0x55 in awaited_local["code"] and awaited_local["code"].count(0x04) >= 2 and 0x31 in awaited_local["code"] and 0x42 in awaited_local["code"] and 0x61 in awaited_local["code"], awaited_local
 awaited_local_debug_names = {
     entry.get("name") for entry in awaited_local.get("debug_locals", [])
@@ -1610,7 +1613,7 @@ data = open(sys.argv[1], "rb").read()
 assert data[:4] == b"FCBM", data[:4]
 version = struct.unpack(">I", data[4:8])[0]
 function_count = struct.unpack(">H", data[8:10])[0]
-assert version == 2, version
+assert version == 3, version
 assert function_count == 57, function_count
 assert b"\x50" in data, data
 assert b"\x40" in data, data

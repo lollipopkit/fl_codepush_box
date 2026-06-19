@@ -282,7 +282,7 @@ Map<String, Object?> _compileModuleFromPlan({
     stderr.writeln('linker plan has no interpreted functions to compile');
     exit(2);
   }
-  return {'version': 2, 'functions': compiled};
+  return {'version': 3, 'functions': compiled};
 }
 
 Map<String, Object?> _compileSourceFunction(
@@ -307,9 +307,13 @@ Map<String, Object?> _compileSourceFunction(
   compiler.compileExpr(body.cast<String, Object?>());
   compiler.op(_opReturn);
   final returnConvention = _returnConventionForSource(source);
+  final asyncKind = source['async_future_value'] == true
+      ? 'async_future'
+      : 'sync';
   return {
     'name': name,
     'return_convention': returnConvention,
+    'async_kind': asyncKind,
     'param_count': params.length,
     'local_count': compiler.localCount,
     'constants': compiler.constants,

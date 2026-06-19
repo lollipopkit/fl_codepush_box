@@ -1,5 +1,5 @@
 use super::{InstalledPatch, LastLaunch, State, Updater};
-use crate::bytecode::{BytecodeFunction, BytecodeModule, Constant, OpCode};
+use crate::bytecode::{AsyncKind, BytecodeFunction, BytecodeModule, Constant, OpCode};
 use crate::crypto;
 #[cfg(feature = "snapshot_replace")]
 use crate::diff::{self, BSDIFF_ZSTD_ALGORITHM};
@@ -685,6 +685,7 @@ fn install_binary_bytecode_payload_accepts_modern_opcodes() {
     let payload = BytecodeModule::new(vec![BytecodeFunction {
         name: "package:app/main.dart::initialCounterValue".to_string(),
         return_convention: "tagged".to_string(),
+        async_kind: AsyncKind::Sync,
         param_count: 1,
         local_count: 1,
         constants: vec![
