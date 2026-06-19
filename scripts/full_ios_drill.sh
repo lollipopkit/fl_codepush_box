@@ -4,13 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/full-ios-drill}"
 ARCHIVE_STAMP="${FCB_ARCHIVE_STAMP:-$(date +%Y%m%d_%H%M%S)}"
-ARCHIVE_DIR="${FCB_ARCHIVE_DIR:-$ROOT_DIR/tests/e2e/ios_drill_$ARCHIVE_STAMP}"
+ARCHIVE_DIR="${FCB_ARCHIVE_DIR:-$ROOT_DIR/target/fcb/evidence/ios_drill_$ARCHIVE_STAMP}"
 BUILD_SCRIPT="${FCB_IOS_BUILD_SCRIPT:-$ROOT_DIR/scripts/build_ios_engine.sh}"
 SIM_SCRIPT="${FCB_IOS_SIM_SCRIPT:-$ROOT_DIR/scripts/test_ios_sim.sh}"
 APP_DIR="${FCB_APP_DIR:-$ROOT_DIR/examples/counter_app}"
 XCODE_WORKSPACE="${FCB_XCODE_WORKSPACE:-$APP_DIR/ios/Runner.xcworkspace}"
 XCODE_SCHEME="${FCB_XCODE_SCHEME:-Runner}"
-BUNDLE_ID="${FCB_BUNDLE_ID:-com.example.fcbCounterApp}"
+BUNDLE_ID="${FCB_BUNDLE_ID:-com.jinhuatoast.fcbCounterApp}"
 TEAM_ID="${FCB_TEAM_ID:-}"
 APP_STORE_CONNECT_TEAM_ID="${FCB_APP_STORE_CONNECT_TEAM_ID:-}"
 SKIP_SIM_PREFLIGHT="${FCB_SKIP_IOS_SIM_PREFLIGHT:-0}"
@@ -39,16 +39,16 @@ require human-operated signing credentials and review evidence.
 
 Environment:
   FCB_WORKDIR                 Drill output root. Default: target/fcb/full-ios-drill
-  FCB_ARCHIVE_DIR             Evidence archive root. Default: tests/e2e/ios_drill_<timestamp>
+  FCB_ARCHIVE_DIR             Evidence archive root. Default: target/fcb/evidence/ios_drill_<timestamp>
   FCB_ARCHIVE_STAMP           Timestamp suffix used by the default archive dir.
-  FCB_SKIP_ARCHIVE            Skip copying final evidence into tests/e2e. Default: 0
+  FCB_SKIP_ARCHIVE            Skip copying final evidence into the archive dir. Default: 0
   FCB_SKIP_IOS_SIM_PREFLIGHT  Skip scripts/test_ios_sim.sh. Default: 0
   FCB_IOS_BUILD_SCRIPT        iOS engine build script. Default: scripts/build_ios_engine.sh
   FCB_IOS_SIM_SCRIPT          iOS simulator smoke script. Default: scripts/test_ios_sim.sh
   FCB_APP_DIR                 Flutter app directory. Default: examples/counter_app
   FCB_XCODE_WORKSPACE         Xcode workspace. Default: examples/counter_app/ios/Runner.xcworkspace
   FCB_XCODE_SCHEME            Xcode scheme. Default: Runner
-  FCB_BUNDLE_ID               Bundle id. Default: com.example.fcbCounterApp
+  FCB_BUNDLE_ID               Bundle id. Default: com.jinhuatoast.fcbCounterApp
   FCB_TEAM_ID                 Apple signing team id, written into generated command logs.
   FCB_APP_STORE_CONNECT_TEAM_ID
                               App Store Connect provider/team id for upload logs.

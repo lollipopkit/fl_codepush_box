@@ -7,6 +7,7 @@ MAX_MAIN_MINUTES="${FCB_CI_EVIDENCE_MAX_MAIN_MINUTES:-5}"
 MAX_ANDROID_MINUTES="${FCB_CI_EVIDENCE_MAX_ANDROID_MINUTES:-60}"
 MAX_IOS_MINUTES="${FCB_CI_EVIDENCE_MAX_IOS_MINUTES:-90}"
 OUT_DIR="${FCB_CI_EVIDENCE_DIR:-$ROOT_DIR/target/fcb/github-actions-evidence}"
+EXPECTED_HEAD_SHA="${FCB_CI_EVIDENCE_EXPECTED_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 
 usage() {
   cat <<USAGE
@@ -15,8 +16,8 @@ Usage:
 
 Checks real GitHub Actions evidence for Phase H2 without triggering workflows.
 The script reads the latest completed workflow runs from GitHub, requires them
-to be successful, and writes a summary under target/fcb/github-actions-evidence
-by default.
+to be successful, requires push workflows to match the expected HEAD SHA, and
+writes a summary under target/fcb/github-actions-evidence by default.
 
 Environment:
   FCB_CI_EVIDENCE_BRANCH              Branch to inspect. Default: main
@@ -24,6 +25,7 @@ Environment:
   FCB_CI_EVIDENCE_MAX_ANDROID_MINUTES Max duration for Android nightly. Default: 60
   FCB_CI_EVIDENCE_MAX_IOS_MINUTES     Max duration for iOS nightly. Default: 90
   FCB_CI_EVIDENCE_DIR                 Output directory.
+  FCB_CI_EVIDENCE_EXPECTED_SHA        Required push workflow SHA. Default: local HEAD.
 USAGE
 }
 
@@ -85,7 +87,7 @@ PY
   run_list "Server S3 Storage" "schedule"
 } >"$RAW_JSON"
 
-python3 - "$RAW_JSON" "$SUMMARY" "$BRANCH" "$MAX_MAIN_MINUTES" "$MAX_ANDROID_MINUTES" "$MAX_IOS_MINUTES" <<'PY'
+python3 - "$RAW_JSON" "$SUMMARY" "$BRANCH" "$MAX_MAIN_MINUTES" "$MAX_ANDROID_MINUTES" "$MAX_IOS_MINUTES" "$EXPECTED_HEAD_SHA" <<'PY'
 from __future__ import annotations
 
 import datetime as dt
@@ -93,7 +95,7 @@ import json
 import sys
 from pathlib import Path
 
-raw_path, summary_path, branch, max_main_text, max_android_text, max_ios_text = sys.argv[1:7]
+raw_path, summary_path, branch, max_main_text, max_android_text, max_ios_text, expected_head_sha = sys.argv[1:8]
 max_main = float(max_main_text)
 max_android = float(max_android_text)
 max_ios = float(max_ios_text)
@@ -162,10 +164,13 @@ for record in records:
 
 if len(push_head_shas) > 1:
     errors.append("push workflow runs do not share one head SHA: " + ", ".join(sorted(push_head_shas)))
+elif len(push_head_shas) == 1 and expected_head_sha and next(iter(push_head_shas)) != expected_head_sha:
+    errors.append(f"push workflow SHA {next(iter(push_head_shas))} does not match expected HEAD {expected_head_sha}")
 
 summary = [
     "FCB GitHub Actions evidence",
     f"branch: {branch}",
+    f"expected_head_sha: {expected_head_sha}",
     f"max_main_minutes: {max_main:.1f}",
     f"max_android_minutes: {max_android:.1f}",
     f"max_ios_minutes: {max_ios:.1f}",

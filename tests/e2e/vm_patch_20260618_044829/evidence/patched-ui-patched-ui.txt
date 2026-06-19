@@ -1,9 +1,0 @@
-patched widget tree
-setState path exercised by CounterApp bootstrap and widget state update
-method channel path exercised by FcbCodePush Android updater initialization
-platform: android-arm64
-source: target/fcb/android-field-final-acceptance/patch/result.txt
-observed: 42/42/42/patched/patched-field/42
-fieldStatusLabel_observed: patched-field
-tombstones_before: 20
-tombstones_after: 20

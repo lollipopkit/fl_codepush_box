@@ -1,6 +1,0 @@
-baseline counter_app release rendered
-platform: android-arm64
-source: target/fcb/android-field-final-acceptance/nopatch/result.txt
-observed: 1/8/7/base/base-field/10
-tombstones_before: 20
-tombstones_after: 20

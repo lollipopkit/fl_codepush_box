@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAMP="${FCB_VM_PATCH_ARCHIVE_STAMP:-$(date +%Y%m%d_%H%M%S)}"
-ARCHIVE_DIR="${FCB_VM_PATCH_ARCHIVE_DIR:-$ROOT_DIR/tests/e2e/vm_patch_$STAMP}"
+ARCHIVE_DIR="${FCB_VM_PATCH_ARCHIVE_DIR:-$ROOT_DIR/target/fcb/evidence/vm_patch_$STAMP}"
 STATUS="${FCB_VM_PATCH_STATUS:-}"
 PLATFORM="${FCB_VM_PATCH_PLATFORM:-}"
 APP_ID="${FCB_VM_PATCH_APP_ID:-counter_app}"
@@ -33,7 +33,7 @@ Usage:
     $0
 
 Records Phase E counter_app real VM patch evidence into
-tests/e2e/vm_patch_<timestamp>. This script does not run devices or build
+target/fcb/evidence/vm_patch_<timestamp>. This script does not run devices or build
 patches. It only writes the completion marker consumed by
 make audit-plan-completion after a real VM interpreted patch has passed.
 

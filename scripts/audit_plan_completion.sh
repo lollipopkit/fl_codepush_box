@@ -7,11 +7,15 @@ SUMMARY="$OUT_DIR/summary.txt"
 RUN_GITHUB_EVIDENCE="${FCB_PLAN_AUDIT_GITHUB_EVIDENCE:-1}"
 GITHUB_EVIDENCE_BRANCH="${FCB_PLAN_AUDIT_GITHUB_BRANCH:-main}"
 GITHUB_EVIDENCE_REPOSITORY="${FCB_PLAN_AUDIT_GITHUB_REPOSITORY:-$(git -C "$ROOT_DIR" config --get remote.origin.url | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')}"
+GITHUB_EXPECTED_HEAD_SHA="${FCB_PLAN_AUDIT_GITHUB_EXPECTED_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 GITHUB_MAX_MAIN_MINUTES="${FCB_PLAN_AUDIT_GITHUB_MAX_MAIN_MINUTES:-5.0}"
 GITHUB_MAX_ANDROID_MINUTES="${FCB_PLAN_AUDIT_GITHUB_MAX_ANDROID_MINUTES:-60.0}"
 GITHUB_MAX_IOS_MINUTES="${FCB_PLAN_AUDIT_GITHUB_MAX_IOS_MINUTES:-90.0}"
 S3_SUMMARY="${FCB_PLAN_AUDIT_S3_SUMMARY:-$ROOT_DIR/target/fcb/s3-storage/summary.txt}"
+EVIDENCE_ROOT="${FCB_PLAN_AUDIT_EVIDENCE_ROOT:-$ROOT_DIR/target/fcb/evidence}"
 VM_PATCH_SUMMARY_OVERRIDE="${FCB_PLAN_AUDIT_VM_PATCH_SUMMARY:-}"
+TESTFLIGHT_SUMMARY_OVERRIDE="${FCB_PLAN_AUDIT_TESTFLIGHT_SUMMARY:-}"
+VENDOR_REBASE_SUMMARY_OVERRIDE="${FCB_PLAN_AUDIT_VENDOR_REBASE_SUMMARY:-}"
 
 mkdir -p "$OUT_DIR"
 
@@ -48,6 +52,19 @@ latest_glob() {
   echo "$latest"
 }
 
+latest_evidence_summary() {
+  local prefix="$1"
+  local file
+  local latest=""
+  for file in "$EVIDENCE_ROOT"/${prefix}_*/summary.txt; do
+    [ -e "$file" ] || continue
+    if [ -z "$latest" ] || [ "$file" -nt "$latest" ]; then
+      latest="$file"
+    fi
+  done
+  echo "$latest"
+}
+
 contains() {
   local file="$1"
   local pattern="$2"
@@ -58,6 +75,14 @@ contains_any() {
   local pattern="$1"
   shift
   grep -Fq "$pattern" "$@" 2>/dev/null
+}
+
+remote_matches() {
+  local path="$1"
+  local expected="$2"
+  local actual
+  actual="$(git -C "$ROOT_DIR/$path" remote get-url origin 2>/dev/null || true)"
+  [ "${actual%.git}" = "${expected%.git}" ]
 }
 
 summary_has_completion_marker() {
@@ -102,6 +127,16 @@ archive_evidence_contains() {
   [ -f "$evidence_path" ] || return 1
   [ ! -L "$evidence_path" ] || return 1
   grep -Fq "$pattern" "$evidence_path" 2>/dev/null
+}
+
+archive_evidence_contains_summary_value() {
+  local summary="$1"
+  local key="$2"
+  local value_key="$3"
+  local value
+  value="$(summary_value "$summary" "$value_key")"
+  [ -n "$value" ] || return 1
+  archive_evidence_contains "$summary" "$key" "$value"
 }
 
 archive_evidence_interpreter_ratio_below_one_percent() {
@@ -149,11 +184,13 @@ github_actions_summary_passed() {
   [ -f "$file" ] || return 1
   grep -Fq "status: passed" "$file" || return 1
   grep -Fxq "branch: $GITHUB_EVIDENCE_BRANCH" "$file" || return 1
+  grep -Fxq "expected_head_sha: $GITHUB_EXPECTED_HEAD_SHA" "$file" || return 1
   grep -Fxq "max_main_minutes: $GITHUB_MAX_MAIN_MINUTES" "$file" || return 1
   grep -Fxq "max_android_minutes: $GITHUB_MAX_ANDROID_MINUTES" "$file" || return 1
   grep -Fxq "max_ios_minutes: $GITHUB_MAX_IOS_MINUTES" "$file" || return 1
   grep -Eq '^push_head_sha: [0-9a-f]{40}$' "$file" || return 1
   push_head_sha="$(summary_value "$file" "push_head_sha")"
+  [ "$push_head_sha" = "$GITHUB_EXPECTED_HEAD_SHA" ] || return 1
   push_head_short="${push_head_sha:0:12}"
   github_actions_run_line_passed "$file" "Workflow Lint" "push" "$push_head_short" || return 1
   github_actions_run_line_passed "$file" "Rust" "push" "$push_head_short" || return 1
@@ -205,13 +242,17 @@ ios_device_summary_passed() {
 testflight_summary_passed() {
   local summary="$1"
   summary_has_completion_marker "$summary" "TestFlight External Testing entered" || return 1
+  grep -Eq '^bundle_id: [^[:space:]]+$' "$summary" || return 1
   grep -Eq '^build_number: [^[:space:]]+$' "$summary" || return 1
   grep -Fq "status: External Testing" "$summary" || return 1
   archive_evidence_contains "$summary" "external_testing_evidence" "External Testing" || return 1
+  archive_evidence_contains_summary_value "$summary" "external_testing_evidence" "bundle_id" || return 1
+  archive_evidence_contains_summary_value "$summary" "external_testing_evidence" "build_number" || return 1
   local upload_path
   upload_path="$(summary_value "$summary" "upload_evidence")"
   if [ -n "$upload_path" ]; then
     archive_evidence_contains "$summary" "upload_evidence" "accepted" || return 1
+    archive_evidence_contains_summary_value "$summary" "upload_evidence" "build_number" || return 1
   fi
 }
 
@@ -224,7 +265,12 @@ rebase_summary_passed() {
   grep -Eq '^flutter_commit: [0-9a-f]{7,40}$' "$summary" || return 1
   grep -Eq '^dart_commit: [0-9a-f]{7,40}$' "$summary" || return 1
   archive_evidence_contains "$summary" "rebase_log" "replayed FCB hook commits" || return 1
+  archive_evidence_contains_summary_value "$summary" "rebase_log" "source_ref" || return 1
+  archive_evidence_contains_summary_value "$summary" "rebase_log" "target_ref" || return 1
+  archive_evidence_contains_summary_value "$summary" "rebase_log" "flutter_commit" || return 1
+  archive_evidence_contains_summary_value "$summary" "rebase_log" "dart_commit" || return 1
   archive_evidence_contains "$summary" "engine_build_evidence" "engine build passed" || return 1
+  archive_evidence_contains_summary_value "$summary" "engine_build_evidence" "flutter_commit" || return 1
   archive_evidence_contains "$summary" "cargo_test_evidence" "cargo test --workspace passed" || return 1
   archive_evidence_contains "$summary" "e2e_x64_evidence" "e2e_x64 passed" || return 1
   archive_evidence_contains "$summary" "arm64_drill_evidence" "arm64 drill passed" || return 1
@@ -243,45 +289,39 @@ rebase_doc_passed() {
   grep -Fq "Vendor rebase validation passed" "$file" || return 1
 }
 
-audit_h1_submodules() {
-  if ! has_file ".gitmodules"; then
-    fail "H1 vendor submodules: .gitmodules is missing"
-    return
-  fi
+audit_h1_vendor_checkouts() {
   local missing=0
   for path in vendor/flutter vendor/depot_tools; do
-    if ! contains ".gitmodules" "path = $path"; then
-      fail "H1 vendor submodules: .gitmodules does not register $path"
-      missing=1
-    elif ! git -C "$ROOT_DIR" ls-files --stage -- "$path" | awk '{print $1}' | grep -q '^160000$'; then
-      fail "H1 vendor submodules: $path is not a gitlink in the index"
+    if [ ! -d "$ROOT_DIR/$path/.git" ]; then
+      fail "H1 vendor checkouts: $path is missing or is not a git checkout"
       missing=1
     fi
   done
-  if ! contains ".gitmodules" "url = https://github.com/lollipopkit/flutter.git"; then
-    fail "H1 vendor submodules: vendor/flutter URL is not locked to lollipopkit/flutter"
+  if [ -e "$ROOT_DIR/vendor/dart" ]; then
+    fail "H1 vendor checkouts: top-level vendor/dart must not exist"
     missing=1
   fi
-  if ! contains ".gitmodules" "branch = fcb-stable"; then
-    fail "H1 vendor submodules: vendor/flutter branch is not fcb-stable"
+  if ! remote_matches "vendor/flutter" "https://github.com/lollipopkit/flutter.git"; then
+    fail "H1 vendor checkouts: vendor/flutter remote is not lollipopkit/flutter"
     missing=1
   fi
   if ! contains "vendor/flutter/engine/src/flutter/DEPS" "'fcb_dart_sdk_git': 'https://github.com/lollipopkit/dartsdk'"; then
-    fail "H1 vendor submodules: Engine DEPS does not point embedded Dart at lollipopkit/dartsdk"
+    fail "H1 vendor checkouts: Engine DEPS does not point embedded Dart at lollipopkit/dartsdk"
     missing=1
   fi
-  if ! contains ".gitmodules" "url = https://chromium.googlesource.com/chromium/tools/depot_tools.git"; then
-    fail "H1 vendor submodules: vendor/depot_tools URL is not chromium depot_tools"
+  if ! remote_matches "vendor/depot_tools" "https://chromium.googlesource.com/chromium/tools/depot_tools.git"; then
+    fail "H1 vendor checkouts: vendor/depot_tools remote is not chromium depot_tools"
     missing=1
   fi
   if [ "$missing" = "0" ]; then
-    pass "H1 vendor submodules: .gitmodules, URLs, branches, and gitlinks present"
+    pass "H1 vendor checkouts: local checkouts, remotes, and embedded Dart DEPS pin present"
   fi
 }
 
 audit_h2_ci_evidence() {
   if [ "$RUN_GITHUB_EVIDENCE" = "1" ]; then
     if FCB_CI_EVIDENCE_BRANCH="$GITHUB_EVIDENCE_BRANCH" \
+      FCB_CI_EVIDENCE_EXPECTED_SHA="$GITHUB_EXPECTED_HEAD_SHA" \
       FCB_CI_EVIDENCE_MAX_MAIN_MINUTES="$GITHUB_MAX_MAIN_MINUTES" \
       FCB_CI_EVIDENCE_MAX_ANDROID_MINUTES="$GITHUB_MAX_ANDROID_MINUTES" \
       FCB_CI_EVIDENCE_MAX_IOS_MINUTES="$GITHUB_MAX_IOS_MINUTES" \
@@ -301,6 +341,26 @@ audit_h2_ci_evidence() {
   fi
 }
 
+audit_evidence_hygiene() {
+  local pattern
+  local found=0
+  for pattern in \
+    "$ROOT_DIR"/tests/e2e/arm64_drill_* \
+    "$ROOT_DIR"/tests/e2e/ios_drill_* \
+    "$ROOT_DIR"/tests/e2e/testflight_* \
+    "$ROOT_DIR"/tests/e2e/vendor_rebase_* \
+    "$ROOT_DIR"/tests/e2e/vm_patch_*; do
+    if [ -e "$pattern" ]; then
+      fail "Evidence hygiene: generated evidence must not live under tests/e2e"
+      found=1
+      break
+    fi
+  done
+  if [ "$found" = "0" ]; then
+    pass "Evidence hygiene: tests/e2e contains no generated evidence archives"
+  fi
+}
+
 audit_e_vm() {
   if has_file "vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime.cc" \
     && has_file "vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_entry.cc" \
@@ -313,17 +373,28 @@ audit_e_vm() {
   local runtime_h="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime.h"
   local runtime_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime.cc"
   local runtime_vm_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_vm.cc"
+  local runtime_value_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_value.cc"
   local runtime_loader_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_loader.cc"
+  local runtime_semantics_test_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_semantics_test.cc"
   local runtime_test_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_test.cc"
+  local runtime_call_dynamic_test_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_call_dynamic_test.cc"
+  local runtime_call_original_test_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_call_original_test.cc"
+  local runtime_debugger_test_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_debugger_test.cc"
+  local runtime_new_object_test_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_new_object_test.cc"
+  local runtime_try_test_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_runtime_try_test.cc"
   local entry_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/fcb_patch_entry.cc"
   local object_cc="$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/object.cc"
+  local async_expr="$ROOT_DIR/tool/fcb_kernel_async_expr.dart"
+  local kernel_compile_test="$ROOT_DIR/tests/e2e/test_kernel_compile_from_plan.sh"
 
   if [ -f "$runtime_h" ] \
     && ! grep -Fq "header-only with no VM object dependencies" "$runtime_h" \
     && ! grep -Fq "plain byte vectors" "$runtime_h" \
     && grep -Fq "ObjectPtr object_value" "$runtime_h" \
     && grep -Fq "VisitObjectPointers(ObjectPointerVisitor" "$runtime_h" \
-    && grep -Fq "visitor->VisitPointer(&object_value)" "$runtime_cc" \
+    && grep -Fq "visitor->VisitPointer(&object_value)" "$runtime_value_cc" \
+    && grep -Fq "Value Value::FromDart(ObjectPtr value)" "$runtime_value_cc" \
+    && grep -Fq "ObjectPtr Value::ToDart()" "$runtime_value_cc" \
     && grep -Fq "out_value->object_value = object.ptr()" "$entry_cc" \
     && grep -Fq "*out_object = value.object_value" "$entry_cc"; then
     pass "E ObjectPtr integration: runtime Value/module directly uses Dart VM objects"
@@ -376,22 +447,87 @@ audit_e_vm() {
 
   local evidence="$ROOT_DIR/target/fcb/vendor-vm-test/summary.txt"
   local vendor_vm_log="$ROOT_DIR/target/fcb/vendor-vm-test/standalone-test.log"
+  local debug_vm_tests_log="$ROOT_DIR/target/fcb/vendor-vm-test/debug-run-vm-tests.log"
+  local release_vm_tests_log="$ROOT_DIR/target/fcb/vendor-vm-test/release-run-vm-tests.log"
   if [ -f "$evidence" ] \
     && grep -Fq "standalone FcbPatchRuntime passed" "$evidence" \
     && grep -Eq '^dart_commit: [0-9a-f]{40}$' "$evidence" \
-    && grep -Fq "test: runtime/vm/fcb_patch_runtime_test.cc" "$evidence" \
-    && grep -Fq "log: $vendor_vm_log" "$evidence" \
-    && grep -Fq "standalone FcbPatchRuntime passed" "$vendor_vm_log" 2>/dev/null; then
-    pass "E vendor VM tests: runtime/vm/fcb_patch_runtime_test evidence present"
+    && grep -Fq "standalone_tests: runtime/vm/fcb_patch_runtime_loader_test.cc runtime/vm/fcb_patch_runtime_test.cc runtime/vm/fcb_patch_runtime_try_test.cc" "$evidence" \
+    && grep -Fq "standalone_log: $vendor_vm_log" "$evidence" \
+    && grep -Fq "debug_vm_tests: $debug_vm_tests_log" "$evidence" \
+    && grep -Fq "release_vm_tests: $release_vm_tests_log" "$evidence" \
+    && grep -Fq "standalone FcbPatchRuntime passed" "$vendor_vm_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeMapCrossesDynamicCallBoundary Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeListMaterializesAsDartArray Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeNewObjectFutureValue Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeTryCatchesCallDynamicException Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeTryCatchesCallOriginalException Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeTryCatchesNewObjectException Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchDebuggerCollectsActiveInterpreterFrame Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchDebuggerFrameEvaluationUsesSourceLibrary Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchDebuggerCollectsMaterializedClosureActiveFrame Pass" "$debug_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeMapCrossesDynamicCallBoundary Pass" "$release_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeListMaterializesAsDartArray Pass" "$release_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeNewObjectFutureValue Pass" "$release_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeTryCatchesCallDynamicException Pass" "$release_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeTryCatchesCallOriginalException Pass" "$release_vm_tests_log" 2>/dev/null \
+    && grep -Fq "FcbPatchRuntimeTryCatchesNewObjectException Pass" "$release_vm_tests_log" 2>/dev/null; then
+    pass "E vendor VM tests: standalone and debug/release FCB VM test evidence present"
   else
-    fail "E vendor VM tests: missing complete standalone FcbPatchRuntime passing evidence"
+    fail "E vendor VM tests: missing complete standalone or run_vm_tests FCB evidence"
+  fi
+
+  if [ -f "$runtime_semantics_test_cc" ] \
+    && grep -Fq "FcbPatchRuntimeMapCrossesDynamicCallBoundary" "$runtime_semantics_test_cc" \
+    && grep -Fq "FcbPatchRuntimeListMaterializesAsDartArray" "$runtime_semantics_test_cc" \
+    && contains "vendor/flutter/engine/src/flutter/third_party/dart/runtime/vm/vm_sources.gni" "fcb_patch_runtime_semantics_test.cc"; then
+    pass "E semantic regression tests: ObjectPtr materialization crosses Dart boundaries"
+  else
+    fail "E semantic regression tests: missing ObjectPtr materialization boundary coverage"
+  fi
+
+  if [ -f "$async_expr" ] \
+    && [ -f "$runtime_new_object_test_cc" ] \
+    && grep -Fq "_asyncFutureValueSource" "$async_expr" \
+    && grep -Fq "_awaitedImmediateFutureValueExpr" "$async_expr" \
+    && grep -Fq "AsyncAwaitUnsupported" "$ROOT_DIR/crates/fcb_core/src/linker.rs" \
+    && grep -Fq "FcbPatchRuntimeNewObjectFutureValue" "$runtime_new_object_test_cc" \
+    && grep -Fq "asyncLabel should now be supported" "$kernel_compile_test" \
+    && grep -Fq "awaitedLabel" "$kernel_compile_test" \
+    && grep -Fq "awaitedLocalLabel" "$kernel_compile_test"; then
+    pass "E async tests: immediate Future.value async/await lowering covered"
+  else
+    fail "E async tests: missing immediate Future.value async/await coverage"
+  fi
+
+  if [ -f "$runtime_try_test_cc" ] \
+    && [ -f "$runtime_call_dynamic_test_cc" ] \
+    && [ -f "$runtime_call_original_test_cc" ] \
+    && [ -f "$runtime_new_object_test_cc" ] \
+    && grep -Fq "CatchesCallStaticThrow" "$runtime_try_test_cc" \
+    && grep -Fq "FcbPatchRuntimeTryCatchesCallDynamicException" "$runtime_call_dynamic_test_cc" \
+    && grep -Fq "FcbPatchRuntimeTryCatchesCallOriginalException" "$runtime_call_original_test_cc" \
+    && grep -Fq "FcbPatchRuntimeTryCatchesNewObjectException" "$runtime_new_object_test_cc"; then
+    pass "E exception tests: interpreted and Dart call exceptions are catchable"
+  else
+    fail "E exception tests: missing interpreted/Dart call exception coverage"
+  fi
+
+  if [ -f "$runtime_debugger_test_cc" ] \
+    && grep -Fq "FcbPatchDebuggerFrameEvaluationUsesSourceLibrary" "$runtime_debugger_test_cc" \
+    && grep -Fq "FcbPatchDebuggerCollectsActiveInterpreterFrame" "$runtime_debugger_test_cc" \
+    && grep -Fq "FcbPatchDebuggerExposesActiveHandlerMetadata" "$runtime_debugger_test_cc" \
+    && grep -Fq "FcbPatchDebuggerCollectsMaterializedClosureActiveFrame" "$runtime_debugger_test_cc"; then
+    pass "E debugger tests: active frame, handler, closure, and eval coverage present"
+  else
+    fail "E debugger tests: missing active frame/eval coverage"
   fi
 
   local vm_patch_summary
   if [ -n "$VM_PATCH_SUMMARY_OVERRIDE" ]; then
     vm_patch_summary="$VM_PATCH_SUMMARY_OVERRIDE"
   else
-    vm_patch_summary="$(latest_glob "tests/e2e/vm_patch_*/summary.txt")"
+    vm_patch_summary="$(latest_evidence_summary "vm_patch")"
   fi
   if vm_patch_summary_passed "$vm_patch_summary"; then
     pass "E end-to-end VM patch: counter_app real VM patch evidence passed"
@@ -457,7 +593,7 @@ audit_f_g_local_gates() {
 
 audit_h3_h4_devices() {
   local arm64_summary
-  arm64_summary="$(latest_glob "tests/e2e/arm64_drill_*/summary.txt")"
+  arm64_summary="$(latest_evidence_summary "arm64_drill")"
   if arm64_summary_passed "$arm64_summary"; then
     pass "H3 Android arm64: full drill evidence passed"
   else
@@ -465,7 +601,7 @@ audit_h3_h4_devices() {
   fi
 
   local ios_summary
-  ios_summary="$(latest_glob "tests/e2e/ios_drill_*/summary.txt")"
+  ios_summary="$(latest_evidence_summary "ios_drill")"
   if ios_device_summary_passed "$ios_summary"; then
     pass "H4 iOS: iPhone device evidence passed"
   else
@@ -473,7 +609,11 @@ audit_h3_h4_devices() {
   fi
 
   local testflight_summary
-  testflight_summary="$(latest_glob "tests/e2e/testflight_*/summary.txt")"
+  if [ -n "$TESTFLIGHT_SUMMARY_OVERRIDE" ]; then
+    testflight_summary="$TESTFLIGHT_SUMMARY_OVERRIDE"
+  else
+    testflight_summary="$(latest_evidence_summary "testflight")"
+  fi
   if testflight_summary_passed "$testflight_summary"; then
     pass "H4 TestFlight: External Testing evidence passed"
   else
@@ -491,7 +631,11 @@ audit_h5_rebase() {
   fi
 
   local rebase_summary
-  rebase_summary="$(latest_glob "tests/e2e/vendor_rebase_*/summary.txt")"
+  if [ -n "$VENDOR_REBASE_SUMMARY_OVERRIDE" ]; then
+    rebase_summary="$VENDOR_REBASE_SUMMARY_OVERRIDE"
+  else
+    rebase_summary="$(latest_evidence_summary "vendor_rebase")"
+  fi
   if rebase_summary_passed "$rebase_summary"; then
     pass "H5 vendor rebase: first real rebase evidence passed"
   else
@@ -499,8 +643,9 @@ audit_h5_rebase() {
   fi
 }
 
-audit_h1_submodules
+audit_h1_vendor_checkouts
 audit_h2_ci_evidence
+audit_evidence_hygiene
 audit_e_vm
 audit_f_g_local_gates
 audit_h3_h4_devices

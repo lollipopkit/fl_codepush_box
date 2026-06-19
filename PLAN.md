@@ -114,12 +114,12 @@ fcb/
   scripts/
     build_android_engine.sh / build_ios_engine.sh / test_android_arm64.sh / ...
 
-顶层 vendor 只维护 `vendor/flutter` 与 `vendor/depot_tools` 两个 submodule。
+顶层 vendor 只维护 `vendor/flutter` 与 `vendor/depot_tools` 两个本地 checkout。
 Dart VM patch 的单一真源是 Flutter Engine embedded checkout：
 `vendor/flutter/engine/src/flutter/third_party/dart`，由 Flutter Engine `DEPS`
 指向 `lollipopkit/dartsdk` fork 并锁定 commit。CI 用
-`git submodule update --init --recursive` 拉取顶层 vendor，再由 Engine 工具链按
-`DEPS` 解析 embedded Dart。
+bootstrap/rebase tooling 准备顶层 vendor checkout，再由 Engine 工具链按 `DEPS`
+解析 embedded Dart；根仓库不使用 vendor submodule。
 
 ⸻
 
@@ -1226,7 +1226,7 @@ adb shell am start -n com.example.counter/.MainActivity
   Phase E（关键路径）：Dart VM ObjectPtr 集成 + opcode 补全 + vendor VM binary reader/fallback/StackTrace + 最大化 AOT 复用。
   Phase F：Server 多租户 + storage + rollout + event/stats/ops。
   Phase G：客户端 crash 自动回滚 + 网络健壮性。
-  Phase H：vendor submodule + CI + arm64/iPhone 真机 + TestFlight。
+  Phase H：vendor checkout + CI + arm64/iPhone 真机 + TestFlight。
 
 最重要的工程判断：热更新系统的难点不在"下载一个 diff"，而在"让 release AOT Flutter 在不违反平台规则的前提下执行新 Dart 语义，并在失败时安全回滚"。壁垒集中在 Dart VM 那块（ObjectPtr 集成 + 语义覆盖 + AOT 复用），E 的关键路径长度直接决定整体上线时间。
 

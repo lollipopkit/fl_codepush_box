@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAMP="${FCB_VENDOR_REBASE_ARCHIVE_STAMP:-$(date +%Y%m%d_%H%M%S)}"
-ARCHIVE_DIR="${FCB_VENDOR_REBASE_ARCHIVE_DIR:-$ROOT_DIR/tests/e2e/vendor_rebase_$STAMP}"
+ARCHIVE_DIR="${FCB_VENDOR_REBASE_ARCHIVE_DIR:-$ROOT_DIR/target/fcb/evidence/vendor_rebase_$STAMP}"
 STATUS="${FCB_VENDOR_REBASE_STATUS:-}"
 SOURCE_REF="${FCB_VENDOR_REBASE_SOURCE_REF:-}"
 TARGET_REF="${FCB_VENDOR_REBASE_TARGET_REF:-}"
@@ -32,7 +32,7 @@ Usage:
     $0
 
 Records Phase H5 vendor rebase validation evidence into
-tests/e2e/vendor_rebase_<timestamp>. This script does not rebase vendor
+target/fcb/evidence/vendor_rebase_<timestamp>. This script does not rebase vendor
 checkouts. It only writes the completion marker consumed by
 make audit-plan-completion after a real rebase has been performed and
 validated.
@@ -45,8 +45,10 @@ Environment:
   FCB_VENDOR_REBASE_TARGET_REF              Required new Flutter/Dart base ref.
   FCB_VENDOR_REBASE_FLUTTER_COMMIT          Required rebased vendor/flutter commit.
   FCB_VENDOR_REBASE_DART_COMMIT             Required pinned Engine embedded Dart SDK commit.
-  FCB_VENDOR_REBASE_REBASE_LOG              Required rebase command/conflict log.
-  FCB_VENDOR_REBASE_ENGINE_BUILD_EVIDENCE   Required engine build evidence.
+  FCB_VENDOR_REBASE_REBASE_LOG              Required rebase command/conflict log. Must contain
+                                            source/target refs and Flutter/Dart commits.
+  FCB_VENDOR_REBASE_ENGINE_BUILD_EVIDENCE   Required engine build evidence. Must contain
+                                            "engine build passed" and Flutter commit.
   FCB_VENDOR_REBASE_CARGO_TEST_EVIDENCE     Required cargo test evidence.
   FCB_VENDOR_REBASE_E2E_X64_EVIDENCE        Required e2e_x64 evidence.
   FCB_VENDOR_REBASE_ARM64_DRILL_EVIDENCE    Required arm64 drill evidence.
@@ -77,6 +79,14 @@ require_file_contains() {
   grep -Fq "$pattern" "$file" || die "evidence file $file must contain: $pattern"
 }
 
+require_commit() {
+  local name="$1"
+  local value="$2"
+  if ! [[ "$value" =~ ^[0-9a-f]{7,40}$ ]]; then
+    die "$name must be a 7-40 character lowercase hex commit"
+  fi
+}
+
 copy_evidence() {
   local source="$1"
   local label="$2"
@@ -96,6 +106,8 @@ require_value "FCB_VENDOR_REBASE_SOURCE_REF" "$SOURCE_REF"
 require_value "FCB_VENDOR_REBASE_TARGET_REF" "$TARGET_REF"
 require_value "FCB_VENDOR_REBASE_FLUTTER_COMMIT" "$FLUTTER_COMMIT"
 require_value "FCB_VENDOR_REBASE_DART_COMMIT" "$DART_COMMIT"
+require_commit "FCB_VENDOR_REBASE_FLUTTER_COMMIT" "$FLUTTER_COMMIT"
+require_commit "FCB_VENDOR_REBASE_DART_COMMIT" "$DART_COMMIT"
 require_value "FCB_VENDOR_REBASE_REBASE_LOG" "$REBASE_LOG"
 require_value "FCB_VENDOR_REBASE_ENGINE_BUILD_EVIDENCE" "$ENGINE_BUILD_EVIDENCE"
 require_value "FCB_VENDOR_REBASE_CARGO_TEST_EVIDENCE" "$CARGO_TEST_EVIDENCE"
@@ -108,7 +120,12 @@ require_file "$CARGO_TEST_EVIDENCE"
 require_file "$E2E_X64_EVIDENCE"
 require_file "$ARM64_DRILL_EVIDENCE"
 require_file_contains "$REBASE_LOG" "replayed FCB hook commits"
+require_file_contains "$REBASE_LOG" "$SOURCE_REF"
+require_file_contains "$REBASE_LOG" "$TARGET_REF"
+require_file_contains "$REBASE_LOG" "$FLUTTER_COMMIT"
+require_file_contains "$REBASE_LOG" "$DART_COMMIT"
 require_file_contains "$ENGINE_BUILD_EVIDENCE" "engine build passed"
+require_file_contains "$ENGINE_BUILD_EVIDENCE" "$FLUTTER_COMMIT"
 require_file_contains "$CARGO_TEST_EVIDENCE" "cargo test --workspace passed"
 require_file_contains "$E2E_X64_EVIDENCE" "e2e_x64 passed"
 require_file_contains "$ARM64_DRILL_EVIDENCE" "arm64 drill passed"

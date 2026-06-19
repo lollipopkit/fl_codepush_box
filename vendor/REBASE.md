@@ -60,8 +60,9 @@ External Testing flow from `docs/ios_distribution.md`.
 
 The rebase is not complete until the evidence archive contains:
 
-- Rebase command and conflict log with `replayed FCB hook commits`.
-- Engine build evidence with `engine build passed`.
+- Rebase command and conflict log with `replayed FCB hook commits`, the source
+  ref, target ref, rebased Flutter commit, and rebased embedded Dart commit.
+- Engine build evidence with `engine build passed` and the rebased Flutter commit.
 - Cargo test evidence with `cargo test --workspace passed`.
 - x64 e2e evidence with `e2e_x64 passed`.
 - Android arm64 drill evidence with `arm64 drill passed`.

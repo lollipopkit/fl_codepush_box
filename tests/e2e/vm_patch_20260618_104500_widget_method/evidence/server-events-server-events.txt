@@ -1,2 +1,0 @@
-{"event_type":"launch_success","interpreter_ratio":0.0}
-launch_success: android arm64 widget_tree_setState_method_channel acceptance passed

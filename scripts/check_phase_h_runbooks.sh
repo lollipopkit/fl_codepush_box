@@ -11,6 +11,7 @@ case "$WORKDIR" in
 esac
 
 cleanup() {
+  rm -rf "$ROOT_DIR/tests/e2e/vm_patch_99999999_legacy"
   if [ "$KEEP_WORKDIR" != "1" ]; then
     rm -rf "$WORKDIR"
   else
@@ -189,8 +190,12 @@ fi
 
 TESTFLIGHT_EVIDENCE="$WORKDIR/testflight-external-testing.txt"
 TESTFLIGHT_UPLOAD="$WORKDIR/testflight-upload.txt"
-echo "App Store Connect shows External Testing" >"$TESTFLIGHT_EVIDENCE"
-echo "altool upload accepted" >"$TESTFLIGHT_UPLOAD"
+{
+  echo "App Store Connect shows External Testing"
+  echo "bundle_id: com.example.fcbCounterApp"
+  echo "build_number: 42"
+} >"$TESTFLIGHT_EVIDENCE"
+echo "altool upload accepted build_number: 42" >"$TESTFLIGHT_UPLOAD"
 TESTFLIGHT_ARCHIVE="$WORKDIR/testflight-archive"
 FCB_TESTFLIGHT_ARCHIVE_DIR="$TESTFLIGHT_ARCHIVE" \
 FCB_TESTFLIGHT_BUILD_NUMBER="42" \
@@ -201,9 +206,15 @@ FCB_TESTFLIGHT_REVIEW_NOTES="fake runbook check" \
   "$ROOT_DIR/scripts/record_testflight_evidence.sh" >/dev/null
 assert_contains "$TESTFLIGHT_ARCHIVE/summary.txt" "TestFlight External Testing entered"
 assert_contains "$TESTFLIGHT_ARCHIVE/summary.txt" "build_number: 42"
+TESTFLIGHT_GOOD_AUDIT="$WORKDIR/testflight-good-audit"
+FCB_PLAN_AUDIT_DIR="$TESTFLIGHT_GOOD_AUDIT" \
+FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0 \
+FCB_PLAN_AUDIT_TESTFLIGHT_SUMMARY="$TESTFLIGHT_ARCHIVE/summary.txt" \
+  "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
+assert_contains "$TESTFLIGHT_GOOD_AUDIT/summary.txt" "H4 TestFlight: External Testing evidence passed"
 
 TESTFLIGHT_BAD_EVIDENCE="$WORKDIR/testflight-internal-only.txt"
-echo "App Store Connect shows Internal Testing" >"$TESTFLIGHT_BAD_EVIDENCE"
+echo "App Store Connect shows Internal Testing for com.example.fcbCounterApp build_number: 43" >"$TESTFLIGHT_BAD_EVIDENCE"
 if FCB_TESTFLIGHT_ARCHIVE_DIR="$WORKDIR/testflight-bad-archive" \
 FCB_TESTFLIGHT_BUILD_NUMBER="43" \
 FCB_TESTFLIGHT_STATUS="External Testing" \
@@ -212,14 +223,45 @@ FCB_TESTFLIGHT_UPLOAD_EVIDENCE="$TESTFLIGHT_UPLOAD" \
   "$ROOT_DIR/scripts/record_testflight_evidence.sh" >/dev/null 2>&1; then
   die "TestFlight bad External Testing evidence unexpectedly passed"
 fi
+TESTFLIGHT_WEAK_EVIDENCE="$WORKDIR/testflight-weak-external.txt"
+echo "External Testing" >"$TESTFLIGHT_WEAK_EVIDENCE"
+if FCB_TESTFLIGHT_ARCHIVE_DIR="$WORKDIR/testflight-weak-archive" \
+FCB_TESTFLIGHT_BUILD_NUMBER="44" \
+FCB_TESTFLIGHT_STATUS="External Testing" \
+FCB_TESTFLIGHT_EXTERNAL_TESTING_EVIDENCE="$TESTFLIGHT_WEAK_EVIDENCE" \
+  "$ROOT_DIR/scripts/record_testflight_evidence.sh" >/dev/null 2>&1; then
+  die "TestFlight weak unbound evidence unexpectedly passed"
+fi
+TESTFLIGHT_WEAK_ARCHIVE="$WORKDIR/testflight-weak-cached-archive"
+TESTFLIGHT_GOOD_ARCHIVE="$WORKDIR/testflight-good-cached-archive"
+cp -R "$TESTFLIGHT_ARCHIVE" "$TESTFLIGHT_GOOD_ARCHIVE"
+cp -R "$TESTFLIGHT_ARCHIVE" "$TESTFLIGHT_WEAK_ARCHIVE"
+TESTFLIGHT_EXTERNAL_REL="$(awk 'index($0, "external_testing_evidence: ") == 1 { print substr($0, 28); exit }' "$TESTFLIGHT_WEAK_ARCHIVE/summary.txt")"
+echo "External Testing" >"$TESTFLIGHT_WEAK_ARCHIVE/$TESTFLIGHT_EXTERNAL_REL"
+rm -rf "$WORKDIR/testflight-archive"
+cp -R "$TESTFLIGHT_WEAK_ARCHIVE" "$WORKDIR/testflight-archive"
+TESTFLIGHT_WEAK_AUDIT="$WORKDIR/testflight-weak-audit"
+FCB_PLAN_AUDIT_DIR="$TESTFLIGHT_WEAK_AUDIT" \
+FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0 \
+FCB_PLAN_AUDIT_TESTFLIGHT_SUMMARY="$WORKDIR/testflight-archive/summary.txt" \
+  "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
+assert_contains "$TESTFLIGHT_WEAK_AUDIT/summary.txt" "H4 TestFlight: missing evidence with marker 'TestFlight External Testing entered'"
+rm -rf "$WORKDIR/testflight-archive"
+cp -R "$TESTFLIGHT_GOOD_ARCHIVE" "$WORKDIR/testflight-archive"
 
 REBASE_LOG="$WORKDIR/vendor-rebase.log"
 REBASE_ENGINE="$WORKDIR/vendor-rebase-engine.txt"
 REBASE_CARGO="$WORKDIR/vendor-rebase-cargo.txt"
 REBASE_E2E="$WORKDIR/vendor-rebase-e2e.txt"
 REBASE_ARM64="$WORKDIR/vendor-rebase-arm64.txt"
-echo "replayed FCB hook commits onto Flutter stable" >"$REBASE_LOG"
-echo "engine build passed" >"$REBASE_ENGINE"
+{
+  echo "replayed FCB hook commits onto Flutter stable"
+  echo "source_ref: flutter-3.12.2-fcb"
+  echo "target_ref: flutter-stable-2026q2"
+  echo "flutter_commit: 87c1bc51504"
+  echo "dart_commit: 1b88776798d"
+} >"$REBASE_LOG"
+echo "engine build passed flutter_commit: 87c1bc51504" >"$REBASE_ENGINE"
 echo "cargo test --workspace passed" >"$REBASE_CARGO"
 echo "e2e_x64 passed" >"$REBASE_E2E"
 echo "arm64 drill passed" >"$REBASE_ARM64"
@@ -239,6 +281,12 @@ FCB_VENDOR_REBASE_NOTES="fake runbook check" \
   "$ROOT_DIR/scripts/record_vendor_rebase_evidence.sh" >/dev/null
 assert_contains "$REBASE_ARCHIVE/summary.txt" "Vendor rebase validation passed"
 assert_contains "$REBASE_ARCHIVE/summary.txt" "target_ref: flutter-stable-2026q2"
+REBASE_GOOD_AUDIT="$WORKDIR/vendor-rebase-good-audit"
+FCB_PLAN_AUDIT_DIR="$REBASE_GOOD_AUDIT" \
+FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0 \
+FCB_PLAN_AUDIT_VENDOR_REBASE_SUMMARY="$REBASE_ARCHIVE/summary.txt" \
+  "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
+assert_contains "$REBASE_GOOD_AUDIT/summary.txt" "H5 vendor rebase: first real rebase evidence passed"
 
 REBASE_BAD_ARM64="$WORKDIR/vendor-rebase-bad-arm64.txt"
 echo "arm64 drill skipped" >"$REBASE_BAD_ARM64"
@@ -256,6 +304,38 @@ FCB_VENDOR_REBASE_ARM64_DRILL_EVIDENCE="$REBASE_BAD_ARM64" \
   "$ROOT_DIR/scripts/record_vendor_rebase_evidence.sh" >/dev/null 2>&1; then
   die "Vendor rebase bad arm64 evidence unexpectedly passed"
 fi
+REBASE_WEAK_LOG="$WORKDIR/vendor-rebase-weak.log"
+echo "replayed FCB hook commits onto Flutter stable" >"$REBASE_WEAK_LOG"
+if FCB_VENDOR_REBASE_ARCHIVE_DIR="$WORKDIR/vendor-rebase-weak-archive" \
+FCB_VENDOR_REBASE_STATUS="passed" \
+FCB_VENDOR_REBASE_SOURCE_REF="flutter-3.12.2-fcb" \
+FCB_VENDOR_REBASE_TARGET_REF="flutter-stable-2026q2" \
+FCB_VENDOR_REBASE_FLUTTER_COMMIT="87c1bc51504" \
+FCB_VENDOR_REBASE_DART_COMMIT="1b88776798d" \
+FCB_VENDOR_REBASE_REBASE_LOG="$REBASE_WEAK_LOG" \
+FCB_VENDOR_REBASE_ENGINE_BUILD_EVIDENCE="$REBASE_ENGINE" \
+FCB_VENDOR_REBASE_CARGO_TEST_EVIDENCE="$REBASE_CARGO" \
+FCB_VENDOR_REBASE_E2E_X64_EVIDENCE="$REBASE_E2E" \
+FCB_VENDOR_REBASE_ARM64_DRILL_EVIDENCE="$REBASE_ARM64" \
+  "$ROOT_DIR/scripts/record_vendor_rebase_evidence.sh" >/dev/null 2>&1; then
+  die "Vendor rebase weak unbound evidence unexpectedly passed"
+fi
+REBASE_WEAK_ARCHIVE="$WORKDIR/vendor-rebase-weak-cached-archive"
+REBASE_GOOD_ARCHIVE="$WORKDIR/vendor-rebase-good-cached-archive"
+cp -R "$REBASE_ARCHIVE" "$REBASE_GOOD_ARCHIVE"
+cp -R "$REBASE_ARCHIVE" "$REBASE_WEAK_ARCHIVE"
+REBASE_LOG_REL="$(awk 'index($0, "rebase_log: ") == 1 { print substr($0, 13); exit }' "$REBASE_WEAK_ARCHIVE/summary.txt")"
+echo "replayed FCB hook commits onto Flutter stable" >"$REBASE_WEAK_ARCHIVE/$REBASE_LOG_REL"
+rm -rf "$WORKDIR/vendor-rebase-archive"
+cp -R "$REBASE_WEAK_ARCHIVE" "$WORKDIR/vendor-rebase-archive"
+REBASE_WEAK_AUDIT="$WORKDIR/vendor-rebase-weak-audit"
+FCB_PLAN_AUDIT_DIR="$REBASE_WEAK_AUDIT" \
+FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0 \
+FCB_PLAN_AUDIT_VENDOR_REBASE_SUMMARY="$WORKDIR/vendor-rebase-archive/summary.txt" \
+  "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
+assert_contains "$REBASE_WEAK_AUDIT/summary.txt" "H5 vendor rebase: missing evidence with marker 'Vendor rebase validation passed'"
+rm -rf "$WORKDIR/vendor-rebase-archive"
+cp -R "$REBASE_GOOD_ARCHIVE" "$WORKDIR/vendor-rebase-archive"
 
 VM_BASELINE="$WORKDIR/vm-patch-baseline.txt"
 VM_PATCHED_UI="$WORKDIR/vm-patch-patched-ui.txt"
@@ -346,6 +426,22 @@ FCB_PLAN_AUDIT_VM_PATCH_SUMMARY="$VM_PATCH_SYMLINK_ARCHIVE/summary.txt" \
   "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
 assert_contains "$VM_PATCH_SYMLINK_AUDIT/summary.txt" "E end-to-end VM patch: missing evidence with marker 'Counter app real VM patch passed'"
 
+LEGACY_E2E_VM_PATCH_DIR="$ROOT_DIR/tests/e2e/vm_patch_99999999_legacy"
+LEGACY_EMPTY_EVIDENCE_ROOT="$WORKDIR/empty-evidence-root"
+rm -rf "$LEGACY_E2E_VM_PATCH_DIR"
+mkdir -p "$LEGACY_E2E_VM_PATCH_DIR/evidence"
+mkdir -p "$LEGACY_EMPTY_EVIDENCE_ROOT"
+cp -R "$VM_PATCH_ARCHIVE/evidence/." "$LEGACY_E2E_VM_PATCH_DIR/evidence/"
+cp "$VM_PATCH_ARCHIVE/summary.txt" "$LEGACY_E2E_VM_PATCH_DIR/summary.txt"
+LEGACY_E2E_AUDIT="$WORKDIR/vm-patch-legacy-e2e-audit"
+FCB_PLAN_AUDIT_DIR="$LEGACY_E2E_AUDIT" \
+FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0 \
+FCB_PLAN_AUDIT_EVIDENCE_ROOT="$LEGACY_EMPTY_EVIDENCE_ROOT" \
+  "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
+assert_contains "$LEGACY_E2E_AUDIT/summary.txt" "E end-to-end VM patch: missing evidence with marker 'Counter app real VM patch passed'"
+assert_contains "$LEGACY_E2E_AUDIT/summary.txt" "Evidence hygiene: generated evidence must not live under tests/e2e"
+rm -rf "$LEGACY_E2E_VM_PATCH_DIR"
+
 INVENTORY_WORKFLOWS="$WORKDIR/inventory-workflows"
 INVENTORY_SCRIPT="$WORKDIR/inventory-evidence.sh"
 mkdir -p "$INVENTORY_WORKFLOWS"
@@ -400,6 +496,143 @@ EOF
 FCB_GITHUB_WORKFLOWS_DIR="$INVENTORY_WORKFLOWS" \
 FCB_GITHUB_EVIDENCE_SCRIPT="$INVENTORY_SCRIPT" \
   "$ROOT_DIR/scripts/check_github_actions_inventory.sh" >/dev/null
+
+write_github_evidence_summary() {
+  local path="$1"
+  local expected_sha="$2"
+  local push_sha="$3"
+  local push_short="${push_sha:0:12}"
+  cat >"$path" <<EOF
+FCB GitHub Actions evidence
+branch: main
+expected_head_sha: $expected_sha
+push_head_sha: $push_sha
+max_main_minutes: 5.0
+max_android_minutes: 60.0
+max_ios_minutes: 90.0
+
+runs:
+- Workflow Lint [push]: run #101 sha $push_short 0.6m https://github.com/lollipopkit/fl_codepush_box/actions/runs/101
+- Rust [push]: run #102 sha $push_short 1.7m https://github.com/lollipopkit/fl_codepush_box/actions/runs/102
+- Server [push]: run #103 sha $push_short 2.4m https://github.com/lollipopkit/fl_codepush_box/actions/runs/103
+- E2E x64 [push]: run #104 sha $push_short 0.7m https://github.com/lollipopkit/fl_codepush_box/actions/runs/104
+- Flutter Package [push]: run #105 sha $push_short 1.4m https://github.com/lollipopkit/fl_codepush_box/actions/runs/105
+- Android Emulator Nightly [schedule]: run #106 sha $push_short 0.2m https://github.com/lollipopkit/fl_codepush_box/actions/runs/106
+- iOS Simulator Nightly [schedule]: run #107 sha $push_short 0.3m https://github.com/lollipopkit/fl_codepush_box/actions/runs/107
+- Server S3 Storage [schedule]: run #108 sha $push_short 1.6m https://github.com/lollipopkit/fl_codepush_box/actions/runs/108
+
+status: passed
+EOF
+}
+
+GITHUB_EXPECTED_SHA="1111111111111111111111111111111111111111"
+GITHUB_STALE_SHA="2222222222222222222222222222222222222222"
+GITHUB_GOOD_AUDIT="$WORKDIR/github-good-audit"
+GITHUB_STALE_AUDIT="$WORKDIR/github-stale-audit"
+GITHUB_FAKE_BIN="$WORKDIR/github-fake-bin"
+GITHUB_ONLINE_GOOD="$WORKDIR/github-online-good"
+GITHUB_ONLINE_STALE="$WORKDIR/github-online-stale"
+mkdir -p "$ROOT_DIR/target/fcb/github-actions-evidence"
+mkdir -p "$GITHUB_FAKE_BIN"
+GITHUB_SUMMARY="$ROOT_DIR/target/fcb/github-actions-evidence/summary.txt"
+GITHUB_SUMMARY_BACKUP="$WORKDIR/github-actions-summary.backup"
+if [ -f "$GITHUB_SUMMARY" ]; then
+  cp "$GITHUB_SUMMARY" "$GITHUB_SUMMARY_BACKUP"
+fi
+restore_github_summary() {
+  if [ -f "$GITHUB_SUMMARY_BACKUP" ]; then
+    cp "$GITHUB_SUMMARY_BACKUP" "$GITHUB_SUMMARY"
+  else
+    rm -f "$GITHUB_SUMMARY"
+  fi
+}
+trap 'restore_github_summary; cleanup' EXIT
+
+write_github_evidence_summary "$GITHUB_SUMMARY" "$GITHUB_EXPECTED_SHA" "$GITHUB_EXPECTED_SHA"
+FCB_PLAN_AUDIT_DIR="$GITHUB_GOOD_AUDIT" \
+FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0 \
+FCB_PLAN_AUDIT_GITHUB_EXPECTED_SHA="$GITHUB_EXPECTED_SHA" \
+  "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
+assert_contains "$GITHUB_GOOD_AUDIT/summary.txt" "H2 GitHub Actions: cached evidence summary passed in explicit offline mode"
+
+write_github_evidence_summary "$GITHUB_SUMMARY" "$GITHUB_EXPECTED_SHA" "$GITHUB_STALE_SHA"
+FCB_PLAN_AUDIT_DIR="$GITHUB_STALE_AUDIT" \
+FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0 \
+FCB_PLAN_AUDIT_GITHUB_EXPECTED_SHA="$GITHUB_EXPECTED_SHA" \
+  "$ROOT_DIR/scripts/audit_plan_completion.sh" >/dev/null 2>&1 || true
+assert_contains "$GITHUB_STALE_AUDIT/summary.txt" "H2 GitHub Actions: no passing cached evidence summary in explicit offline mode"
+restore_github_summary
+
+cat >"$GITHUB_FAKE_BIN/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+workflow=""
+event=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --workflow)
+      workflow="$2"
+      shift 2
+      ;;
+    --event)
+      event="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+case "$workflow" in
+  "Workflow Lint") id=101 ;;
+  "Rust") id=102 ;;
+  "Server") id=103 ;;
+  "E2E x64") id=104 ;;
+  "Flutter Package") id=105 ;;
+  "Android Emulator Nightly") id=106 ;;
+  "iOS Simulator Nightly") id=107 ;;
+  "Server S3 Storage") id=108 ;;
+  *) id=199 ;;
+esac
+python3 - "$workflow" "$event" "$id" "$FCB_FAKE_GH_HEAD_SHA" <<'PY'
+import json
+import sys
+
+workflow, event, run_id, sha = sys.argv[1:5]
+print(json.dumps([{
+    "databaseId": int(run_id),
+    "workflowName": workflow,
+    "name": workflow,
+    "event": event,
+    "headBranch": "main",
+    "headSha": sha,
+    "status": "completed",
+    "conclusion": "success",
+    "createdAt": "2026-06-19T00:00:00Z",
+    "startedAt": "2026-06-19T00:00:00Z",
+    "updatedAt": "2026-06-19T00:01:00Z",
+    "url": f"https://github.com/lollipopkit/fl_codepush_box/actions/runs/{run_id}",
+}], separators=(",", ":")))
+PY
+EOF
+chmod +x "$GITHUB_FAKE_BIN/gh"
+
+PATH="$GITHUB_FAKE_BIN:$PATH" \
+FCB_FAKE_GH_HEAD_SHA="$GITHUB_EXPECTED_SHA" \
+FCB_CI_EVIDENCE_DIR="$GITHUB_ONLINE_GOOD" \
+FCB_CI_EVIDENCE_EXPECTED_SHA="$GITHUB_EXPECTED_SHA" \
+  "$ROOT_DIR/scripts/check_github_actions_evidence.sh" >/dev/null
+assert_contains "$GITHUB_ONLINE_GOOD/summary.txt" "status: passed"
+assert_contains "$GITHUB_ONLINE_GOOD/summary.txt" "expected_head_sha: $GITHUB_EXPECTED_SHA"
+
+if PATH="$GITHUB_FAKE_BIN:$PATH" \
+FCB_FAKE_GH_HEAD_SHA="$GITHUB_STALE_SHA" \
+FCB_CI_EVIDENCE_DIR="$GITHUB_ONLINE_STALE" \
+FCB_CI_EVIDENCE_EXPECTED_SHA="$GITHUB_EXPECTED_SHA" \
+  "$ROOT_DIR/scripts/check_github_actions_evidence.sh" >/dev/null 2>&1; then
+  die "GitHub Actions stale online SHA evidence unexpectedly passed"
+fi
+assert_contains "$GITHUB_ONLINE_STALE/summary.txt" "does not match expected HEAD"
 
 S3_GOOD="$WORKDIR/s3-good-summary.txt"
 S3_BAD="$WORKDIR/s3-bad-summary.txt"

@@ -49,7 +49,7 @@ can include the `H4 iPhone device drill passed` completion marker used by
 8. Trigger the crash rollback payload once Phase E exposes a crash-producing VM patch.
 9. Verify the app falls back to last-known-good and the server receives `crash_rollback`.
 10. Archive device logs, server event export, app build number, and engine commit hashes.
-11. Copy final evidence into `tests/e2e/ios_drill_<timestamp>/` or let
+11. Copy final evidence into `target/fcb/evidence/ios_drill_<timestamp>/` or let
     `scripts/full_ios_drill.sh` do it automatically.
 
 ## TestFlight
@@ -70,9 +70,10 @@ FCB_TESTFLIGHT_UPLOAD_EVIDENCE=<upload-log-file> \
 make record-testflight-evidence
 ```
 
-The command writes `tests/e2e/testflight_<timestamp>/summary.txt` with the
+The command writes `target/fcb/evidence/testflight_<timestamp>/summary.txt` with the
 `TestFlight External Testing entered` marker used by
 `make audit-plan-completion`. The status evidence file must contain the text
-`External Testing`; the optional upload evidence file must contain `accepted`.
+`External Testing`, the bundle id, and the TestFlight build number. The optional
+upload evidence file must contain `accepted` and the same build number.
 
 If Apple rejects the build, record the exact rejection text, build number, and patch payload scope. Cross-reference `docs/apple_compliance.md` before deciding whether to narrow interpreter scope, adjust reviewer notes, or disable iOS code push for that channel.

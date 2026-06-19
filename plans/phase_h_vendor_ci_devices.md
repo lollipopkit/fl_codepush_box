@@ -9,8 +9,8 @@
 
 把项目从"本地能跑"提升到"任意人 clone + CI 绿 + 真机/真用户验证"：
 
-1. `vendor/{flutter,depot_tools}` 改 git submodule，commit 锁定；Flutter Engine
-   embedded Dart 通过 `DEPS` 指向并 pin `lollipopkit/dartsdk` fork；文档化 rebase 流程。
+1. `vendor/{flutter,depot_tools}` 作为本地 checkout 管理；Flutter Engine embedded
+   Dart 通过 `DEPS` 指向并 pin `lollipopkit/dartsdk` fork；文档化 rebase 流程。
 2. GitHub Actions：Linux runner 构建 + cargo test + e2e；macOS runner 跑 iOS build 与模拟器测试。
 3. arm64-v8a 真机走完整 release → patch → restart → crash → 回滚流程。
 4. iPhone arm64 同样跑一遍；TestFlight 提交 counter_app 验证 Apple 审核通过。
@@ -21,40 +21,28 @@
 - Engine embedded Dart SDK = `vendor/flutter/engine/src/flutter/third_party/dart`，`DEPS` 指向 `github.com/lollipopkit/dartsdk`，pin 到 `1b88776798d`（已含 FCB Phase D commits）
 - vendor/flutter = `github.com/lollipopkit/flutter`，HEAD `87c1bc51504`（已含 FCB Android + iOS engine hooks）
 - vendor/depot_tools：上游 chromium depot_tools（无 fork 必要，pin commit 即可）
-- 顶层 vendor submodule 配置已写入 `.gitmodules`；当前 audit 仍要求 gitlink 入库后才算 H1 完成
+- 顶层 vendor 不使用 submodule；当前 audit 只要求本地 checkout、remote 与 Engine DEPS pin 正确
 - `scripts/build_android_engine.sh`、`build_ios_engine.sh`、`test_android_arm64.sh`、`test_ios_sim.sh` 已存在
 - `.github/workflows/` 已有本地 workflow 定义；远端成功 run 证据仍缺
 
 ## 子阶段
 
-### H1 — vendor submodule + 锁定（3 天）
+### H1 — vendor checkout + 锁定（3 天）
 
 **任务**
 
-- 把 2 个顶层 vendor 目录注册为 submodule，并由 Flutter Engine `DEPS` pin Dart SDK fork：
-
-```
-.gitmodules:
-  [submodule "vendor/flutter"]
-    path = vendor/flutter
-    url = https://github.com/lollipopkit/flutter.git
-    branch = fcb-stable
-  [submodule "vendor/depot_tools"]
-    path = vendor/depot_tools
-    url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
-```
+- 把 2 个顶层 vendor 目录作为本地 checkout 管理，并由 Flutter Engine `DEPS` pin Dart SDK fork：
 
 - 各 fork 内创建长期分支：
   - `lollipopkit/flutter` 上建 `fcb-stable`（追 Flutter stable + FCB engine hooks）
   - `lollipopkit/dartsdk` 上建 `fcb-3.12.2`（追 Dart 3.12.2 + FCB patch runtime）
-- 锁定 commit：`git submodule add` 后会自动锁到当前 HEAD。
-- 不再维护顶层 `vendor/sdk`、`engine_patch/`、`dart_sdk_patch/` 或同步脚本；开发期直接在
+- 锁定 commit：在对应 fork branch / Engine `DEPS` 中记录，不通过根仓库 gitlink 记录。
+- 不再维护顶层 `vendor/dart`、`vendor/sdk`、`engine_patch/`、`dart_sdk_patch/` 或同步脚本；开发期直接在
   `vendor/flutter` 与 embedded Dart checkout 上开分支，稳定后更新 pinned commits。
-- `scripts/bootstrap.sh`：`git submodule update --init --recursive --depth 100`（depth 100 平衡完整性与下载量）。
+- `scripts/bootstrap.sh`：只校验本地 checkout 与 embedded Dart 真源，不执行 submodule update。
 
 **关键文件**
 
-- `.gitmodules`
 - `scripts/bootstrap.sh`
 - 修改 `README.md`：加 clone 步骤
 
@@ -98,6 +86,7 @@
 **验收**
 
 - 每次 push 到 main 触发 rust + server + e2e_x64 三个 workflow，5 分钟内全绿。
+- `make check-github-actions-evidence` 记录的 push workflow `push_head_sha` 必须等于当前 expected HEAD；旧 SHA 的绿色 run 不能作为 H2 通过证据。
 - 夜间 android_emulator 在 1 小时内完成。
 - caching 命中率 > 70%。
 
@@ -119,7 +108,7 @@
   8. 启动 3 次，验证自动回滚到 patch 1（LKG）
   9. server admin UI 验证 `crash_rollback` 事件可见
   10. `fcb rollback --patch-number 1`，重启验证回 baseline
-- 录屏 + 日志归档到 `tests/e2e/arm64_drill_<date>/`
+- 录屏 + 日志归档到 `target/fcb/evidence/arm64_drill_<date>/`
 - 已知问题列入 `docs/known_issues.md`
 
 **关键文件**
@@ -175,7 +164,7 @@
   - 每季度 rebase 流程（Flutter stable cherry-pick → FCB hook commits 重放）
   - 验证 checklist：engine 编译通过、cargo test 通过、e2e_x64 通过、arm64 真机 drill 通过
   - 已知冲突点：stub_code_compiler 因 Dart SDK upstream 变动易冲突，提供 rebase 策略
-  - 回滚预案：若 rebase 引入 regression，回退到上一稳定 submodule commit
+  - 回滚预案：若 rebase 引入 regression，回退到上一稳定 vendor checkout commit
 
 **关键文件**
 
@@ -190,14 +179,14 @@
 | 风险 | 严重性 | 缓解 |
 |------|--------|------|
 | GitHub Actions Android emulator 不稳定 | 中 | 降级为夜间 + retry 3 次，关键 PR 检查在 e2e_x64 |
-| iOS engine 构建在 CI 上慢（>1h） | 中 | 缓存 `out/ios_release` + 仅在 vendor submodule 变动时重编 |
+| iOS engine 构建在 CI 上慢（>1h） | 中 | 缓存 `out/ios_release` + 仅在 vendor checkout ref 变动时重编 |
 | TestFlight 被 Apple 拒 | 高 | 接受作为 risk，准备申诉材料；预留备选路线"仅 Android" |
-| submodule depth 100 拉不到老 commit | 低 | 在 rebase 时本地 `--unshallow`，CI 不受影响 |
+| vendor checkout 拉不到老 commit | 低 | 在 rebase 时 fetch 对应 fork branch/commit，CI 不受影响 |
 | Rust + Go + Dart + C++ 多语言 CI 难维护 | 中 | 拆 workflow 单一职责，job 失败原因清晰 |
 
 ## 退出标准
 
-- `vendor/flutter` 与 `vendor/depot_tools` submodule 化，PR diff 清晰显示 commit 变化；
+- `vendor/flutter` 与 `vendor/depot_tools` 作为本地 checkout 校验；
   embedded Dart SDK commit 由 Flutter Engine `DEPS` 清晰锁定。
 - main 分支 CI 三个 workflow 持续绿。
 - arm64-v8a 真机 drill 全流程通过且录屏归档。

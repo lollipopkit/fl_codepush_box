@@ -1,6 +1,10 @@
 {
   "folders": [
     { "name": "fcb (main)", "path": "." },
-    { "name": "vendor/flutter", "path": "vendor/flutter" }
+    { "name": "vendor/flutter", "path": "vendor/flutter" },
+    {
+      "name": "vendor/flutter dart sdk",
+      "path": "vendor/flutter/engine/src/flutter/third_party/dart"
+    }
   ]
 }

@@ -1,5 +1,0 @@
-restart kept patch active
-platform: android-arm64
-source: target/fcb/android-field-final-acceptance/patch/result.txt
-install flow force-stopped com.example.fcb_counter_app before patched launch
-observed after launch: 42/42/42/patched/patched-field/42
