@@ -39,6 +39,7 @@ fi
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_test.cc" ] || die "missing FCB VM runtime test source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime.cc" ] || die "missing FCB VM runtime source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_try_test.cc" ] || die "missing FCB VM runtime try test source"
+[ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_async.cc" ] || die "missing FCB VM runtime async source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_closure.cc" ] || die "missing FCB VM runtime closure source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_vm.cc" ] || die "missing FCB VM runtime VM helper source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_value.cc" ] || die "missing FCB VM runtime value source"
@@ -59,6 +60,7 @@ DART_COMMIT="$(git -C "$SDK_DIR" rev-parse HEAD)"
   -I "$SDK_DIR/runtime" \
   -I "$SDK_DIR/runtime/include" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime.cc" \
+  "$SDK_DIR/runtime/vm/fcb_patch_runtime_async.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_closure.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_helpers.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_vm.cc" \
