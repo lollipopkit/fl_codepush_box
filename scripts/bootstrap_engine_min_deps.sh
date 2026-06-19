@@ -41,6 +41,19 @@ run() {
   "$@"
 }
 
+openjdk_javac() {
+  local root="$ENGINE_SRC_DIR/third_party/java/openjdk"
+  if [ -x "$root/bin/javac" ]; then
+    echo "$root/bin/javac"
+    return 0
+  fi
+  if [ -x "$root/Contents/Home/bin/javac" ]; then
+    echo "$root/Contents/Home/bin/javac"
+    return 0
+  fi
+  return 1
+}
+
 deps_value() {
   local key="$1"
   python3 - "$DEPS_FILE" "$key" <<'PY'
@@ -433,7 +446,7 @@ main() {
   [ -x "$ENGINE_SRC_DIR/third_party/ninja/ninja" ] || die "ninja bootstrap failed"
   [ -f "$ENGINE_SRC_DIR/third_party/android_embedding_dependencies/lib/activity-1.8.1.jar" ] ||
     die "android embedding dependencies bootstrap failed"
-  [ -x "$ENGINE_SRC_DIR/third_party/java/openjdk/bin/javac" ] ||
+  openjdk_javac >/dev/null ||
     die "openjdk bootstrap failed"
   [ -x "$ENGINE_SRC_DIR/third_party/dart/tools/sdks/dart-sdk/bin/dart" ] ||
     die "dart bootstrap SDK failed"
