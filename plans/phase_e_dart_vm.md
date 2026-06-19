@@ -44,7 +44,9 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
 3. **泛型 type parameter 语义**:concrete `List<String>` 已覆盖;resolver 已支持 runtime type
    environment 下的 `T` / `List<T>` 解析并传给 `IsInstanceOf`;bytecode closure invocation 和
    VM `DartEntry` 普通 generic function call 已把调用时 type args threaded 到 interpreter frame。
-   AOT generic static call 仍未接入:precompiler 当前显式跳过 `NumTypeParameters()!=0` 的 target。
+   arm64/x64 AOT static-call probe 已支持最多 3 个 user args 的 generic target,通过 raw
+   `TypeArguments` slot 构建 interpreter type environment。generic target 带 4 个 user args 仍
+   fallback,因为现有 AOT runtime entry 只传 4 个 raw slots。
 4. **递归深度策略**:固定 `kMaxCallStaticDepth = 64` 已移除;默认 runaway guard 提升为
    `PatchRuntimeOptions::max_call_depth = 4096`,测试覆盖 96 层递归通过和低 guard 清晰失败。
 5. **debugger pause/evaluate 完整性**:active frame 已上报,但 breakpoint/step/pause 与 async
@@ -229,9 +231,11 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     environment,支持 generic escaping closure body 内的 `AsType T`。
   - 已完成:VM `DartEntry` 普通 generic function entry 从 `ArgumentsDescriptor`/`TypeArguments`
     构建 runtime type environment,`IsType`/`AsType` 可使用调用方真实 function type args。
-  - 未完成:AOT static-call probe 对 generic target 的 type args ABI;`precompiler.cc`
-    当前 `FcbFixedUserArgumentCount` 对 `NumTypeParameters()!=0` 返回 `-1`,不会替换为 FCB AOT
-    dispatch stub。
+  - 已完成:arm64/x64 AOT static-call probe 对 generic target 的 type args ABI。precompiler 对
+    generic target 选择 `user_arg_count + 1` raw slot stub;runtime entry 用 descriptor 跳过
+    raw `TypeArguments` slot,并把真实 type args 传给 interpreter。
+  - 未完成:generic AOT target 带 4 个 user args 的扩展 runtime entry;当前这类调用保守 fallback。
+  - 未完成:rebuilt precompiler/AOT 真机端到端验证 generic static call stub。
 - 递归:
   - 已完成:移除固定语义上限 64;默认 guard 提升为 4096。
   - 已完成:保留可配置 runaway 防护,触发时返回 `PatchError` 并带 function id + depth。
