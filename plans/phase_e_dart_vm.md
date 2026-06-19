@@ -276,6 +276,8 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
 - Debugger:
   - FCB frame 作为可暂停 frame 进入 `DebuggerStackTrace`。
   - 支持 breakpoint/step、locals/args/captured vars evaluate。
+  - 已完成:active handler metadata 只把 `TryBegin` catch handler 暴露给 debugger;active
+    `TryFinally` 不再让 `ActivationFrame::HandlesException()` 误判为可 catch frame。
   - async suspension/resume 后保留逻辑调用栈。
 
 **关键文件**
@@ -300,7 +302,8 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - try/finally 在 return/throw/immediate await 三条路径均执行;suspended await resume 仍需覆盖。
   - `T`/`List<T>` is/as 在 generic method 中区分正确;host_debug_unopt_arm64 rebuilt runner 已验证。
   - 深递归不被固定 64 限制,但 runaway guard 有清晰 error。
-  - debugger 在 patched frame 停靠后可 evaluate locals/captured vars。
+  - debugger 在 patched frame 停靠后可 evaluate locals/captured vars;active catch handler 可被
+    `GetHandlerFrame` 识别,active finally 不会被误报为 catch handler。
 - `tests/e2e/test_kernel_compile_from_plan.sh` 生成 v3 module 并验证 `async_kind`。
 
 ## 风险与缓解
