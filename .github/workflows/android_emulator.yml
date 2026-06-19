@@ -15,10 +15,16 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+
+      - name: Install Android Rust tooling
+        run: cargo install cargo-ndk --locked
 
       - name: Bootstrap vendor
         run: |
           scripts/bootstrap.sh
+          scripts/bootstrap_engine_min_deps.sh
           test -x scripts/build_android_engine.sh
           test -x scripts/test_android_x64.sh
 
