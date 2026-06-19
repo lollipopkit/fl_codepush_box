@@ -42,9 +42,9 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
    `Exceptions::Throw`。await suspension 周围的 finally 尚未实现。内部 `PatchError` 已和业务
    `DartException` 分层,不会再被 caller 的 catch handler 当作业务异常吞掉。
 3. **泛型 type parameter 语义**:concrete `List<String>` 已覆盖;resolver 已支持 runtime type
-   environment 下的 `T` / `List<T>` 解析并传给 `IsInstanceOf`;bytecode closure invocation 已把
-   调用时 type args threaded 到 interpreter frame。但普通 patched static/generic method entry 还未
-   threaded 真实 type args。
+   environment 下的 `T` / `List<T>` 解析并传给 `IsInstanceOf`;bytecode closure invocation 和
+   VM `DartEntry` 普通 generic function call 已把调用时 type args threaded 到 interpreter frame。
+   AOT generic static call 仍未接入:precompiler 当前显式跳过 `NumTypeParameters()!=0` 的 target。
 4. **递归深度策略**:固定 `kMaxCallStaticDepth = 64` 已移除;默认 runaway guard 提升为
    `PatchRuntimeOptions::max_call_depth = 4096`,测试覆盖 96 层递归通过和低 guard 清晰失败。
 5. **debugger pause/evaluate 完整性**:active frame 已上报,但 breakpoint/step/pause 与 async
@@ -227,8 +227,11 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     引用映射到 concrete type 后调用 `IsInstanceOf`。
   - 已完成:bytecode closure trampoline 从 `ArgumentsDescriptor`/`TypeArguments` 构建 runtime type
     environment,支持 generic escaping closure body 内的 `AsType T`。
-  - 未完成:普通 FCB frame 保存实际 instantiator/function `TypeArguments`。
-  - 未完成:`IsType`/`AsType` 从 generic static/generic method entry 自动传真实 type args。
+  - 已完成:VM `DartEntry` 普通 generic function entry 从 `ArgumentsDescriptor`/`TypeArguments`
+    构建 runtime type environment,`IsType`/`AsType` 可使用调用方真实 function type args。
+  - 未完成:AOT static-call probe 对 generic target 的 type args ABI;`precompiler.cc`
+    当前 `FcbFixedUserArgumentCount` 对 `NumTypeParameters()!=0` 返回 `-1`,不会替换为 FCB AOT
+    dispatch stub。
 - 递归:
   - 已完成:移除固定语义上限 64;默认 guard 提升为 4096。
   - 已完成:保留可配置 runaway 防护,触发时返回 `PatchError` 并带 function id + depth。
