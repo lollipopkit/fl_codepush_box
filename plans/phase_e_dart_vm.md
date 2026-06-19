@@ -29,8 +29,8 @@ Dart VM 真源 = `vendor/flutter/engine/src/flutter/third_party/dart`（Engine `
 dispatch 链路已打通。当前 runtime 已不再是纯 plain-struct skeleton: `Value` 已持有
 `ObjectPtr object_value`,有 `Value::FromDart(ObjectPtr)` / `Value::ToDart()` 与 GC root
 visitor,`List`/`Map`/`NewObject`/`CallDynamic`/`CallOriginal` 可跨 Dart 边界跑通。已有
-VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 被本地
-`TryBegin` catch、debugger active frame/evaluate metadata。
+VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Smi 0 round-trip、Dart
+exception 被本地 `TryBegin` catch、debugger active frame/evaluate metadata。
 
 仍未闭合的执行缺口:
 
@@ -68,6 +68,9 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
 - `Value::Int / Double / Bool / String / List / Map` 工厂在 `Thread::Current()->isolate_group()`
   下 allocate Dart 对象。
 - 实现 `Value::FromDart(ObjectPtr)` 与 `Value::ToDart()` 双向转换。
+- 已完成:Smi 0 的 `ObjectPtr == nullptr` 边界不会再被误判为未 materialized;`Value::FromDart`
+  能还原为 `Value::Int(0)`,`TryMaterializeDartObject(Value::Int(0))` 可跨 `SetField` 写入 Dart
+  heap 字段。
 - `BytecodeModule::Load` 的 constant pool 改为分配 Dart object。
 - 在 `IsolateGroup` 注册 `FcbPatchRuntime*` 字段,纳入 `VisitObjectPointers` 让 GC 扫 root。
 
@@ -80,6 +83,7 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
 **验收**
 
 - 现有 VM test 以 ObjectPtr 形式重写,通过。
+- Smi 0 round-trip 通过,并覆盖 `_Future._state = 0` 这类 VM private field 写入路径。
 - GC stress test:连续 100 次 GC + patch 调用,无悬挂指针。
 - `tools/test.py runtime/vm/fcb_patch_runtime_test` 绿。
 
