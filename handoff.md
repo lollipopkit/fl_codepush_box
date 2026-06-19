@@ -1,40 +1,32 @@
 **目标**
-继续完成 `plans/phase_e_dart_vm.md`。Phase E 仍未完成；剩余硬项是真正挂起的 `await` continuation / `_FutureImpl` state-machine、VM unwinder 级 try/catch/throw，以及 materialized bytecode closure 的完整 debugger scope / pause / evaluate。
+完成 FCB bytecode / VM interpreter 已确认缺口，补齐测试集与审计证据。当前 VM/runtime 本地项已基本闭环；goal 仍未完成，因为 H2 远端 CI、H4 TestFlight、H5 vendor rebase 仍需真实外部证据。
 
 **硬约束**
-- Dart VM / engine 逻辑唯一真源：`vendor/flutter/engine/src/flutter/third_party/dart`。
-- 不要恢复 `engine_patch/`、`dart_sdk_patch/`、`scripts/sync_dart_vm_patch.sh`。
-- 顶层 `vendor/sdk/` 暂不删除，除非用户明确允许。
-- 工作树很脏且可能有并行 agent；不要 revert 无关改动，不要整理暂存区。
-- 单源码文件尽量不超过 1500 行；`tests/e2e/test_kernel_compile_from_plan.sh` 当前约 1633 行，后续应拆 helper 而不是继续膨胀。
+- Dart VM 真源是 `vendor/flutter/engine/src/flutter/third_party/dart`；不要恢复顶层 `vendor/dart`。
+- 根仓库不使用 vendor submodule；`.gitmodules` 已删除。
+- generated evidence 只放 `target/fcb/evidence/*`；`tests/e2e` 只保留脚本。
+- 工作树有 staged/unstaged 混合改动；不要 `git add .`，不要 revert 无关改动。
+- 用户已授权根仓库和 embedded Dart push；不要 force push。
 
 **已完成**
-- FCB debugger active frame 的 `BuildParameters()` 已过滤 `valueMaterialized=false` 的 local，避免未 materialize 的内部 bytecode closure 被作为 `null` 注入 service evaluate 参数。
-- `runtime/vm/fcb_patch_runtime_debugger_test.cc` 已新增断言：`FcbPatchDebuggerDescribesUnmaterializedBytecodeClosure` 中 `param_names` / `param_values` 均为空。
-- 修复 debug-only 测试里两处 `String::New("boom").ptr()` 编译错误，改为先创建 `String` handle 再构造 `Instance` handle。
-- `plans/phase_e_dart_vm.md` 已同步该 debugger/evaluate 边界。
+- embedded Dart 已推到 `https://github.com/lollipopkit/dartsdk.git`，分支 `fcb-vm-runtime-semantics`，commit `5f1d102fbdeb98944248d26e4ac9380d96aafa52`。
+- 根仓库 `origin/main` 已推到 `b4529d1`，包含 `e6d3863 wip`、`19e5e93 wip`、`b4529d1 fix: bootstrap vendor checkouts without submodules`。
+- H2 expected HEAD SHA gate、H4/H5 evidence 绑定校验、vendor VM standalone/debug/release evidence、evidence hygiene gate、`.gitignore` 清理都已在本地改动中补强。
+- 本轮修复 Rust CI 失败点：`crates/fcb_core/src/server_api.rs` 的 `download_bytes_from_with_cancel_aborts_mid_body` 测试先置 cancel 并释放服务端响应，再 join worker，避免 worker 在第二段 body 上阻塞到 timeout。
 
 **已验证**
-- `VPYTHON_VIRTUALENV_ROOT=/private/tmp/fcb-vpython-root PATH=/Users/lk/proj/fl_codepush_box/vendor/depot_tools:$PATH ninja -C vendor/flutter/engine/src/out/host_debug_unopt_arm64 run_vm_tests`：通过并 relink debug `run_vm_tests`，仅有既有 hidden symbol linker warnings。
-- `vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchDebuggerDescribesUnmaterializedBytecodeClosure`：通过。
-- `vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchDebuggerCollectsActiveInterpreterFrame`：通过。
-- `vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchDebuggerCollectsCapturedClosureActiveFrame`：通过。
-- `vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchDebuggerFrameEvaluationUsesSourceLibrary`：通过。
-- `vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchDebuggerExposesActiveHandlerMetadata`：通过。
-- `vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchDebuggerStackTraceFromStringFrame`：通过。
-- `vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchDebuggerCollectsLivePatchFrame`：通过。
-- `git -C vendor/flutter/engine/src/flutter/third_party/dart diff --check -- runtime/vm/debugger.cc runtime/vm/fcb_patch_runtime_debugger_test.cc`：通过。
-- `git diff --check -- plans/phase_e_dart_vm.md handoff.md`：通过。
-- `cargo test -p fcb_core bytecode`：通过，37 个 bytecode/filter 命中测试全绿，包含 v1 无 `debug_locals` 兼容、v2 round-trip、too-new version 拒绝和 updater 安装 binary/unknown opcode 回归。
+- `cargo test -p fcb_core server_api::tests::download_bytes_from_with_cancel_aborts_mid_body`: 通过。
+- 远端 Rust run `27827682968` 在 `b4529d1` 上失败，失败测试为 `server_api::tests::download_bytes_from_with_cancel_aborts_mid_body`，panic 为 `timeout: receive body`。
+- 之前本地已验证：`scripts/test_vendor_vm_runtime.sh` 通过；`scripts/check_phase_h_runbooks.sh` 通过；`scripts/audit_plan_completion.sh` 非 0 但剩余为 H2/H4/H5 外部证据。
 
 **当前状态**
-- `run_vm_tests FcbPatchDebugger` 不是有效过滤器，返回 `No tests matched`；已改跑具名测试。
-- `crates/fcb_core/src/bytecode.rs` 的 binary 前向兼容修复在当前工作树已存在：`FORMAT_VERSION=2`、`MIN_SUPPORTED_MODULE_VERSION=1`，`read_binary` 仅在 `version >= 2` 读取 `debug_locals`，`to_binary_vec` 写当前格式。
-- 根仓库仍有大量既有/并行改动；`vendor/flutter/`、`vendor/depot_tools/`、`vendor/sdk/` 在根仓库视角仍是 untracked。
-- 普通 `git diff --stat` 不会显示 vendor C++ 改动；用 `git -C vendor/flutter/engine/src/flutter/third_party/dart diff -- runtime/vm/debugger.cc runtime/vm/fcb_patch_runtime_debugger_test.cc` 查看。
-- 本轮未跑 `cargo test --workspace`、`go test ./...` 或 Android e2e。
+- 根仓库 `main...origin/main` 当前本地新增未提交修复：`crates/fcb_core/src/server_api.rs`、`handoff.md`。
+- 工作树仍有大量既有 staged/unstaged 改动，涉及 PLAN/docs、iOS SwiftPM、audit scripts、旧 `tests/e2e/vm_patch_*` 删除、kernel reader/manifest 等；不要盲目纳入本轮 Rust fix commit。
+- 当前需要提交并 push 本轮 Rust test fix 后，再观察新一轮 CI。
 
 **下一步**
-1. 实现真正挂起 `await`：`_FutureImpl` / continuation / suspend-resume state machine。
-2. 推进 VM unwinder 级 try/catch/throw，让 FCB handler 承接真实 Dart stack unwind/resume。
-3. 补 materialized bytecode closure 的完整 captured context debugger scope、pause/evaluate 停靠帧。
+1. 提交并 push `crates/fcb_core/src/server_api.rs` 与 `handoff.md`，commit message 建议 `fix: stabilize cancelled download test`。
+2. 等待 `origin/main` 新 HEAD 的 GitHub Actions，重点检查 Rust、Server、E2E x64。
+3. H2 仍需所有 required push workflows 与 scheduled workflows 绑定新 expected HEAD 成功；旧 nightly schedule 仍可能停在旧 SHA。
+4. H4 需要真实 App Store Connect `External Testing` 证据。
+5. H5 需要真实 `Vendor rebase validation passed` 证据，并用 record 脚本归档。

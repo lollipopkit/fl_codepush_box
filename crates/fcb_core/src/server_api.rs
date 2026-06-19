@@ -691,12 +691,12 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("first chunk");
         cancelled.store(true, Ordering::SeqCst);
+        finish_tx.send(()).expect("finish response");
         let err = worker
             .join()
             .expect("worker join")
             .expect_err("download should be cancelled before the second chunk");
         assert!(err.to_string().contains("operation cancelled"), "{err}");
-        finish_tx.send(()).expect("finish response");
         server.join().expect("server join");
     }
 
