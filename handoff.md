@@ -11,33 +11,34 @@
 - FCBM v3、同步 finally、PatchError/DartException 分层、VM exception bridge、泛型 resolver、bytecode closure/DartEntry/AOT generic type args threading 已完成。
 - immediate async 子集已支持:scalar passthrough、completed `_Future.value` 拆箱、completed error Future catch、completed chained Future、`AsyncReturn` completed value/null。
 - pending/non-completed Future fail-closed 为 `PatchError`,不会被 interpreted `TryBegin` catch 当作业务异常吞掉;completed error Future 仍可被 catch。
-- host_debug_unopt_arm64 rebuilt VM 验证通道已恢复,`run_vm_tests` 可成功增量构建和执行 FCB VM tests。
-- 本轮修复 debugger handler metadata:active `TryFinally` 不再计入可 catch handler,避免 `ActivationFrame::HandlesException()` / `GetHandlerFrame()` 误报;active `TryBegin` catch 仍正常识别。
-- 本轮新增 `FcbPatchDebuggerDoesNotTreatFinallyAsCatchHandler`。
+- debugger handler metadata 已修正:active `TryFinally` 不计入可 catch handler;active `TryBegin` catch 仍正常识别。
+- 本轮修复 `Rethrow` source preservation:finally 内 rethrow 继续使用原始 throw 的 bytecode/source-map offset,不会把异常来源改写成 `Rethrow` 指令位置。
+- 本轮新增 `RethrowPreservesOriginalThrowSourceLocation`,纳入 `FcbPatchRuntimeTryCatchThrow` raw VM test。
 
 **已验证**
 - `git -C vendor/flutter/engine/src/flutter/third_party/dart diff --check`:通过。
 - `clang++ -std=c++20 -fsyntax-only ... -DFCB_PATCH_RUNTIME_STANDALONE runtime/vm/fcb_patch_runtime.cc`:通过。
+- `clang++ -std=c++20 -fsyntax-only ... -DFCB_PATCH_RUNTIME_STANDALONE runtime/vm/fcb_patch_runtime_try_test.cc`:通过。
+- `VPYTHON_VIRTUALENV_ROOT=target/fcb/vpython-root PATH=$PATH:.../depot_tools /opt/homebrew/bin/ninja -C vendor/flutter/engine/src/out/host_debug_unopt_arm64 run_vm_tests`:通过。
+- `./vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests FcbPatchRuntimeTryCatchThrow`:通过。
 - `scripts/test_vendor_vm_runtime.sh`:通过,summary 在 `target/fcb/vendor-vm-test/summary.txt`。
 - `cargo test -p fcb_core bytecode`:39 个 bytecode 相关测试通过。
-- `VPYTHON_VIRTUALENV_ROOT=target/fcb/vpython-root PATH=$PATH:.../depot_tools /opt/homebrew/bin/ninja -C vendor/flutter/engine/src/out/host_debug_unopt_arm64 run_vm_tests`:通过。
-- `run_vm_tests` 逐个运行并通过:`FcbPatchDebuggerExposesActiveHandlerMetadata`、`FcbPatchDebuggerDoesNotTreatFinallyAsCatchHandler`。
 
 **当前状态**
-- embedded Dart dirty:`runtime/vm/fcb_patch_runtime.cc`、`runtime/vm/fcb_patch_runtime_debugger_test.cc`。
+- embedded Dart dirty:`runtime/vm/fcb_patch_runtime.cc`、`runtime/vm/fcb_patch_runtime_try_test.cc`。
 - 根仓库 dirty:`plans/phase_e_dart_vm.md`、`handoff.md`;另有未处理的 `fl_codepush_box.code-workspace` 显示名改动。
 - `vendor/flutter` 外层未修改。
-- 根仓库为 `main...origin/main [ahead 20]`;embedded Dart 为 detached HEAD。
+- 根仓库为 `main...origin/main [ahead 21]`;embedded Dart 为 detached HEAD。
 - `runtime/vm/fcb_patch_runtime_vm.cc` 约 1548 行,仍略超 1500,后续继续拆分。
 
 **下一步**
-1. 提交 embedded Dart,建议 `fix: keep fcb finally out of catch handler metadata`。
-2. 提交根仓库 plan/handoff,建议 `docs: update phase e debugger handler metadata`。
+1. 提交 embedded Dart,建议 `fix: preserve fcb rethrow source location`。
+2. 提交根仓库 plan/handoff,建议 `docs: update phase e rethrow source progress`。
 3. 继续真实 async suspend/resume:pending/chained source Future、pending error resume、await 周围 finally resume。
 
 **完整计划仍缺**
 - rebuilt precompiler/AOT 真机端到端验证 generic static-call stub。
 - VM stack/resource guard 命中转真正 Dart `StackOverflowError` unwinder。
 - 真实 async suspend/resume 与 `_FutureImpl`/continuation 集成。
-- suspended await 周围 finally resume、`ReThrow` stack trace 保留、VM stack trace 注入。
+- suspended await 周围 finally resume、VM stack trace 注入。
 - debugger breakpoint/step/pause 与 async resume 后逻辑栈。
