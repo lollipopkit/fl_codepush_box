@@ -34,7 +34,10 @@ jobs:
           DART_BIN="$(command -v dart)" make test-kernel-compile
 
       - name: Build CLI
-        run: cargo build -p fcb --no-default-features
+        # The e2e exercises both backends incl. snapshot_replace, so build with
+        # default features. Store-config (no snapshot_replace) compile/test is
+        # covered by the Rust workflow's --no-default-features jobs.
+        run: cargo build -p fcb
 
       - name: Build server
         working-directory: server

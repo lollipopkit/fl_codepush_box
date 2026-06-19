@@ -1,141 +1,89 @@
-# Flutter CodePush Box
+# Flutter CodePush Box (FCB)
 
-FCB is a self-hosted Flutter code-push prototype with a Rust CLI/updater,
-Go server, Flutter package, and forked Flutter/Dart VM integration.
+FCB is a self-hosted code-push system for Flutter: ship fixes and changes to your
+app's **Dart code** without a full app-store release, with signing, staged
+rollout, and automatic rollback.
 
-## Bootstrap
+> Status: research / prototype. Not yet production-ready (see `plans/`).
 
-Clone the repository and initialize vendor dependencies:
+## How it works
 
-```bash
-git clone --recursive <repo-url> fl_codepush_box
-cd fl_codepush_box
-scripts/bootstrap.sh
+- Unchanged functions keep running the original AOT machine code; only changed
+  functions run in an in-app interpreter. Patches apply on the **next app
+  restart** (no live hot-swap).
+- Every patch is **Ed25519-signed** and hash-verified before install. A patch
+  that fails to boot is automatically rolled back to the last known good version.
+- Two backends:
+  - **`bytecode`** — ships interpreted Dart bytecode. Store-compliant
+    (Android + iOS). The product line.
+  - **`snapshot_replace`** — ships native `.so` diffs. **Enterprise/internal
+    only, not Play/App Store compliant.** See [`docs/backends.md`](docs/backends.md).
+
+## Components
+
+| Path | Role |
+|------|------|
+| `cli/` | `fcb` CLI: release / patch / promote / rollback / inspect (Rust) |
+| `server/` | self-hosted API + admin UI + SQLite, multi-org (Go) |
+| `updater/` | on-device download / install / rollback, exposed over C ABI (Rust) |
+| `packages/fcb_code_push/` | Flutter/Dart package (FFI) |
+| `crates/fcb_core/` | shared library: bytecode schema, linker, state, signing |
+| `tool/` | Dart Kernel → bytecode compiler |
+| `vendor/` | forked Flutter engine + Dart VM with the patch runtime |
+
+## Quick start
+
+Configure `fcb.yaml` in your app:
+
+```yaml
+app_id: "your-app-uuid"
+channel: "stable"
+security:
+  public_key: "<ed25519 public key>"
+platforms:
+  android:
+    enabled: true
+    backend: "snapshot_replace"   # bytecode for store distribution
+  ios:
+    enabled: true
+    backend: "bytecode"
 ```
 
-For an existing checkout:
+Publish a release, then a patch:
 
 ```bash
-git pull
-scripts/bootstrap.sh
+fcb release android --release-version 1.0.0+1
+# ... change your Dart code ...
+fcb patch   android --release-version 1.0.0+1 --patch-number 1
+fcb promote --release-version 1.0.0+1 --patch-number 1 --rollout-percentage 10
+fcb rollback --release-version 1.0.0+1 --patch-number 1   # stop distribution
 ```
 
-`scripts/bootstrap.sh --check` validates the current `vendor/flutter`,
-Engine-embedded Dart SDK, and `vendor/depot_tools` checkouts and prints their commits.
-`scripts/bootstrap.sh --check --strict-submodules` is the Phase H1 gate for the
-top-level vendor submodules. Dart VM work is maintained in
-`vendor/flutter/engine/src/flutter/third_party/dart`, not in a separate
-top-level `vendor/sdk` checkout.
+Integrate the Flutter package:
 
-## Fast Verification
+```dart
+import 'package:fcb_code_push/fcb_code_push.dart';
 
-```bash
-cargo fmt --check
-cargo test --workspace --no-default-features
-
-cd server
-go vet ./...
-go test -count=1 ./...
+final fcb = FcbCodePush.instance;
+await fcb.configure(serverUrl: '...', appId: '...');
+await fcb.checkForUpdate();      // downloads patch for next launch
+await fcb.markLaunchSuccessful(); // call after first frame renders
 ```
 
-The fake Flutter end-to-end drill expects a built CLI, built server, and Dart:
+## Store compliance
 
-```bash
-cargo build -p fcb --no-default-features
-(cd server && go build -o ../target/debug/fcb_server .)
-FCB_BIN="$PWD/target/debug/fcb" \
-SERVER_BIN="$PWD/target/debug/fcb_server" \
-DART_BIN="$(command -v dart)" \
-bash tests/e2e/test_e2e.sh
-```
+- iOS uses the `bytecode` backend only (interpreted code, no downloaded
+  executables).
+- For Google Play, use `bytecode`; `snapshot_replace` is for internal/enterprise
+  distribution only.
+- Patches cannot change native code, assets, or the Flutter/Dart/engine version.
 
-Local core CI aggregation:
+## For developers
 
-```bash
-make ci-local-core
-```
-
-To audit real GitHub Actions evidence after the workflows are pushed:
-
-```bash
-make check-github-actions-inventory
-make check-github-actions-evidence
-```
-
-The inventory check is local and offline. The evidence check is read-only,
-uses `gh run list`, writes a summary under `target/fcb/github-actions-evidence/`,
-and fails until the required workflows exist on the target branch and have
-successful runs.
-
-To verify Phase H runbook command generation without devices:
-
-```bash
-make check-phase-h-runbooks
-```
-
-Before marking all plans complete, run the evidence audit:
-
-```bash
-make audit-plan-completion
-```
-
-The audit is read-only and fails until the required remote CI, vendor VM,
-device, TestFlight, submodule, and rebase evidence is present.
-GitHub Actions evidence must come from the latest completed runs, with
-successful conclusions and one shared push head SHA. By default the final
-audit requires a live remote GitHub Actions check for `main`; use
-`FCB_PLAN_AUDIT_GITHUB_BRANCH` only for an explicit branch audit. Cached
-summaries are only accepted when `FCB_PLAN_AUDIT_GITHUB_EVIDENCE=0` is set
-explicitly for offline inspection, and their branch must match the audit
-branch. The final audit fixes the GitHub Actions duration limits at 5.0
-minutes for push workflows, 60.0 minutes for Android nightly, and 90.0 minutes
-for iOS nightly unless the corresponding `FCB_PLAN_AUDIT_GITHUB_MAX_*`
-variables are set explicitly.
-The local core CI evidence used by the final audit must include passed Kernel
-compile, fake Flutter e2e, and Flutter package steps; summaries that skipped
-those steps are treated as incomplete.
-Evidence summaries must reference regular files inside their archive with
-relative paths; absolute paths, symlinks, and paths escaping the archive are
-rejected.
-Device and store evidence summaries must include explicit completion markers,
-for example `H3 Android arm64 drill passed`, `H4 iPhone device drill passed`,
-`TestFlight External Testing entered`, `Counter app real VM patch passed`, or
-`Vendor rebase validation passed`. The final gate also validates required
-summary metadata and the `vendor/REBASE.md` rebase runbook content.
-
-To produce the vendor VM test evidence consumed by the audit:
-
-```bash
-make test-vendor-vm-runtime
-```
-
-To record evidence after a real counter_app VM interpreted patch:
-
-```bash
-make record-vm-patch-evidence
-```
-
-To record evidence after a real vendor rebase validation:
-
-```bash
-make record-vendor-rebase-evidence
-```
-
-## Phase H Device Workflows
-
-The real Engine/device flows depend on the vendor checkouts:
-
-```bash
-scripts/build_android_engine.sh
-scripts/test_android_arm64.sh
-scripts/full_arm64_drill.sh
-scripts/build_ios_engine.sh
-scripts/test_ios_sim.sh
-scripts/record_testflight_evidence.sh
-scripts/record_vendor_rebase_evidence.sh
-```
-
-Do not maintain `engine_patch/`, `dart_sdk_patch/`, or a separate top-level
-`vendor/sdk` mirror. During development, branch and commit directly in
-`vendor/flutter` and its embedded Dart checkout, then update the pinned commits
-through the vendor rebase flow.
+- Implementation plans: [`plans/`](plans/)
+- Architecture decisions: [`docs/architecture_decisions.md`](docs/architecture_decisions.md),
+  [`docs/key_rotation_design.md`](docs/key_rotation_design.md),
+  [`docs/backends.md`](docs/backends.md)
+- Operations: [`docs/operations.md`](docs/operations.md)
+- Build from source: `scripts/bootstrap.sh` (initializes `vendor/`), then the
+  workflows under `.github/workflows/` and helper scripts under `scripts/`.

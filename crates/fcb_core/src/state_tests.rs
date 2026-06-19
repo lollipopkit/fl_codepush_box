@@ -1,6 +1,7 @@
 use super::{InstalledPatch, LastLaunch, State, Updater};
 use crate::bytecode::{BytecodeFunction, BytecodeModule, Constant, OpCode};
 use crate::crypto;
+#[cfg(feature = "snapshot_replace")]
 use crate::diff::{self, BSDIFF_ZSTD_ALGORITHM};
 use crate::manifest::{self, PatchManifest, PatchPolicy, PatchSignature, PayloadManifest};
 
@@ -355,6 +356,7 @@ fn ready_patch_reports_pending_without_marking_launch() {
     let _ = std::fs::remove_dir_all(cache_dir);
 }
 
+#[cfg(feature = "snapshot_replace")]
 #[test]
 fn install_snapshot_replace_payload_writes_launch_artifact() {
     let cache_dir = std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
@@ -429,6 +431,7 @@ fn install_snapshot_replace_payload_writes_launch_artifact() {
     let _ = std::fs::remove_dir_all(input_dir);
 }
 
+#[cfg(feature = "snapshot_replace")]
 #[test]
 fn install_snapshot_replace_chained_uses_previous_patch_artifact() {
     let cache_dir = std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));
@@ -504,6 +507,7 @@ fn install_snapshot_replace_chained_uses_previous_patch_artifact() {
     let _ = std::fs::remove_dir_all(input_dir);
 }
 
+#[cfg(feature = "snapshot_replace")]
 fn make_snapshot_patch(
     _private_key: &str,
     patch_number: u32,
@@ -546,6 +550,7 @@ fn make_snapshot_patch(
     }
 }
 
+#[cfg(feature = "snapshot_replace")]
 #[test]
 fn install_snapshot_replace_rejects_non_binary_diff_payload() {
     let cache_dir = std::env::temp_dir().join(format!("fcb-state-test-{}", super::unique_suffix()));

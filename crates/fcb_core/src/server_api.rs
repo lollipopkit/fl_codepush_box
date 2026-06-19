@@ -520,6 +520,9 @@ mod tests {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         request_count_for_thread.fetch_add(1, Ordering::SeqCst);
+                        // Accepted stream may inherit the listener's non-blocking
+                        // mode; switch to blocking so the read waits for bytes.
+                        stream.set_nonblocking(false).expect("blocking stream");
                         let mut request = [0_u8; 1024];
                         let _ = stream.read(&mut request).expect("read request");
                         write_response(&mut stream, 400, b"bad request");

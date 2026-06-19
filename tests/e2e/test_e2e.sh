@@ -48,6 +48,9 @@ else
     DEFAULT_DART_BIN="$(command -v dart)"
 fi
 DART_BIN="${DART_BIN:-$DEFAULT_DART_BIN}"
+# Resolve to an absolute path. A bare name like "dart" would create a relative,
+# self-referential symlink (.../dart-sdk/bin/dart -> dart) and loop.
+DART_BIN="$(command -v "$DART_BIN" 2>/dev/null || echo "$DART_BIN")"
 ln -s "$DART_BIN" "$WORKDIR/fake_flutter_sdk/bin/cache/dart-sdk/bin/dart"
 cat >"$PROJECT_DIR/pubspec.yaml" <<'YAML'
 name: fcb_e2e_counter

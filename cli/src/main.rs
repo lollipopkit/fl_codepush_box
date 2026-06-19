@@ -1,10 +1,13 @@
+mod aot_entry_points;
 mod auto;
 mod bytecode_payload;
 mod inspect;
 
+#[cfg(feature = "snapshot_replace")]
+use auto::android_app_so_path;
 use auto::{
-    android_app_so_path, build_info_warnings, collect_build_info, collect_prebuild_build_info,
-    collect_release_artifact, compile_kernel_plan, generate_kernel_inventory, read_release_cache,
+    build_info_warnings, collect_build_info, collect_prebuild_build_info, collect_release_artifact,
+    compile_kernel_plan, generate_kernel_inventory, read_release_cache,
     record_interpreter_ratio_warning, resolve_build, run_flutter_build, write_patch_report,
     write_release_cache, BuildContext, BuildOptions, PatchReport, ResolvedBuild,
 };
@@ -12,6 +15,7 @@ use bytecode_payload::{read_bytecode_module, validate_compiled_bytecode_payload}
 use clap::{Parser, Subcommand};
 use fcb_core::config::{LocalAppContext, LocalBuildConfig, RemoteAppConfig, RemotePlatformEntry};
 use fcb_core::crypto;
+#[cfg(feature = "snapshot_replace")]
 use fcb_core::diff::{self, BSDIFF_ZSTD_ALGORITHM};
 #[cfg(test)]
 use fcb_core::linker::LinkerPlan;
@@ -628,17 +632,32 @@ fn manual_patch_payload(
 ) -> Result<Option<PatchPayloadResult>> {
     let target_artifact = fs::read(path)?;
     if backend == "snapshot_replace" {
-        warn_snapshot_replace_backend();
-        let base =
-            snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
-        Ok(Some((
-            diff::create_bsdiff_zstd(&base, &target_artifact)?,
-            "binary_diff",
-            Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
-            Some(crypto::sha256_hex(&base)),
-            Some(crypto::sha256_hex(&target_artifact)),
-            Some(target_artifact),
-        )))
+        #[cfg(feature = "snapshot_replace")]
+        {
+            warn_snapshot_replace_backend();
+            let base =
+                snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
+            Ok(Some((
+                diff::create_bsdiff_zstd(&base, &target_artifact)?,
+                "binary_diff",
+                Some(BSDIFF_ZSTD_ALGORITHM.to_string()),
+                Some(crypto::sha256_hex(&base)),
+                Some(crypto::sha256_hex(&target_artifact)),
+                Some(target_artifact),
+            )))
+        }
+        #[cfg(not(feature = "snapshot_replace"))]
+        {
+            let _ = (
+                &app,
+                release_version,
+                platform,
+                arch,
+                patch_number,
+                &target_artifact,
+            );
+            Err(err("snapshot_replace backend is not enabled in this build"))
+        }
     } else if backend == "bytecode" {
         let module = read_bytecode_module(&target_artifact)?;
         Ok(Some((
@@ -669,6 +688,8 @@ fn automatic_patch_payload(
         out,
         report,
     } = input;
+    #[cfg(not(feature = "snapshot_replace"))]
+    let _ = patch_number;
     let release_dir = release_cache_dir(&app.id, release_version, platform, arch);
     if !release_dir.exists() {
         return Err(err(format!(
@@ -724,6 +745,7 @@ fn automatic_patch_payload(
     }
 
     match backend {
+        #[cfg(feature = "snapshot_replace")]
         "snapshot_replace" => {
             automatic_snapshot_payload(app, release_version, patch_number, platform, arch, &build)
         }
@@ -732,6 +754,7 @@ fn automatic_patch_payload(
     }
 }
 
+#[cfg(feature = "snapshot_replace")]
 fn automatic_snapshot_payload(
     app: &RemoteAppConfig,
     release_version: &str,
@@ -783,11 +806,12 @@ fn automatic_bytecode_payload(
     Ok(Some((payload, "bytecode_module", None, None, None, None)))
 }
 
-/// ADR-#2: reject a bytecode patch whose `CallOriginal` targets have no entry
-/// point in the release AOT snapshot (tree-shaken/inlined), so the failure is
-/// caught at build time instead of crashing at runtime. The gate enforces only
-/// when the release cache carries `aot_entry_points.json`; absent that truth
-/// (e.g. legacy caches) it warns and skips rather than blocking.
+/// ADR-#2: reject a bytecode patch whose AOT-referenced targets (`CallStatic` /
+/// `CallOriginal`, resolved via `DartEntry::InvokeFunction`) have no entry point
+/// in the release AOT snapshot (tree-shaken/inlined), so the failure is caught at
+/// build time instead of crashing at runtime. The gate enforces only when the
+/// release cache carries `aot_entry_points.json`; absent that truth (e.g. legacy
+/// caches) it warns and skips rather than blocking.
 fn gate_call_original_aot_presence(
     release_dir: &Path,
     payload: &[u8],
@@ -795,7 +819,7 @@ fn gate_call_original_aot_presence(
 ) -> Result<()> {
     let Some(aot_present) = read_aot_entry_points(release_dir)? else {
         eprintln!(
-            "warning: aot_entry_points.json absent in release cache; skipping call_original AOT-presence gate (ADR-#2)"
+            "warning: aot_entry_points.json absent in release cache; skipping AOT-presence gate (ADR-#2)"
         );
         return Ok(());
     };
@@ -810,12 +834,12 @@ fn gate_call_original_aot_presence(
                 function_id: target.clone(),
                 source_location: None,
                 reject_reason: linker::RejectReason::OriginalTargetNotInAot,
-                message: "call_original target has no AOT entry point in the release".to_string(),
+                message: "AOT-referenced target (call_static/call_original) has no entry point in the release".to_string(),
             });
         }
     }
     Err(err(format!(
-        "bytecode patch rejected: {} call_original target(s) missing an AOT entry point; see patch_report.json",
+        "bytecode patch rejected: {} AOT-referenced target(s) missing an AOT entry point; see patch_report.json",
         missing.len()
     )))
 }
@@ -823,6 +847,7 @@ fn gate_call_original_aot_presence(
 /// ADR-#3: snapshot_replace ships native `.so` diffs and is NOT Play/App Store
 /// compliant. It is retained for enterprise/internal distribution only and is a
 /// frozen backend. Surface that loudly whenever it is used.
+#[cfg(feature = "snapshot_replace")]
 fn warn_snapshot_replace_backend() {
     eprintln!(
         "warning: backend 'snapshot_replace' is enterprise/internal-only and not Play/App Store \
@@ -1120,6 +1145,7 @@ fn patch_cache_dir(
         .join(arch)
 }
 
+#[cfg(feature = "snapshot_replace")]
 fn patch_artifact_path(
     release_version: &str,
     patch_number: u32,
@@ -1129,6 +1155,7 @@ fn patch_artifact_path(
     patch_cache_dir(release_version, patch_number, platform, arch).join("artifact.bin")
 }
 
+#[cfg(feature = "snapshot_replace")]
 fn snapshot_replace_diff_base(
     app_id: &str,
     release_version: &str,

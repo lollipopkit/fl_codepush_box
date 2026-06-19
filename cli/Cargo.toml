@@ -4,9 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["snapshot_replace"]
+snapshot_replace = ["fcb_core/snapshot_replace", "fcb_bytecode/snapshot_replace"]
+
 [dependencies]
-fcb_bytecode = { path = "../crates/fcb_bytecode" }
-fcb_core = { path = "../crates/fcb_core" }
+fcb_bytecode = { path = "../crates/fcb_bytecode", default-features = false }
+fcb_core = { path = "../crates/fcb_core", default-features = false }
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -888,6 +888,10 @@ fn concurrent_check_for_update_uses_single_inflight_request() {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     request_count_for_thread.fetch_add(1, Ordering::SeqCst);
+                    // The accepted stream inherits the listener's non-blocking
+                    // mode on some platforms; switch to blocking so the request
+                    // read waits for bytes instead of failing with WouldBlock.
+                    stream.set_nonblocking(false).expect("blocking stream");
                     let mut request = [0_u8; 1024];
                     let _ = stream.read(&mut request).expect("read request");
                     std::thread::sleep(Duration::from_millis(200));

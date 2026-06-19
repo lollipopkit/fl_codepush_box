@@ -5,22 +5,6 @@
 **前置依赖**：Phase E 完成（真机能验证 bytecode 语义），G 完成（crash 自动回滚可测）
 **并行性**：H1 / H2 可与 E/F/G 并行启动；H3 / H4 串行依赖 E、G
 
-## 进度更新（2026-06-17）
-
-🟡 **部分完成**：CI/runbook/drill 入口齐全，顶层 vendor submodule 配置与
-REBASE runbook 已落地；仍缺 gitlink 入库、远端 CI 成功证据、真机、
-TestFlight 与 REBASE 实战证据。
-
-| 子阶段 | 状态 | 证据 |
-|--------|------|------|
-| H1 vendor submodule + 锁定 | 🟡 | `.gitmodules` 已注册 `vendor/flutter` 与 `vendor/depot_tools`；Dart VM patch 单一真源为 `vendor/flutter/engine/src/flutter/third_party/dart`，由 Engine `DEPS` 指向 `lollipopkit/dartsdk` fork。剩余缺口是顶层 vendor gitlink 尚未形成可审计提交 |
-| H2 GitHub Actions CI | 🟡 本地齐全，远端未验 | `.github/workflows/` 有 rust/server/e2e_x64/flutter_package/server_s3/android_emulator/ios_simulator/workflows_lint 八个；`make ci-local-core` 聚合可跑；但远端 main 尚未注册这些 workflow、未取得成功 run（`make check-github-actions-evidence` 仍是缺口 gate）|
-| H3 arm64 真机 drill | ❌ | `scripts/full_arm64_drill.sh` 入口已串 host preflight + device acceptance，但未在真机跑过、无录屏归档 |
-| H4 iPhone + TestFlight | ❌ | `docs/ios_distribution.md`/`docs/apple_compliance.md` runbook 已写；真机与 TestFlight 提交未做 |
-| H5 vendor REBASE 文档 | 🟡 | `vendor/REBASE.md` 与 `make record-vendor-rebase-evidence` 入口已备；首次真实 rebase validation 证据未做 |
-
-**关键依赖**：H3/H4 真机 crash leg 依赖 E（真实 VM dispatch）落地，目前 E 仍 skeleton，故真机端到端无法跑通。
-
 ## 目标
 
 把项目从"本地能跑"提升到"任意人 clone + CI 绿 + 真机/真用户验证"：

@@ -9,15 +9,23 @@ String? escapingCapturingClosureReason(FunctionNode function) {
   final body = function.body;
   if (body == null) return null;
   final safeClosureVariables = <VariableDeclaration>{};
-  final visitor = _EscapingCapturingClosureVisitor(safeClosureVariables);
+  final genericClosureVariables = <VariableDeclaration>{};
+  final visitor = _EscapingCapturingClosureVisitor(
+    safeClosureVariables,
+    genericClosureVariables,
+  );
   body.accept(visitor);
   return visitor.reason;
 }
 
 class _EscapingCapturingClosureVisitor extends RecursiveVisitor {
-  _EscapingCapturingClosureVisitor(this._safeClosureVariables);
+  _EscapingCapturingClosureVisitor(
+    this._safeClosureVariables,
+    this._genericClosureVariables,
+  );
 
   final Set<VariableDeclaration> _safeClosureVariables;
+  final Set<VariableDeclaration> _genericClosureVariables;
   String? reason;
 
   @override
@@ -26,8 +34,12 @@ class _EscapingCapturingClosureVisitor extends RecursiveVisitor {
   @override
   void visitReturnStatement(ReturnStatement node) {
     final expression = node.expression;
-    if (_isCapturingClosureExpression(expression)) {
-      reason ??= 'returning_capturing_closure';
+    final closureReason = _capturingClosureReason(
+      expression,
+      fallbackReason: 'returning_capturing_closure',
+    );
+    if (closureReason != null) {
+      reason ??= closureReason;
       return;
     }
     expression?.accept(this);
@@ -69,6 +81,9 @@ class _EscapingCapturingClosureVisitor extends RecursiveVisitor {
     if (initializer is FunctionExpression &&
         _capturesOuterVariable(initializer)) {
       _safeClosureVariables.add(node);
+      if (_isGenericClosure(initializer)) {
+        _genericClosureVariables.add(node);
+      }
       return;
     }
     initializer?.accept(this);
@@ -77,39 +92,60 @@ class _EscapingCapturingClosureVisitor extends RecursiveVisitor {
   @override
   void visitVariableGet(VariableGet node) {
     if (_safeClosureVariables.contains(node.variable)) {
-      reason ??= 'escaping_capturing_closure';
+      reason ??= _genericClosureVariables.contains(node.variable)
+          ? 'generic_closure_unsupported'
+          : 'escaping_capturing_closure';
     }
   }
 
   @override
   void visitFunctionExpression(FunctionExpression node) {
     if (_capturesOuterVariable(node)) {
-      reason ??= 'escaping_capturing_closure';
+      reason ??= _isGenericClosure(node)
+          ? 'generic_closure_unsupported'
+          : 'escaping_capturing_closure';
     }
   }
 
-  bool _isCapturingClosureExpression(Expression? expression) {
+  String? _capturingClosureReason(
+    Expression? expression, {
+    required String fallbackReason,
+  }) {
     if (expression is FunctionExpression) {
-      return _capturesOuterVariable(expression);
+      if (!_capturesOuterVariable(expression)) return null;
+      return _isGenericClosure(expression)
+          ? 'generic_closure_unsupported'
+          : fallbackReason;
     }
     if (expression is VariableGet) {
-      return _safeClosureVariables.contains(expression.variable);
+      if (!_safeClosureVariables.contains(expression.variable)) return null;
+      return _genericClosureVariables.contains(expression.variable)
+          ? 'generic_closure_unsupported'
+          : fallbackReason;
     }
-    return false;
+    return null;
   }
 
   void _visitInvocationArguments(Arguments arguments) {
     for (final argument in arguments.positional) {
-      if (_isCapturingClosureExpression(argument)) {
-        reason ??= 'passing_capturing_closure';
+      final closureReason = _capturingClosureReason(
+        argument,
+        fallbackReason: 'passing_capturing_closure',
+      );
+      if (closureReason != null) {
+        reason ??= closureReason;
         return;
       }
       argument.accept(this);
       if (reason != null) return;
     }
     for (final argument in arguments.named) {
-      if (_isCapturingClosureExpression(argument.value)) {
-        reason ??= 'passing_capturing_closure';
+      final closureReason = _capturingClosureReason(
+        argument.value,
+        fallbackReason: 'passing_capturing_closure',
+      );
+      if (closureReason != null) {
+        reason ??= closureReason;
         return;
       }
       argument.value.accept(this);
@@ -117,6 +153,9 @@ class _EscapingCapturingClosureVisitor extends RecursiveVisitor {
     }
   }
 }
+
+bool _isGenericClosure(FunctionExpression expression) =>
+    expression.function.typeParameters.isNotEmpty;
 
 bool _capturesOuterVariable(FunctionExpression expression) {
   final declared = <VariableDeclaration>{

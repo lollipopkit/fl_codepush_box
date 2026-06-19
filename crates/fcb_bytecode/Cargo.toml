@@ -5,4 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-fcb_core = { path = "../fcb_core" }
+fcb_core = { path = "../fcb_core", default-features = false }
+
+# Re-export crate; does not need snapshot_replace itself, but forwards the
+# feature so downstreams can enable it through a unified dependency graph.
+[features]
+snapshot_replace = ["fcb_core/snapshot_replace"]

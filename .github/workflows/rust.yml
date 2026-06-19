@@ -25,11 +25,22 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
-      - name: Clippy
+      # Default config exercises the snapshot_replace backend paths/tests.
+      - name: Clippy (default)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test (default)
+        run: cargo test --workspace
+
+      # Store config (ADR-#3): snapshot_replace excluded; must compile + pass clean.
+      - name: Clippy (store build, no snapshot_replace)
         run: cargo clippy --workspace --no-default-features --all-targets -- -D warnings
 
-      - name: Test
+      - name: Test (store build, no snapshot_replace)
         run: cargo test --workspace --no-default-features
+
+      - name: Build store binary (no snapshot_replace)
+        run: cargo build --workspace --no-default-features
 
       - name: Crash rollback drill
         run: make test-crash-rollback

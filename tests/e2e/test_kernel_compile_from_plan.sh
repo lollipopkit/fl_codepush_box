@@ -130,6 +130,21 @@ String Function({required String suffix}) namedEscapingGreeting(String name) {
   return ({required suffix}) => '$prefix $name $suffix';
 }
 
+String Function([String? suffix]) optionalPositionalEscapingGreeting(String name) {
+  final prefix = 'base';
+  return ([suffix]) => '$prefix $name $suffix';
+}
+
+String Function({String? suffix}) optionalNamedEscapingGreeting(String name) {
+  final prefix = 'base';
+  return ({suffix}) => '$prefix $name $suffix';
+}
+
+String Function<T>(T) genericEscapingGreeting(String name) {
+  final prefix = 'base';
+  return <T>(value) => '$prefix $name $value';
+}
+
 String Function() localFunctionEscapingGreeting(String name) {
   final prefix = 'base';
   String format() {
@@ -396,6 +411,21 @@ String Function({required String suffix}) namedEscapingGreeting(String name) {
   return ({required suffix}) => '$prefix $name $suffix';
 }
 
+String Function([String? suffix]) optionalPositionalEscapingGreeting(String name) {
+  final prefix = 'patched';
+  return ([suffix]) => '$prefix $name $suffix';
+}
+
+String Function({String? suffix}) optionalNamedEscapingGreeting(String name) {
+  final prefix = 'patched';
+  return ({suffix}) => '$prefix $name $suffix';
+}
+
+String Function<T>(T) genericEscapingGreeting(String name) {
+  final prefix = 'patched';
+  return <T>(value) => '$prefix $name $value';
+}
+
 String Function() localFunctionEscapingGreeting(String name) {
   final prefix = 'patched';
   String format() {
@@ -603,8 +633,8 @@ for function in patch["functions"]:
     else:
         plan["interpret"].append(entry)
 
-if len(plan["interpret"]) != 39:
-    raise SystemExit(f"expected 39 interpreted functions, got {len(plan['interpret'])}")
+if len(plan["interpret"]) != 42:
+    raise SystemExit(f"expected 42 interpreted functions, got {len(plan['interpret'])}")
 if len(plan["reject"]) != 2:
     raise SystemExit(f"expected two rejected functions, got {plan['reject']}")
 
@@ -673,6 +703,63 @@ if named_escaping_source.get("body", {}).get("let", {}).get("body", {}).get("mak
 extra_functions = named_escaping_source.get("extra_functions", [])
 if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "suffix"]:
     raise SystemExit(f"expected named escaping closure params, got {named_escaping_source}")
+make_closure = named_escaping_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
+if make_closure.get("named_parameters") != ["suffix"]:
+    raise SystemExit(f"expected required named escaping closure metadata, got {named_escaping_source}")
+
+optional_positional_escaping = [
+    f for f in patch["functions"]
+    if f.get("member_name") == "optionalPositionalEscapingGreeting"
+]
+if len(optional_positional_escaping) != 1:
+    raise SystemExit(f"expected one optionalPositionalEscapingGreeting inventory entry, got {optional_positional_escaping}")
+optional_positional_source = optional_positional_escaping[0].get("bytecode_source")
+if not isinstance(optional_positional_source, dict):
+    raise SystemExit(f"optional positional escaping closure must produce bytecode source: {optional_positional_escaping[0]}")
+if optional_positional_escaping[0].get("unsupported_reasons") != []:
+    raise SystemExit(f"optional positional escaping closure should now be supported, got {optional_positional_escaping[0]}")
+make_closure = optional_positional_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
+if make_closure.get("optional_positional_count") != 1:
+    raise SystemExit(f"expected optional positional escaping closure metadata, got {optional_positional_source}")
+extra_functions = optional_positional_source.get("extra_functions", [])
+if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "suffix"]:
+    raise SystemExit(f"expected optional positional escaping closure params, got {optional_positional_source}")
+
+optional_named_escaping = [
+    f for f in patch["functions"]
+    if f.get("member_name") == "optionalNamedEscapingGreeting"
+]
+if len(optional_named_escaping) != 1:
+    raise SystemExit(f"expected one optionalNamedEscapingGreeting inventory entry, got {optional_named_escaping}")
+optional_named_source = optional_named_escaping[0].get("bytecode_source")
+if not isinstance(optional_named_source, dict):
+    raise SystemExit(f"optional named escaping closure must produce bytecode source: {optional_named_escaping[0]}")
+if optional_named_escaping[0].get("unsupported_reasons") != []:
+    raise SystemExit(f"optional named escaping closure should now be supported, got {optional_named_escaping[0]}")
+make_closure = optional_named_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
+if make_closure.get("named_parameters") != ["?suffix"]:
+    raise SystemExit(f"expected optional named escaping closure metadata, got {optional_named_source}")
+extra_functions = optional_named_source.get("extra_functions", [])
+if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "suffix"]:
+    raise SystemExit(f"expected optional named escaping closure params, got {optional_named_source}")
+
+generic_escaping = [
+    f for f in patch["functions"]
+    if f.get("member_name") == "genericEscapingGreeting"
+]
+if len(generic_escaping) != 1:
+    raise SystemExit(f"expected one genericEscapingGreeting inventory entry, got {generic_escaping}")
+generic_source = generic_escaping[0].get("bytecode_source")
+if not isinstance(generic_source, dict):
+    raise SystemExit(f"generic escaping closure must produce bytecode source: {generic_escaping[0]}")
+if generic_escaping[0].get("unsupported_reasons") != []:
+    raise SystemExit(f"generic escaping closure should now be supported, got {generic_escaping[0]}")
+make_closure = generic_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
+if make_closure.get("type_parameter_count") != 1:
+    raise SystemExit(f"expected generic escaping closure type metadata, got {generic_source}")
+extra_functions = generic_source.get("extra_functions", [])
+if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "value"]:
+    raise SystemExit(f"expected generic escaping closure params, got {generic_source}")
 
 local_function_escaping = [
     f for f in patch["functions"]
@@ -909,7 +996,7 @@ import sys
 
 module = json.load(open(sys.argv[1]))
 assert module["version"] == 2, module
-assert len(module["functions"]) == 51, module
+assert len(module["functions"]) == 57, module
 function = next(
     item for item in module["functions"] if item["name"].endswith("::mainValue")
 )
@@ -1127,12 +1214,54 @@ assert any(
     for constant in named_escaping_greeting["constants"]
 ), named_escaping_greeting
 assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::namedEscapingGreeting.<closure0>();captures:2")
+    constant.get("type") == "String" and constant.get("value", "").endswith("::namedEscapingGreeting.<closure0>();captures:2;named:suffix")
     for constant in named_escaping_greeting["constants"]
 ), named_escaping_greeting
 named_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::namedEscapingGreeting.<closure0>()"))
 assert named_escaping_closure["param_count"] == 3, named_escaping_closure
 assert 0x42 in named_escaping_closure["code"], named_escaping_closure
+optional_positional_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::optionalPositionalEscapingGreeting"))
+assert optional_positional_escaping_greeting["param_count"] == 1, optional_positional_escaping_greeting
+assert 0x54 in optional_positional_escaping_greeting["code"], optional_positional_escaping_greeting
+assert 0x03 in optional_positional_escaping_greeting["code"], optional_positional_escaping_greeting
+assert 0x04 in optional_positional_escaping_greeting["code"], optional_positional_escaping_greeting
+assert any(
+    constant.get("type") == "String" and constant.get("value") == "patched"
+    for constant in optional_positional_escaping_greeting["constants"]
+), optional_positional_escaping_greeting
+assert any(
+    constant.get("type") == "String" and constant.get("value", "").endswith("::optionalPositionalEscapingGreeting.<closure0>();captures:2;optional-pos:1")
+    for constant in optional_positional_escaping_greeting["constants"]
+), optional_positional_escaping_greeting
+optional_positional_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::optionalPositionalEscapingGreeting.<closure0>()"))
+assert optional_positional_escaping_closure["param_count"] == 3, optional_positional_escaping_closure
+assert 0x42 in optional_positional_escaping_closure["code"], optional_positional_escaping_closure
+optional_named_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::optionalNamedEscapingGreeting"))
+assert optional_named_escaping_greeting["param_count"] == 1, optional_named_escaping_greeting
+assert 0x54 in optional_named_escaping_greeting["code"], optional_named_escaping_greeting
+assert 0x03 in optional_named_escaping_greeting["code"], optional_named_escaping_greeting
+assert 0x04 in optional_named_escaping_greeting["code"], optional_named_escaping_greeting
+assert any(
+    constant.get("type") == "String" and constant.get("value") == "patched"
+    for constant in optional_named_escaping_greeting["constants"]
+), optional_named_escaping_greeting
+assert any(
+    constant.get("type") == "String" and constant.get("value", "").endswith("::optionalNamedEscapingGreeting.<closure0>();captures:2;named:?suffix")
+    for constant in optional_named_escaping_greeting["constants"]
+), optional_named_escaping_greeting
+optional_named_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::optionalNamedEscapingGreeting.<closure0>()"))
+assert optional_named_escaping_closure["param_count"] == 3, optional_named_escaping_closure
+assert 0x42 in optional_named_escaping_closure["code"], optional_named_escaping_closure
+generic_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::genericEscapingGreeting"))
+assert generic_escaping_greeting["param_count"] == 1, generic_escaping_greeting
+assert 0x54 in generic_escaping_greeting["code"], generic_escaping_greeting
+assert any(
+    constant.get("type") == "String" and constant.get("value", "").endswith("::genericEscapingGreeting.<closure0>();captures:2;type-params:1")
+    for constant in generic_escaping_greeting["constants"]
+), generic_escaping_greeting
+generic_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::genericEscapingGreeting.<closure0>()"))
+assert generic_escaping_closure["param_count"] == 3, generic_escaping_closure
+assert 0x42 in generic_escaping_closure["code"], generic_escaping_closure
 local_function_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::localFunctionEscapingGreeting"))
 assert local_function_escaping_greeting["param_count"] == 1, local_function_escaping_greeting
 assert 0x54 in local_function_escaping_greeting["code"], local_function_escaping_greeting
@@ -1482,7 +1611,7 @@ assert data[:4] == b"FCBM", data[:4]
 version = struct.unpack(">I", data[4:8])[0]
 function_count = struct.unpack(">H", data[8:10])[0]
 assert version == 2, version
-assert function_count == 51, function_count
+assert function_count == 57, function_count
 assert b"\x50" in data, data
 assert b"\x40" in data, data
 assert b"\x41" in data, data

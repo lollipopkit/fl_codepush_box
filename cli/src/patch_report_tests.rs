@@ -93,6 +93,7 @@ fn automatic_bytecode_payload_reports_escaping_capturing_closure_reject() {
 fn automatic_bytecode_payload_preserves_structured_runtime_rejects() {
     for reason in [
         RejectReason::AsyncAwaitUnsupported,
+        RejectReason::GenericClosureUnsupported,
         RejectReason::FunctionTypeUnsupported,
         RejectReason::RecordTypeUnsupported,
     ] {

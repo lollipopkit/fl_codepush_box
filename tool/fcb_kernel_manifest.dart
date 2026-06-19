@@ -609,17 +609,58 @@ class _RestrictedBytecodeCompiler {
       final raw = expr['make_closure'];
       String target;
       final captures = <Map<String, Object?>>[];
+      final namedParameters = <String>[];
+      var optionalPositionalCount = 0;
+      var typeParameterCount = 0;
       if (raw is String) {
         target = raw;
       } else if (raw is Map) {
         final spec = raw.cast<String, Object?>();
         final specTarget = spec['target'];
         final specCaptures = spec['captures'];
+        final specNamedParameters = spec['named_parameters'];
+        final specOptionalPositionalCount = spec['optional_positional_count'];
+        final specTypeParameterCount = spec['type_parameter_count'];
         if (specTarget is! String) {
           stderr.writeln('make_closure expression requires target');
           exit(2);
         }
         target = specTarget;
+        if (specOptionalPositionalCount != null) {
+          if (specOptionalPositionalCount is! int ||
+              specOptionalPositionalCount < 0 ||
+              specOptionalPositionalCount > 255) {
+            stderr.writeln(
+              'make_closure optional_positional_count must be 0..255',
+            );
+            exit(2);
+          }
+          optionalPositionalCount = specOptionalPositionalCount;
+        }
+        if (specNamedParameters != null) {
+          if (specNamedParameters is! List) {
+            stderr.writeln('make_closure named_parameters must be a list');
+            exit(2);
+          }
+          for (final parameter in specNamedParameters) {
+            if (parameter is! String || parameter.trim().isEmpty) {
+              stderr.writeln(
+                'make_closure named parameter must be a non-empty string',
+              );
+              exit(2);
+            }
+            namedParameters.add(parameter);
+          }
+        }
+        if (specTypeParameterCount != null) {
+          if (specTypeParameterCount is! int ||
+              specTypeParameterCount < 0 ||
+              specTypeParameterCount > 255) {
+            stderr.writeln('make_closure type_parameter_count must be 0..255');
+            exit(2);
+          }
+          typeParameterCount = specTypeParameterCount;
+        }
         if (specCaptures != null) {
           if (specCaptures is! List) {
             stderr.writeln('make_closure captures must be a list');
@@ -648,9 +689,28 @@ class _RestrictedBytecodeCompiler {
       for (final capture in captures) {
         compileExpr(capture);
       }
+      if (optionalPositionalCount > 0 && namedParameters.isNotEmpty) {
+        stderr.writeln(
+          'make_closure cannot mix optional positional and named parameters',
+        );
+        exit(2);
+      }
+      final optionalPositionalSuffix = optionalPositionalCount == 0
+          ? ''
+          : ';optional-pos:$optionalPositionalCount';
+      final namedSuffix = namedParameters.isEmpty
+          ? ''
+          : ';named:${namedParameters.join(',')}';
+      final typeParameterSuffix = typeParameterCount == 0
+          ? ''
+          : ';type-params:$typeParameterCount';
+      final metadataSuffix =
+          '$optionalPositionalSuffix$namedSuffix$typeParameterSuffix';
       final targetValue = captures.isEmpty
-          ? target
-          : '$target;captures:${captures.length}';
+          ? (metadataSuffix.isEmpty
+                ? target
+                : '$target;captures:0$metadataSuffix')
+          : '$target;captures:${captures.length}$metadataSuffix';
       op(_opMakeClosure);
       u16(addConst({'type': 'String', 'value': targetValue}));
     } else if (expr['new_object'] is Map) {

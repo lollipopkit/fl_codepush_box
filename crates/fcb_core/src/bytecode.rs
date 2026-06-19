@@ -385,11 +385,28 @@ impl BytecodeModule {
         Ok(())
     }
 
-    /// Function ids this module invokes via `CallOriginal` (i.e. the original
-    /// AOT implementation). Each must survive AOT compilation with a real entry
-    /// point in the release, otherwise the patch would dispatch into a
-    /// tree-shaken/inlined function at runtime. See ADR-#2.
+    /// Function ids this module invokes via `CallOriginal` (the original AOT
+    /// implementation). Subset of [`Self::aot_referenced_targets`]; kept for
+    /// callers that specifically care about the call_original set.
     pub fn call_original_targets(&self) -> Vec<String> {
+        self.targets_for(&[OpCode::CallOriginal])
+    }
+
+    /// Qualified function ids this module dispatches to **by name in the AOT
+    /// snapshot** and therefore require a real AOT entry point: `CallStatic` and
+    /// `CallOriginal` both resolve their target via `DartEntry::InvokeFunction`,
+    /// so a tree-shaken/inlined target crashes at runtime. ADR-#2.
+    ///
+    /// `NewObject`/`MakeClosure` are intentionally excluded for now: constructors
+    /// and tear-offs are frequently inlined (no standalone entry even when valid),
+    /// which would cause false rejects until the patch-friendly build mode lands.
+    pub fn aot_referenced_targets(&self) -> Vec<String> {
+        self.targets_for(&[OpCode::CallStatic, OpCode::CallOriginal])
+    }
+
+    /// Collect the string constant referenced by the first operand (a u16
+    /// constant index) of each occurrence of any opcode in `opcodes`.
+    fn targets_for(&self, opcodes: &[OpCode]) -> Vec<String> {
         let mut targets = BTreeSet::new();
         for function in &self.functions {
             let mut pos = 0usize;
@@ -398,7 +415,7 @@ impl BytecodeModule {
                     break;
                 };
                 let operand_start = pos + 1;
-                if opcode == OpCode::CallOriginal && operand_start + 2 <= function.code.len() {
+                if opcodes.contains(&opcode) && operand_start + 2 <= function.code.len() {
                     let idx = read_u16(&function.code, operand_start) as usize;
                     if let Some(Constant::String(target)) = function.constants.get(idx) {
                         targets.insert(target.clone());
@@ -410,12 +427,13 @@ impl BytecodeModule {
         targets.into_iter().collect()
     }
 
-    /// `CallOriginal` targets NOT present in `aot_present` (the set of function
-    /// ids that survived AOT with a real entry point). Non-empty means the patch
-    /// would call into a function the AOT snapshot no longer contains, and the
-    /// patch must be rejected at build time rather than crashing at runtime.
+    /// AOT-referenced targets (see [`Self::aot_referenced_targets`]) NOT present
+    /// in `aot_present` (the set of function ids that survived AOT with a real
+    /// entry point). Non-empty means the patch would dispatch into a function the
+    /// AOT snapshot no longer contains, and must be rejected at build time rather
+    /// than crashing at runtime.
     pub fn missing_aot_targets(&self, aot_present: &BTreeSet<String>) -> Vec<String> {
-        self.call_original_targets()
+        self.aot_referenced_targets()
             .into_iter()
             .filter(|target| !aot_present.contains(target))
             .collect()
@@ -811,7 +829,9 @@ mod tests {
             return_convention: "tagged".to_string(),
             param_count: 0,
             local_count: 0,
-            constants: vec![Constant::String("package:app/main.dart::helper".to_string())],
+            constants: vec![Constant::String(
+                "package:app/main.dart::helper".to_string(),
+            )],
             code: vec![OpCode::CallOriginal as u8, 0, 0, 0, OpCode::Return as u8],
             source_map: Vec::new(),
             debug_locals: Vec::new(),
@@ -830,21 +850,56 @@ mod tests {
         );
 
         // Target present in the AOT set -> nothing missing.
-        let present: BTreeSet<String> =
-            ["package:app/main.dart::helper".to_string()].into_iter().collect();
+        let present: BTreeSet<String> = ["package:app/main.dart::helper".to_string()]
+            .into_iter()
+            .collect();
+        assert!(module.missing_aot_targets(&present).is_empty());
+    }
+
+    #[test]
+    fn aot_gate_covers_call_static_targets() {
+        use std::collections::BTreeSet;
+        // Automatic patches reference unchanged code via CallStatic (0x50), e.g.
+        // counter_app's wrapper calling widgetTreeLabel. The gate must protect it.
+        let module = BytecodeModule::new(vec![BytecodeFunction {
+            name: "package:app/main.dart::wrapper".to_string(),
+            return_convention: "tagged".to_string(),
+            param_count: 0,
+            local_count: 0,
+            constants: vec![Constant::String(
+                "package:app/main.dart::widgetTreeLabel".to_string(),
+            )],
+            code: vec![OpCode::CallStatic as u8, 0, 0, 0, OpCode::Return as u8],
+            source_map: Vec::new(),
+            debug_locals: Vec::new(),
+        }]);
+
+        assert_eq!(
+            module.aot_referenced_targets(),
+            vec!["package:app/main.dart::widgetTreeLabel".to_string()]
+        );
+        // call_original_targets stays narrow (CallStatic is not call_original).
+        assert!(module.call_original_targets().is_empty());
+
+        let empty: BTreeSet<String> = BTreeSet::new();
+        assert_eq!(
+            module.missing_aot_targets(&empty),
+            vec!["package:app/main.dart::widgetTreeLabel".to_string()]
+        );
+        let present: BTreeSet<String> = ["package:app/main.dart::widgetTreeLabel".to_string()]
+            .into_iter()
+            .collect();
         assert!(module.missing_aot_targets(&present).is_empty());
     }
 
     #[test]
     fn module_version_accepts_inclusive_supported_range() {
-        // Invariant: the accepted range is well-formed and the current producer
-        // version sits inside it. When FORMAT_VERSION is later bumped while
-        // MIN_SUPPORTED_MODULE_VERSION stays low, older patches keep parsing.
-        assert!(super::MIN_SUPPORTED_MODULE_VERSION <= super::FORMAT_VERSION);
+        // Invariant (compile-time): the accepted range is well-formed. When
+        // FORMAT_VERSION is later bumped while MIN_SUPPORTED_MODULE_VERSION stays
+        // low, older patches keep parsing.
+        const _: () = assert!(super::MIN_SUPPORTED_MODULE_VERSION <= super::FORMAT_VERSION);
 
-        // A version below the supported floor is rejected with the range message.
-        let below = super::MIN_SUPPORTED_MODULE_VERSION.saturating_sub(1);
-        let mut module = BytecodeModule::new(vec![BytecodeFunction {
+        let module = BytecodeModule::new(vec![BytecodeFunction {
             name: "f".to_string(),
             return_convention: "tagged".to_string(),
             param_count: 0,
@@ -854,13 +909,6 @@ mod tests {
             source_map: Vec::new(),
             debug_locals: Vec::new(),
         }]);
-        module.version = below;
-        if below < super::MIN_SUPPORTED_MODULE_VERSION {
-            let err = module
-                .validate_envelope()
-                .expect_err("below-floor version should fail");
-            assert!(err.to_string().contains("supported range"));
-        }
 
         // The current producer version is accepted.
         let mut current = module.clone();
@@ -868,6 +916,14 @@ mod tests {
         current
             .validate_envelope()
             .expect("current version must be accepted");
+
+        // A version above the supported ceiling is rejected with the range message.
+        let mut too_new = module;
+        too_new.version = super::FORMAT_VERSION + 1;
+        let err = too_new
+            .validate_envelope()
+            .expect_err("above-ceiling version should fail");
+        assert!(err.to_string().contains("supported range"));
     }
 
     #[test]

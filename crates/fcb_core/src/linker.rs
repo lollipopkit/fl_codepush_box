@@ -89,6 +89,7 @@ pub enum RejectReason {
     ReturningCapturingClosure,
     PassingCapturingClosure,
     AsyncAwaitUnsupported,
+    GenericClosureUnsupported,
     FunctionTypeUnsupported,
     RecordTypeUnsupported,
     MissingBytecodeSource,
@@ -397,6 +398,7 @@ mod tests {
     fn preserves_structured_unsupported_runtime_reasons() {
         for reason in [
             RejectReason::AsyncAwaitUnsupported,
+            RejectReason::GenericClosureUnsupported,
             RejectReason::FunctionTypeUnsupported,
             RejectReason::RecordTypeUnsupported,
         ] {

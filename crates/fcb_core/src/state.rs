@@ -166,9 +166,7 @@ impl Updater {
             #[cfg(not(feature = "snapshot_replace"))]
             {
                 let _ = baseline_artifact_path;
-                return Err(err(
-                    "snapshot_replace backend is not enabled in this build",
-                ));
+                return Err(err("snapshot_replace backend is not enabled in this build"));
             }
         } else {
             None

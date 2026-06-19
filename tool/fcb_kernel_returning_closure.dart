@@ -12,9 +12,7 @@ Map<String, Object?>? _returningClosureSource(
   if (last is! ReturnStatement) return null;
   final closure = _returnedClosure(body.statements, last.expression);
   if (closure == null) return null;
-  if (closure.function.typeParameters.isNotEmpty) {
-    return null;
-  }
+  final typeParameterCount = closure.function.typeParameters.length;
 
   final paramsSet = params.toSet();
   final localIds = <VariableDeclaration, int>{};
@@ -85,15 +83,37 @@ Map<String, Object?>? _returningClosureSource(
   }
 
   final closureParamNames = <String>[];
+  final closureNamedParamNames = <String>[];
+  final optionalPositionalCount =
+      closure.function.positionalParameters.length -
+      closure.function.requiredParameterCount;
+  if (optionalPositionalCount < 0) return null;
+  for (
+    var i = closure.function.requiredParameterCount;
+    i < closure.function.positionalParameters.length;
+    i++
+  ) {
+    final initializer = closure.function.positionalParameters[i].initializer;
+    if (!_isSupportedNullDefault(initializer)) return null;
+  }
   for (final parameter in closure.function.positionalParameters) {
     final name = parameter.name;
-    if (name == null || name.isEmpty) return null;
+    if (name == null || name.isEmpty) {
+      return null;
+    }
     closureParamNames.add(name);
   }
   for (final parameter in closure.function.namedParameters) {
     final name = parameter.name;
-    if (name == null || name.isEmpty) return null;
+    if (name == null || name.isEmpty) {
+      return null;
+    }
+    if (!parameter.isRequired) {
+      final initializer = parameter.initializer;
+      if (!_isSupportedNullDefault(initializer)) return null;
+    }
     closureParamNames.add(name);
+    closureNamedParamNames.add(parameter.isRequired ? name : '?$name');
   }
   final closureBody = _closureBodyExpr(closure.function.body, {
     ...captureNames,
@@ -102,7 +122,15 @@ Map<String, Object?>? _returningClosureSource(
   if (closureBody == null) return null;
   final closureName = '$libraryUri::$qualified.<closure0>()';
   Map<String, Object?> bodyExpr = {
-    'make_closure': {'target': closureName, 'captures': captureExprs},
+    'make_closure': {
+      'target': closureName,
+      'captures': captureExprs,
+      if (optionalPositionalCount > 0)
+        'optional_positional_count': optionalPositionalCount,
+      if (typeParameterCount > 0) 'type_parameter_count': typeParameterCount,
+      if (closureNamedParamNames.isNotEmpty)
+        'named_parameters': closureNamedParamNames,
+    },
   };
   if (locals.isNotEmpty) {
     bodyExpr = {
@@ -121,6 +149,16 @@ Map<String, Object?>? _returningClosureSource(
       },
     ],
   };
+}
+
+bool _isSupportedNullDefault(Expression? initializer) {
+  if (initializer == null ||
+      initializer is NullLiteral ||
+      initializer is InvalidExpression) {
+    return true;
+  }
+  return initializer is ConstantExpression &&
+      initializer.constant is NullConstant;
 }
 
 Map<String, Object?>? _closureBodyExpr(

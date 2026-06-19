@@ -76,15 +76,24 @@ linker 现在对它的 AOT 存在性一无所知。
 **原则**：短期 fail-closed(宁可 patch 阶段拒,不可运行期炸);长期 patch-friendly build 把
 可 patch 面打开。
 
-**已实现（🟡 2026-06-18）**：fail-closed gate 已落地并测试。
-- `fcb_core::bytecode`:`BytecodeModule::call_original_targets()` + `missing_aot_targets(&BTreeSet)`;
-  单测 `call_original_targets_and_missing_aot_gate`。
-- `fcb_core::linker`:新增 `RejectReason::OriginalTargetNotInAot`。
-- `cli`:`gate_call_original_aot_presence` 在 patch 阶段读取 release cache 的 `aot_entry_points.json`,
-  有则逐个校验 `CallOriginal` 目标、缺失即写 patch_report.reject 并报错;**无该文件则警告并跳过**
-  (非破坏,旧 cache 兼容)。
-- **剩余**:release 端从真实 AOT(gen_snapshot 符号)生成 `aot_entry_points.json`(需引擎构建环境);
-  长期 patch-friendly release 构建模式(关闭 inline / 保留 entry point)。
+**已实现（🟢 2026-06-19,端到端用真实 gen_snapshot 验证）**：
+- **生成(真实 AOT,环境够)**:`cli/src/aot_entry_points.rs` 用 vendored `gen_snapshot
+  --snapshot_kind=app-aot-elf --print_instructions_sizes_to=...` 在 release 的 `app.dill` 上跑出存活
+  函数表,归一化(`{l,c,n}` 去 `[Optimized]/[Stub]` 前缀、剥私有 `@\d+`、跳 tear-off/anonymous,
+  组 `lib::member` / `lib::class:Class.member`)写入 release cache `aot_entry_points.json`。在 bytecode
+  release(`collect_release_artifact`)best-effort 调用,缺 gen_snapshot/dill 则 warn 跳过。
+- **校验保护面(Part 2 broaden)**:gate 从只查 `CallOriginal` 扩到 **`CallStatic`(0x50)+`CallOriginal`
+  (0x52)**(`BytecodeModule::aot_referenced_targets`)——automatic patch 引用未改函数走 CallStatic,
+  现在也被保护。`NewObject`/`MakeClosure` 暂不纳入(构造器/tear-off 常被 inline,会误拒,待
+  patch-friendly build)。
+- `fcb_core::linker`:`RejectReason::OriginalTargetNotInAot`;`cli::gate_call_original_aot_presence`
+  有 `aot_entry_points.json` 则强制、缺失写 patch_report.reject 并报错,无则 warn 跳过(旧 cache 兼容)。
+- **验证**:`aot_entry_points` parser 单测 + `aot_gate_covers_call_static_targets` + `#[ignore]`
+  真实集成测试 `aot_real_extraction_includes_counter_app_call_targets`(实跑 vendored gen_snapshot,
+  断言 counter_app 的 `widgetTreeLabel`/`statusLabel` 在存活集、虚构函数不在)。default/store 两配置
+  clippy `-D warnings` + test + fmt 全绿。
+- **剩余(非阻塞)**:`NewObject`/`MakeClosure` 纳入需先解决构造器/tear-off inline 误拒;长期
+  patch-friendly release 构建模式(对一方代码关闭 inline / 保留 entry point)以收窄 reject 面。
 
 ---
 
@@ -107,17 +116,24 @@ linker 现在对它的 AOT 存在性一无所知。
    只保持可用;bytecode = 产品线(Android+iOS,store 合规)。
 4. **默认值**：Android 默认 backend 在 bytecode Android 达生产可用后翻转为 `bytecode`。
 
-**已实现（🟡 2026-06-18）**：
+**已实现（✅ 2026-06-19，store 构建可完全排除）**：
 - `fcb_core` 加 `snapshot_replace` 默认 feature;`bsdiff`/`zstd` 改 optional 依赖,仅该 feature 启用。
   `diff` 模块与 `state.rs` 的 snapshot 安装链(`validate_payload_contract` 的 snapshot_replace arm、
   install 分支、`snapshot_replace_chained_diff`、`find_diff_base`)全部 cfg-gate;关闭后该 backend
   返回明确错误 "snapshot_replace backend is not enabled in this build"。
-- `cargo build`(默认含)与 `cargo build -p fcb_core --no-default-features`(排除)均编译通过且无警告;
-  默认 workspace 测试 + e2e 全绿。
-- CLI release/patch 用 snapshot_replace 时打印 enterprise/internal-only 警告(`warn_snapshot_replace_backend`)。
-- 新增 `docs/backends.md` 说明两条线与构建期排除。
-- **剩余**:`cli`/`updater` 完全 `--no-default-features` 化(目前仍以默认 feature 依赖 fcb_core)、
-  `.github/workflows/` 加 `--no-default-features` 构建 job、Android 默认翻转到 bytecode。
+- **feature 级联全链路**:`fcb_bytecode`/`updater`/`cli` 均 `fcb_core = { default-features = false }`
+  + 自身 `snapshot_replace` forwarding feature(cli/updater `default=["snapshot_replace"]`)。`cli`
+  的 snapshot 路径(`diff` 用法、`automatic_snapshot_payload`、`manual_patch_payload` 分支、
+  `snapshot_replace_diff_base`、`patch_artifact_path`、`android_app_so_path` import、warn helper)
+  全部 cfg-gate;关闭后对应 patch 路径走 "unsupported / not enabled" 干净错误。
+- snapshot 专属测试(`state_tests.rs` 的 3 个 install/reject 测试 + helper)cfg-gate,使
+  `cargo test --workspace --no-default-features` 编译通过。
+- **CI 两配置覆盖**(`.github/workflows/rust.yml`):default(clippy `-D warnings` + test,跑 snapshot 路径)
+  与 store(`--no-default-features` clippy + test + build)都验。
+- `cargo build --workspace`(含)与 `cargo build --workspace --no-default-features`(排除)均编译、
+  clippy `-D warnings`、test 全绿且无警告;默认 e2e 全绿。
+- CLI 用 snapshot_replace 时打印 enterprise/internal-only 警告;新增 `docs/backends.md`。
+- **剩余(非阻塞)**:Android 默认 backend 翻转到 bytecode(待 bytecode Android 生产可用)。
 
 ---
 
@@ -174,8 +190,7 @@ trailing-bytes 或 misparse。当前已采用推荐 A：
 
 - ADR-#2 剩余:release 端从真实 AOT 生成 `aot_entry_points.json`(需引擎构建)+ patch-friendly
   build(linker/CLI 的 fail-closed gate 已实现 🟡)。
-- ADR-#3 剩余:`cli`/`updater` 完全 `--no-default-features` 化 + CI `--no-default-features` job +
-  Android 默认翻转(fcb_core feature gate + CLI 警告 + `docs/backends.md` 已实现 🟡)。
+- ADR-#3 ✅ 完成(store 构建可完全排除 snapshot_replace;CI 两配置覆盖)。剩余仅 Android 默认翻转。
 - ADR-A 的可持续性基建(opcode 表驱动、conformance corpus、fuzzing)、ADR-C(append-only 布局)。
 - ADR-#4 剩余:binary constant/section 的 skip-unknown(需函数 byte-length 前缀;manifest schema
   已通过 serde 默认前向兼容,无需改)。

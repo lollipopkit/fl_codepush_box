@@ -349,6 +349,24 @@ pub(crate) fn collect_release_artifact(
             let inventory = generate_kernel_inventory(build)?;
             let bytes = serde_json::to_vec_pretty(&inventory)?;
             fs::write(release_dir.join("kernel_inventory.json"), &bytes)?;
+            // ADR-#2: capture the real AOT entry-point set for the call_original
+            // gate. Best-effort — never fail the release on this.
+            let dill = newest_non_empty_app_dill(&build.project);
+            match crate::aot_entry_points::generate_aot_entry_points(
+                release_dir,
+                &flutter_sdk_root(&build.flutter),
+                dill.as_deref(),
+                platform,
+                arch,
+            ) {
+                Ok(Some(count)) => {
+                    eprintln!("recorded {count} AOT entry points for call_original gate")
+                }
+                Ok(None) => eprintln!(
+                    "warning: gen_snapshot or app.dill unavailable; skipped AOT entry-point capture (ADR-#2)"
+                ),
+                Err(e) => eprintln!("warning: AOT entry-point capture failed: {e}"),
+            }
             Ok(bytes)
         }
         other => Err(err(format!("unsupported release backend: {other}"))),

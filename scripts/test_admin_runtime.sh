@@ -11,6 +11,14 @@ cleanup() {
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
+  # Belt-and-suspenders: kill anything still bound to the drill port so a
+  # leftover server can never poison the next run with "setup already completed".
+  local port="${SERVER_ADDR##*:}"
+  local stragglers
+  stragglers=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+  if [[ -n "$stragglers" ]]; then
+    kill -9 $stragglers >/dev/null 2>&1 || true
+  fi
   if [[ "${FCB_ADMIN_RUNTIME_KEEP_WORKDIR:-0}" != "1" ]]; then
     rm -rf "$WORKDIR"
   else
@@ -97,12 +105,16 @@ if [[ ! -f "$ROOT_DIR/server/webui/dist/index.html" ]]; then
   (cd "$ROOT_DIR/server/webui" && npm run build)
 fi
 
+# Build the server binary and exec it directly so SERVER_PID is the real server
+# process. `go run .` forks a child binary that outlives a kill of the `go run`
+# parent, leaking a listener that breaks subsequent runs.
+(cd "$ROOT_DIR/server" && go build -o "$WORKDIR/fcb_server" .)
 (
   cd "$ROOT_DIR/server"
   FCB_SERVER_DB="$WORKDIR/fcb.sqlite" \
   FCB_SERVER_ADDR="$SERVER_ADDR" \
   FCB_WEBUI_DIST="$ROOT_DIR/server/webui/dist" \
-  go run . >"$WORKDIR/server.log" 2>&1
+  exec "$WORKDIR/fcb_server" >"$WORKDIR/server.log" 2>&1
 ) &
 SERVER_PID=$!
 

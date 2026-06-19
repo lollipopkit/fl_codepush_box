@@ -131,7 +131,10 @@ else
 fi
 
 if enabled "$RUN_E2E" "$DART_BIN"; then
-  run_step build-cli "$CARGO" build -p fcb --no-default-features
+  # The e2e exercises both backends incl. snapshot_replace, so build with default
+  # features. Store-config (no snapshot_replace) compile + unit tests are already
+  # covered by the cargo-clippy / cargo-test --no-default-features steps above.
+  run_step build-cli "$CARGO" build -p fcb
   run_shell_step build-server "cd server && $GO build -o ../target/debug/fcb_server ."
   run_shell_step fake-flutter-e2e "FCB_BIN=\"$ROOT_DIR/target/debug/fcb\" SERVER_BIN=\"$ROOT_DIR/target/debug/fcb_server\" DART_BIN=\"$DART_BIN\" bash tests/e2e/test_e2e.sh"
 else
