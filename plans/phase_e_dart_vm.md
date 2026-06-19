@@ -38,8 +38,8 @@ VM tests 覆盖 concrete generic `List<int>` vs `List<String>`、Dart exception 
    `_Future.value(...)` 可在 interpreter 内同步拆箱,已完成 error Future 可把 `AsyncError.error`
    转成业务 Dart exception 并被 interpreted `TryBegin` 捕获,completed chained Future 可同步跟随
    source Future,`async_future` 的 `AsyncReturn` 可生成 completed `_Future.value(...)` 或
-   completed `Future.value(null)`。仍没有 VM continuation 挂起/恢复,未完成 Future、pending
-   chained source 仍 fail-closed。
+   completed `Future.value(null)`,immediate await 离开 try block 时会触发 finally。仍没有
+   VM continuation 挂起/恢复,未完成 Future、pending chained source 仍 fail-closed。
 2. **VM unwinder 级异常传播/finally**:同步 `TryFinally`/`EndFinally`/`Rethrow` 已能在
    interpreter 内覆盖 normal/return/throw 三条路径;逃出 patched function 的业务 `Throw` 已变为
    `InterpretResult::DartException`,并由 `fcb_patch_entry.cc` materialize 后调用 VM
@@ -223,7 +223,9 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     只把 `DartException` 送入 catch handler,内部 patch error 直接失败。
   - 已完成:`fcb_patch_entry.cc` 对逃出的 `DartException` 调用 VM `Exceptions::Throw`,不再 disable
     patch 或 fallback 到 AOT。
-  - 未完成:pending `await`、`ReThrow` stack trace 保留、VM stack trace 注入和 rebuilt
+  - 已完成:immediate `await` 位于 try block 内并离开 try block 时会执行 finally;standalone test
+    覆盖 scalar await + normal jump 进入 finally。
+  - 未完成:suspended/pending `await`、`ReThrow` stack trace 保留、VM stack trace 注入和 rebuilt
     `run_vm_tests` 执行验证。
 - Async:
   - 已完成:immediate `Await` 子集。`Await` 可处理非 Future/FutureOr 值和已完成 `_Future.value`
@@ -239,6 +241,8 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
     completed `_Future.value(...)`;空栈按 `async { return; }`/`Future<void>` 语义包装成
     completed `Future.value(null)`;两者都走正常 return/finally 路径。VM test 覆盖直接返回
     Future、`CallStatic + Await` 拆箱 completed Future,以及空返回 await 后得到 null。
+  - 已完成:standalone await helper 对 scalar 值 passthrough,用于覆盖非 Future immediate await 的
+    interpreter 控制流测试。
   - 未完成:对 `async_future` 接入 Dart VM object store 中 `_SuspendState`/async return stubs,实现
     真正 `Await` suspend 与 resume。
   - 未完成:支持 `await Future.delayed`、pending/chained source Future resume、pending Future
@@ -285,7 +289,7 @@ unsupported opcode 才 disable patch;业务 `throw` 必须按 Dart exception 传
   - `AsyncReturn` immediate `async_future` 返回 completed Future,含 `Future<void>`/null completion,
     并可被 interpreted `Await` 消费。
   - uncaught interpreted throw 可被 AOT caller catch 捕获。
-  - try/finally 在 return/throw/await resume 三条路径均执行。
+  - try/finally 在 return/throw/immediate await 三条路径均执行;suspended await resume 仍需覆盖。
   - `T`/`List<T>` is/as 在 generic method 中区分正确。
   - 深递归不被固定 64 限制,但 runaway guard 有清晰 error。
   - debugger 在 patched frame 停靠后可 evaluate locals/captured vars。
