@@ -52,6 +52,11 @@ struct Args {
     app_id: Option<String>,
     #[arg(long)]
     key_file: Option<PathBuf>,
+    /// Acknowledge that non-store-compliant backends (snapshot_replace) ship
+    /// native code and are for enterprise/internal distribution only. Required
+    /// to use snapshot_replace; equivalent to FCB_ACK_STORE_POLICY=1.
+    #[arg(long, env = "FCB_ACK_STORE_POLICY")]
+    i_understand_store_policy: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -180,6 +185,11 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Args::parse();
+    if args.i_understand_store_policy {
+        // Normalize the flag into the env var the deep snapshot_replace gate
+        // checks, so we don't have to thread it through every signature.
+        std::env::set_var("FCB_ACK_STORE_POLICY", "1");
+    }
     let config_path = Path::new("fcb.yaml");
     let local_context = load_local_context(config_path)?;
     let context = ResolvedContext::new(&args, local_context.as_ref(), config_path);
@@ -634,7 +644,7 @@ fn manual_patch_payload(
     if backend == "snapshot_replace" {
         #[cfg(feature = "snapshot_replace")]
         {
-            warn_snapshot_replace_backend();
+            require_snapshot_replace_ack()?;
             let base =
                 snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
             Ok(Some((
@@ -766,7 +776,7 @@ fn automatic_snapshot_payload(
     if platform != "android" {
         return Err(err("snapshot_replace is only supported for Android"));
     }
-    warn_snapshot_replace_backend();
+    require_snapshot_replace_ack()?;
     let target_artifact = fs::read(android_app_so_path(&build.project, arch))?;
     let base = snapshot_replace_diff_base(&app.id, release_version, platform, arch, patch_number)?;
     Ok(Some((
@@ -848,11 +858,23 @@ fn gate_call_original_aot_presence(
 /// compliant. It is retained for enterprise/internal distribution only and is a
 /// frozen backend. Surface that loudly whenever it is used.
 #[cfg(feature = "snapshot_replace")]
-fn warn_snapshot_replace_backend() {
+fn require_snapshot_replace_ack() -> Result<()> {
     eprintln!(
-        "warning: backend 'snapshot_replace' is enterprise/internal-only and not Play/App Store \
-         compliant; use the 'bytecode' backend for store distribution (see docs/backends.md)"
+        "warning: backend 'snapshot_replace' ships native .so diffs and is enterprise/internal-only; \
+         it is NOT Play/App Store compliant. Use the 'bytecode' backend for store distribution \
+         (see docs/backends.md, ADR-#3)."
     );
+    let acked = std::env::var("FCB_ACK_STORE_POLICY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !acked {
+        return Err(err(
+            "snapshot_replace requires explicit acknowledgement of store policy: pass \
+             --i-understand-store-policy (or set FCB_ACK_STORE_POLICY=1). This backend is for \
+             enterprise/internal/sideloaded distribution only, never Google Play / App Store.",
+        ));
+    }
+    Ok(())
 }
 
 fn read_aot_entry_points(release_dir: &Path) -> Result<Option<std::collections::BTreeSet<String>>> {
@@ -1369,7 +1391,9 @@ mod tests {
         bytecode_payload_from_inventories, interpret_sources, manual_patch_payload,
         validate_compiled_bytecode_payload,
     };
-    use fcb_bytecode::format::{BytecodeFunction, BytecodeModule, Constant, OpCode, BINARY_MAGIC};
+    use fcb_bytecode::format::{
+        AsyncKind, BytecodeFunction, BytecodeModule, Constant, OpCode, BINARY_MAGIC,
+    };
     use fcb_core::config::RemoteAppConfig;
     use fcb_core::linker::{
         FunctionDecision, FunctionInventoryEntry, KernelInventory, LinkerPlan,
@@ -1381,6 +1405,7 @@ mod tests {
         let module = BytecodeModule::new(vec![BytecodeFunction {
             name: "package:app/main.dart::mainValue".to_string(),
             return_convention: "tagged".to_string(),
+            async_kind: AsyncKind::Sync,
             param_count: 0,
             local_count: 1,
             constants: vec![Constant::String(
@@ -1497,6 +1522,7 @@ mod tests {
         let module = BytecodeModule::new(vec![BytecodeFunction {
             name: "manual".to_string(),
             return_convention: "tagged".to_string(),
+            async_kind: AsyncKind::Sync,
             param_count: 0,
             local_count: 0,
             constants: vec![Constant::Int(7)],

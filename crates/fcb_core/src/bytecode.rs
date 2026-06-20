@@ -20,6 +20,7 @@ pub enum OpCode {
     LoadArg = 0x02,
     LoadLocal = 0x03,
     StoreLocal = 0x04,
+    Pop = 0x05,
     Add = 0x10,
     Sub = 0x11,
     Mul = 0x12,
@@ -60,6 +61,7 @@ impl OpCode {
             0x02 => Self::LoadArg,
             0x03 => Self::LoadLocal,
             0x04 => Self::StoreLocal,
+            0x05 => Self::Pop,
             0x10 => Self::Add,
             0x11 => Self::Sub,
             0x12 => Self::Mul,
@@ -116,7 +118,8 @@ impl OpCode {
             | Self::NewObject => 3,
             Self::TryBegin | Self::TryFinally => 4,
             Self::LoadArg | Self::LoadLocal | Self::StoreLocal => 1,
-            Self::Add
+            Self::Pop
+            | Self::Add
             | Self::Sub
             | Self::Mul
             | Self::Div

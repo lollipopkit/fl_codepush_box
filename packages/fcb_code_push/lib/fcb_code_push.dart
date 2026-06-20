@@ -556,6 +556,16 @@ class FcbCodePush {
       }
       return '$temp/fcb';
     }
+    // Desktop (macOS/Linux/Windows): mirror the engine bridge's ResolveCacheDir
+    // (shell/platform/embedder/fcb) so the updater and the startup hook share
+    // one location: (FCB_CACHE_DIR ?? <systemTemp>/fcb-cache) + '/fcb'.
+    if (platform == 'macos' || platform == 'linux' || platform == 'windows') {
+      final env = Platform.environment['FCB_CACHE_DIR'];
+      final base = (env != null && env.isNotEmpty)
+          ? env
+          : '${Directory.systemTemp.path}/fcb-cache';
+      return '$base/fcb';
+    }
     return '.fcb/cache';
   }
 }

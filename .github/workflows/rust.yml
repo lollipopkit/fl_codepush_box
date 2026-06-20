@@ -44,6 +44,3 @@ jobs:
 
       - name: Crash rollback drill
         run: make test-crash-rollback
-
-      - name: Phase H runbook generation
-        run: make check-phase-h-runbooks

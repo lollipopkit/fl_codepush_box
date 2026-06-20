@@ -1,0 +1,71 @@
+name: Desktop
+
+# Cross-platform validation for the desktop code-push path (macOS / Linux /
+# Windows). The FCB interpreter lives in the shared Dart VM, so this matrix
+# validates the per-platform glue that desktop actually needs: the Rust updater
+# (static + dynamic libs) and the Dart FFI package. Full FCB engine builds and
+# on-device patch e2e run separately (they need the forked-engine toolchain).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  updater:
+    name: updater (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # Builds libfcb_updater static + dynamic libs for the host desktop target.
+      - name: Build desktop updater (unix)
+        if: runner.os != 'Windows'
+        run: scripts/build_desktop_updater.sh
+
+      - name: Build desktop updater (windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release -p fcb_updater
+
+      # fcb_core + updater behave identically across platforms; this guards the
+      # bytecode/state logic (incl. the Pop opcode + generator async_kind) on all
+      # three desktop OSes.
+      - name: Test core + updater
+        run: cargo test -p fcb_core -p fcb_updater
+
+  flutter_package:
+    name: fcb_code_push package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable desktop
+        run: flutter config --enable-macos-desktop --enable-linux-desktop --enable-windows-desktop
+
+      - name: fcb_code_push tests
+        working-directory: packages/fcb_code_push
+        run: flutter test
