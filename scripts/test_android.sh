@@ -24,6 +24,8 @@ SKIP_INSTALL="${FCB_SKIP_INSTALL:-0}"
 FLUTTER_CLEAN="${FCB_FLUTTER_CLEAN:-1}"
 INSTALL_BYTECODE_PATCH="${FCB_INSTALL_BYTECODE_PATCH:-0}"
 INSTALL_PATCH_SCRIPT="${FCB_INSTALL_PATCH_SCRIPT:-$ROOT_DIR/scripts/install_android_bytecode_patch.sh}"
+REQUIRE_INTERPRETER_STATS="${FCB_REQUIRE_INTERPRETER_STATS:-$INSTALL_BYTECODE_PATCH}"
+MAX_INTERPRETER_RATIO="${FCB_MAX_INTERPRETER_RATIO:-}"
 EXPECTED_INITIAL_COUNTER="${FCB_EXPECTED_INITIAL_COUNTER:-}"
 EXPECTED_ADJUSTED_COUNTER="${FCB_EXPECTED_ADJUSTED_COUNTER:-}"
 EXPECTED_STATIC_COUNTER="${FCB_EXPECTED_STATIC_COUNTER:-}"
@@ -70,6 +72,9 @@ Environment:
   FCB_FLUTTER_CLEAN            Run flutter clean before build. Default: 1
   FCB_INSTALL_BYTECODE_PATCH   Install a manual bytecode launch patch before starting. Default: 0
   FCB_INSTALL_PATCH_SCRIPT     Patch installer script. Default: scripts/install_android_bytecode_patch.sh
+  FCB_REQUIRE_INTERPRETER_STATS
+                              Require FCB interpreterStats log. Default: same as FCB_INSTALL_BYTECODE_PATCH
+  FCB_MAX_INTERPRETER_RATIO    Optional max interpreter ratio, e.g. 0.01 for Phase E counter_app acceptance.
   FCB_EXPECTED_INITIAL_COUNTER Expected initialCounterValue result. Default: 42 with patch, otherwise 1
   FCB_EXPECTED_ADJUSTED_COUNTER
                               Expected adjustedCounterValue result. Default: 42 with patch, otherwise 8
@@ -370,6 +375,27 @@ log_result_value() {
   printf '%s\n' "${line##*FCB $label result: }"
 }
 
+log_interpreter_stats_value() {
+  local line
+  line="$(grep -F "FCB interpreterStats result:" "$LOGCAT_FILE" | tail -n 1)"
+  [ -n "$line" ] || return 1
+  printf '%s\n' "${line##*FCB interpreterStats result: }"
+}
+
+interpreter_ratio_from_stats() {
+  local stats="$1"
+  printf '%s\n' "$stats" | awk -F/ 'NF >= 3 { print $3; exit }'
+}
+
+ratio_lte() {
+  local ratio="$1"
+  local max="$2"
+  awk -v ratio="$ratio" -v max="$max" 'BEGIN {
+    if (ratio == "" || max == "") exit 2;
+    exit (ratio <= max) ? 0 : 1;
+  }'
+}
+
 seed_gradle_cache() {
   local host_home="$1"
   local host_dists="$host_home/.gradle/wrapper/dists"
@@ -637,6 +663,28 @@ install_and_launch() {
     die "plugin method channel cacheDir was not observed; full log: $LOGCAT_FILE"
   fi
 
+  local interpreter_stats=""
+  local interpreter_ratio=""
+  if interpreter_stats="$(log_interpreter_stats_value)"; then
+    interpreter_ratio="$(interpreter_ratio_from_stats "$interpreter_stats")"
+  elif [ "$REQUIRE_INTERPRETER_STATS" = "1" ]; then
+    grep -Ein 'fcb|interpreterStats|updater|patch|bytecode|flutter|dart' \
+      "$LOGCAT_FILE" >&2 || true
+    die "interpreterStats was required but not observed; full log: $LOGCAT_FILE"
+  fi
+  if [ -n "$MAX_INTERPRETER_RATIO" ]; then
+    if [ -z "$interpreter_ratio" ]; then
+      grep -Ein 'fcb|interpreterStats|updater|patch|bytecode|flutter|dart' \
+        "$LOGCAT_FILE" >&2 || true
+      die "FCB_MAX_INTERPRETER_RATIO=$MAX_INTERPRETER_RATIO was set but interpreterStats ratio was not observed; full log: $LOGCAT_FILE"
+    fi
+    if ! ratio_lte "$interpreter_ratio" "$MAX_INTERPRETER_RATIO"; then
+      grep -Ein 'fcb|interpreterStats|updater|patch|bytecode|flutter|dart' \
+        "$LOGCAT_FILE" >&2 || true
+      die "interpreter_ratio $interpreter_ratio exceeds max $MAX_INTERPRETER_RATIO; full log: $LOGCAT_FILE"
+    fi
+  fi
+
   local after_tombstones
   after_tombstones="$(count_tombstones)"
   if is_uint "$before_tombstones" && is_uint "$after_tombstones" &&
@@ -661,6 +709,11 @@ install_and_launch() {
     echo "widgetTreeLabel_observed: $(log_result_value widgetTreeLabel)"
     echo "setState_observed: true"
     echo "methodChannelCacheDir_observed: $(log_result_value 'plugin method channel cacheDir')"
+    echo "interpreterStats_observed: ${interpreter_stats:-unavailable}"
+    echo "interpreterRatio_observed: ${interpreter_ratio:-unavailable}"
+    if [ -n "$MAX_INTERPRETER_RATIO" ]; then
+      echo "interpreterRatio_max: $MAX_INTERPRETER_RATIO"
+    fi
     echo "fieldStatusLabel_expected: $expected_field_status_label"
     echo "fieldStatusLabel_observed: $(log_result_value fieldStatusLabel)"
     echo "quadCounterValue_expected: $expected_quad_counter"

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'fcb_binary_module_writer.dart';
+import 'fcb_kernel_reader_bundle.dart';
 
 Future<void> main(List<String> args) async {
   final project = _arg(args, '--project') ?? '.';
@@ -94,7 +95,7 @@ Future<String> _kernelInventoryJson({
       : await _resolveDill(root, target, temp);
   final sdkRoot = _sdkRoot();
   final packageConfig = _writeKernelPackageConfig(temp, sdkRoot);
-  final reader = _writeKernelReader(temp);
+  final reader = writeKernelReaderBundle(temp);
   final result = await Process.run(Platform.resolvedExecutable, [
     '--packages=${packageConfig.path}',
     reader.path,
@@ -305,9 +306,26 @@ Map<String, Object?> _compileSourceFunction(
 
   final compiler = _RestrictedBytecodeCompiler(params);
   compiler.compileExpr(body.cast<String, Object?>());
-  compiler.op(_opReturn);
+  final asyncKindSource = source['async_kind']?.toString();
+  final isSyncStar =
+      asyncKindSource == 'sync_star' || source['sync_star'] == true;
+  final isAsyncStar =
+      asyncKindSource == 'async_star' || source['async_star'] == true;
+  final isAsyncFuture =
+      !isSyncStar &&
+      !isAsyncStar &&
+      (asyncKindSource == 'async_future' ||
+          source['async_future'] == true ||
+          source['async_future_value'] == true);
+  // Generators (sync*/async*) end on a plain Return that closes the iterator;
+  // only async (Future) functions wrap their result via AsyncReturn.
+  compiler.op(isAsyncFuture ? _opAsyncReturn : _opReturn);
   final returnConvention = _returnConventionForSource(source);
-  final asyncKind = source['async_future_value'] == true
+  final asyncKind = isSyncStar
+      ? 'sync_star'
+      : isAsyncStar
+      ? 'async_star'
+      : isAsyncFuture
       ? 'async_future'
       : 'sync';
   return {
@@ -341,6 +359,7 @@ const _opLoadConst = 0x01;
 const _opLoadArg = 0x02;
 const _opLoadLocal = 0x03;
 const _opStoreLocal = 0x04;
+const _opPop = 0x05;
 const _opAdd = 0x10;
 const _opSub = 0x11;
 const _opMul = 0x12;
@@ -364,6 +383,11 @@ const _opMakeClosure = 0x54;
 const _opNewObject = 0x55;
 const _opThrow = 0x60;
 const _opTryBegin = 0x61;
+const _opAwait = 0x62;
+const _opAsyncReturn = 0x63;
+const _opYield = 0x64;
+const _opTryFinally = 0x65;
+const _opEndFinally = 0x66;
 const _opReturn = 0xff;
 
 class _RestrictedBytecodeCompiler {
@@ -411,6 +435,10 @@ class _RestrictedBytecodeCompiler {
       u8(index);
     } else if (expr['let'] is Map) {
       compileLet((expr['let'] as Map).cast<String, Object?>());
+    } else if (expr['set_local'] is Map) {
+      compileSetLocal((expr['set_local'] as Map).cast<String, Object?>());
+    } else if (expr['while_loop'] is Map) {
+      compileWhileLoop((expr['while_loop'] as Map).cast<String, Object?>());
     } else if (expr['op'] is String) {
       final left = expr['left'];
       final right = expr['right'];
@@ -450,6 +478,38 @@ class _RestrictedBytecodeCompiler {
     } else if (expr['throw'] is Map) {
       compileExpr((expr['throw'] as Map).cast<String, Object?>());
       op(_opThrow);
+    } else if (expr['seq'] is List) {
+      // Statement sequence: compile each element, discarding the value of all
+      // but the last so the sequence evaluates to its final expression. Used for
+      // multi-statement bodies (notably generators with several `yield`s).
+      final items = (expr['seq'] as List)
+          .whereType<Map>()
+          .map((item) => item.cast<String, Object?>())
+          .toList(growable: false);
+      if (items.isEmpty) {
+        loadConst({'type': 'Null', 'value': null});
+      } else {
+        for (var i = 0; i < items.length; i++) {
+          compileExpr(items[i]);
+          if (i != items.length - 1) {
+            op(_opPop);
+          }
+        }
+      }
+    } else if (expr['yield'] is Map) {
+      // `yield e` in a sync*/async* body: push the element, then Yield (which
+      // pops it and suspends the generator). As an expression node it evaluates
+      // to null so it composes inside `let`/sequencing constructs.
+      compileExpr((expr['yield'] as Map).cast<String, Object?>());
+      op(_opYield);
+      loadConst({'type': 'Null', 'value': null});
+    } else if (expr['yield_for_in'] is Map) {
+      compileYieldForIn((expr['yield_for_in'] as Map).cast<String, Object?>());
+    } else if (expr['await'] is Map) {
+      compileExpr((expr['await'] as Map).cast<String, Object?>());
+      op(_opAwait);
+    } else if (expr['try_finally'] is Map) {
+      compileTryFinally((expr['try_finally'] as Map).cast<String, Object?>());
     } else if (expr['try_catch'] is Map) {
       compileTryCatch((expr['try_catch'] as Map).cast<String, Object?>());
     } else if (expr['call_static'] is String) {
@@ -1034,10 +1094,223 @@ class _RestrictedBytecodeCompiler {
     u8(resultLocal);
   }
 
+  void compileYieldForIn(Map<String, Object?> spec) {
+    final source = spec['source'];
+    final local = spec['local'];
+    final body = spec['body'];
+    final beforeBreak = spec['before_break'];
+    final breakCondition = spec['break_condition'];
+    if (source is! Map) {
+      stderr.writeln('yield_for_in expression requires source');
+      exit(2);
+    }
+    if (beforeBreak != null && beforeBreak is! Map) {
+      stderr.writeln('yield_for_in before_break must be an expression');
+      exit(2);
+    }
+    if (breakCondition != null && breakCondition is! Map) {
+      stderr.writeln('yield_for_in break_condition must be an expression');
+      exit(2);
+    }
+    if (beforeBreak != null && breakCondition == null) {
+      stderr.writeln('yield_for_in before_break requires break_condition');
+      exit(2);
+    }
+    Map<String, Object?>? localSpec;
+    if (local != null) {
+      if (local is! Map) {
+        stderr.writeln('yield_for_in local must be an object');
+        exit(2);
+      }
+      localSpec = local.cast<String, Object?>();
+      if (localSpec['id'] is! int || body is! Map) {
+        stderr.writeln('yield_for_in local mode requires local id and body');
+        exit(2);
+      }
+    } else if (body != null) {
+      stderr.writeln('yield_for_in body requires local');
+      exit(2);
+    }
+    final iteratorLocal = allocateLocal();
+    final currentLocal = localSpec == null ? null : allocateLocal();
+    compileExpr(source.cast<String, Object?>());
+    callDynamic('get:iterator', 0);
+    op(_opStoreLocal);
+    u8(iteratorLocal);
+    final loopStart = code.length;
+    op(_opLoadLocal);
+    u8(iteratorLocal);
+    callDynamic('moveNext', 0);
+    op(_opJumpIfFalse);
+    final endPatch = reserveU16();
+    op(_opLoadLocal);
+    u8(iteratorLocal);
+    callDynamic('get:current', 0);
+    if (localSpec == null) {
+      op(_opYield);
+    } else {
+      op(_opStoreLocal);
+      u8(currentLocal!);
+      final id = localSpec['id'] as int;
+      final name = localSpec['name'];
+      if (name is String && name.trim().isNotEmpty) {
+        debugLocals.add({'slot': currentLocal, 'name': name.trim()});
+      }
+      final previous = scopedLocals[id];
+      scopedLocals[id] = currentLocal;
+      if (breakCondition is Map) {
+        if (beforeBreak is Map) {
+          compileExpr(beforeBreak.cast<String, Object?>());
+          op(_opPop);
+        }
+        compileExpr(breakCondition.cast<String, Object?>());
+        op(_opJumpIfFalse);
+        final continuePatch = reserveU16();
+        op(_opJump);
+        final breakPatch = reserveU16();
+        patchU16(continuePatch, code.length);
+        compileExpr((body as Map).cast<String, Object?>());
+        if (previous == null) {
+          scopedLocals.remove(id);
+        } else {
+          scopedLocals[id] = previous;
+        }
+        op(_opPop);
+        op(_opJump);
+        u16(loopStart);
+        patchU16(breakPatch, code.length);
+        patchU16(endPatch, code.length);
+        loadConst({'type': 'Null', 'value': null});
+        return;
+      }
+      compileExpr((body as Map).cast<String, Object?>());
+      if (previous == null) {
+        scopedLocals.remove(id);
+      } else {
+        scopedLocals[id] = previous;
+      }
+      op(_opPop);
+    }
+    op(_opJump);
+    u16(loopStart);
+    patchU16(endPatch, code.length);
+    loadConst({'type': 'Null', 'value': null});
+  }
+
   void callDynamic(String method, int argc) {
     op(_opCallDynamic);
     u16(addConst({'type': 'String', 'value': method}));
     u8(argc);
+  }
+
+  void compileSetLocal(Map<String, Object?> spec) {
+    final id = spec['id'];
+    final value = spec['value'];
+    if (id is! int || value is! Map) {
+      stderr.writeln('set_local expression requires id and value');
+      exit(2);
+    }
+    final index = scopedLocals[id];
+    if (index == null) {
+      stderr.writeln('unknown set_local target $id');
+      exit(2);
+    }
+    compileExpr(value.cast<String, Object?>());
+    op(_opStoreLocal);
+    u8(index);
+    loadConst({'type': 'Null', 'value': null});
+  }
+
+  void compileWhileLoop(Map<String, Object?> spec) {
+    final condition = spec['condition'];
+    final body = spec['body'];
+    final beforeBreak = spec['before_break'];
+    final breakCondition = spec['break_condition'];
+    final beforeContinue = spec['before_continue'];
+    final continueCondition = spec['continue_condition'];
+    final continueBody = spec['continue_body'];
+    if (condition is! Map || body is! Map) {
+      stderr.writeln('while_loop expression requires condition and body');
+      exit(2);
+    }
+    if (beforeBreak != null && beforeBreak is! Map) {
+      stderr.writeln('while_loop before_break must be an expression');
+      exit(2);
+    }
+    if (breakCondition != null && breakCondition is! Map) {
+      stderr.writeln('while_loop break_condition must be an expression');
+      exit(2);
+    }
+    if (beforeBreak != null && breakCondition == null) {
+      stderr.writeln('while_loop before_break requires break_condition');
+      exit(2);
+    }
+    if (beforeContinue != null && beforeContinue is! Map) {
+      stderr.writeln('while_loop before_continue must be an expression');
+      exit(2);
+    }
+    if (continueCondition != null && continueCondition is! Map) {
+      stderr.writeln('while_loop continue_condition must be an expression');
+      exit(2);
+    }
+    if (continueBody != null && continueBody is! Map) {
+      stderr.writeln('while_loop continue_body must be an expression');
+      exit(2);
+    }
+    if (beforeContinue != null && continueCondition == null) {
+      stderr.writeln('while_loop before_continue requires continue_condition');
+      exit(2);
+    }
+    if (continueCondition != null && continueBody == null) {
+      stderr.writeln('while_loop continue_condition requires continue_body');
+      exit(2);
+    }
+    final loopStart = code.length;
+    compileExpr(condition.cast<String, Object?>());
+    op(_opJumpIfFalse);
+    final endPatch = reserveU16();
+    if (continueCondition is Map) {
+      if (beforeContinue is Map) {
+        compileExpr(beforeContinue.cast<String, Object?>());
+        op(_opPop);
+      }
+      compileExpr(continueCondition.cast<String, Object?>());
+      op(_opJumpIfFalse);
+      final bodyPatch = reserveU16();
+      if ((continueBody as Map)['null'] != true) {
+        compileExpr(continueBody.cast<String, Object?>());
+        op(_opPop);
+      }
+      op(_opJump);
+      u16(loopStart);
+      patchU16(bodyPatch, code.length);
+    }
+    if (breakCondition is Map) {
+      if (beforeBreak is Map) {
+        compileExpr(beforeBreak.cast<String, Object?>());
+        op(_opPop);
+      }
+      compileExpr(breakCondition.cast<String, Object?>());
+      op(_opJumpIfFalse);
+      final continuePatch = reserveU16();
+      op(_opJump);
+      final breakPatch = reserveU16();
+      patchU16(continuePatch, code.length);
+      compileExpr(body.cast<String, Object?>());
+      op(_opPop);
+      op(_opJump);
+      u16(loopStart);
+      patchU16(breakPatch, code.length);
+      patchU16(endPatch, code.length);
+      loadConst({'type': 'Null', 'value': null});
+      return;
+    }
+    compileExpr(body.cast<String, Object?>());
+    op(_opPop);
+    op(_opJump);
+    u16(loopStart);
+    patchU16(endPatch, code.length);
+    loadConst({'type': 'Null', 'value': null});
   }
 
   void compileLet(Map<String, Object?> spec) {
@@ -1067,10 +1340,7 @@ class _RestrictedBytecodeCompiler {
       op(_opStoreLocal);
       u8(localIndex);
       if (name is String && name.trim().isNotEmpty) {
-        debugLocals.add({
-          'slot': args.length + localIndex,
-          'name': name.trim(),
-        });
+        debugLocals.add({'slot': localIndex, 'name': name.trim()});
       }
       previous[id] = scopedLocals[id];
       scopedLocals[id] = localIndex;
@@ -1117,6 +1387,42 @@ class _RestrictedBytecodeCompiler {
 
     patchU16(endOperandPatch, code.length);
     patchU16(endJumpPatch, code.length);
+  }
+
+  void compileTryFinally(Map<String, Object?> spec) {
+    final body = spec['body'];
+    final finalizer = spec['finally'];
+    if (body is! Map || finalizer is! Map) {
+      stderr.writeln('try_finally expression requires body/finally');
+      exit(2);
+    }
+    final preserveValue = spec['value'] == true;
+    final valueLocal = preserveValue ? allocateLocal() : null;
+
+    op(_opTryFinally);
+    final finallyPatch = reserveU16();
+    final endOperandPatch = reserveU16();
+    compileExpr(body.cast<String, Object?>());
+    if (valueLocal != null) {
+      op(_opStoreLocal);
+      u8(valueLocal);
+    }
+    op(_opJump);
+    final endJumpPatch = reserveU16();
+
+    patchU16(finallyPatch, code.length);
+    compileExpr(finalizer.cast<String, Object?>());
+    op(_opPop);
+    op(_opEndFinally);
+
+    patchU16(endOperandPatch, code.length);
+    patchU16(endJumpPatch, code.length);
+    if (valueLocal != null) {
+      op(_opLoadLocal);
+      u8(valueLocal);
+    } else {
+      loadConst({'type': 'Null', 'value': null});
+    }
   }
 
   void loadConst(Map<String, Object?> constant) {
@@ -1179,42 +1485,4 @@ class _RestrictedBytecodeCompiler {
 Never _unsupportedOperator(Object? op) {
   stderr.writeln('unsupported bytecode binary operator $op');
   exit(2);
-}
-
-File _writeKernelReader(Directory temp) {
-  final toolDir =
-      Platform.environment['FCB_KERNEL_TOOL_DIR'] ??
-      File.fromUri(Platform.script).parent.path;
-  File('${temp.path}/fcb_kernel_closure_audit.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_closure_audit.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_callback_inline.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_callback_inline.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_type_names.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_type_names.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_unsupported_audit.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_unsupported_audit.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_logical_expr.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_logical_expr.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_async_expr.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_async_expr.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_returning_closure.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_returning_closure.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_statement_expr.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_statement_expr.dart').readAsStringSync(),
-  );
-  File('${temp.path}/fcb_kernel_unary_binary_expr.dart').writeAsStringSync(
-    File('$toolDir/fcb_kernel_unary_binary_expr.dart').readAsStringSync(),
-  );
-  final file = File('${temp.path}/kernel_reader.dart');
-  file.writeAsStringSync(
-    File('$toolDir/fcb_kernel_reader.dart').readAsStringSync(),
-  );
-  return file;
 }

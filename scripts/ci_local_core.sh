@@ -14,6 +14,7 @@ RUN_E2E="${FCB_LOCAL_CI_E2E:-auto}"
 RUN_FLUTTER="${FCB_LOCAL_CI_FLUTTER:-auto}"
 RUN_S3="${FCB_LOCAL_CI_S3:-0}"
 RUN_NPM_CI="${FCB_LOCAL_CI_NPM_CI:-auto}"
+RUN_VENDOR_VM="${FCB_LOCAL_CI_VENDOR_VM:-0}"
 COMPLETED_STEPS=()
 SKIPPED_STEPS=()
 
@@ -34,6 +35,7 @@ Environment:
   FCB_LOCAL_CI_FLUTTER  Run packages/fcb_code_push tests: 1|0|auto. Default: auto
   FCB_LOCAL_CI_S3       Run Docker/MinIO S3 drill: 1|0. Default: 0
   FCB_LOCAL_CI_NPM_CI   Run npm ci before WebUI checks: 1|0|auto. Default: auto
+  FCB_LOCAL_CI_VENDOR_VM Run vendor Dart SDK delta + VM gate: 1|0. Default: 0
   DART_BIN              Dart binary. Default: dart
   FLUTTER               Flutter binary. Default: flutter
 USAGE
@@ -147,6 +149,12 @@ else
   skip_step flutter-package "Flutter not available or disabled"
 fi
 
+if enabled "$RUN_VENDOR_VM"; then
+  run_step vendor-vm-runtime make test-vendor-vm-runtime
+else
+  skip_step vendor-vm-runtime "set FCB_LOCAL_CI_VENDOR_VM=1 to run vendor Dart SDK delta + VM gate"
+fi
+
 if enabled "$RUN_S3"; then
   run_step s3-storage make test-s3-storage
 else
@@ -159,6 +167,7 @@ fi
   echo "kernel: $RUN_KERNEL"
   echo "e2e: $RUN_E2E"
   echo "flutter: $RUN_FLUTTER"
+  echo "vendor_vm: $RUN_VENDOR_VM"
   echo "s3: $RUN_S3"
   echo
   echo "completed_steps:"

@@ -2,7 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DART_BIN="${DART_BIN:-dart}"
+if [ -z "${DART_BIN:-}" ] && [ -x "/Users/lk/env/flutter/bin/cache/dart-sdk/bin/dart" ]; then
+  DART_BIN="/Users/lk/env/flutter/bin/cache/dart-sdk/bin/dart"
+else
+  DART_BIN="${DART_BIN:-dart}"
+fi
+FCB_RUN_VM_TESTS="${FCB_RUN_VM_TESTS:-$ROOT_DIR/vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests}"
 WORKDIR="$(mktemp -d /tmp/fcb_kernel_compile_from_plan_XXXXXX)"
 
 cleanup() {
@@ -88,6 +93,10 @@ Box<String> makeStringBox() {
 
 String dynamicNamedCall() {
   return Greeter().surround('base', prefix: '[', suffix: ']');
+}
+
+bool sameObject(Object value) {
+  return false;
 }
 
 String capturedGreeting(String name) {
@@ -244,9 +253,1013 @@ Future<String> asyncLabel() async {
   return 'base-async';
 }
 
+Future<void> awaitedVoid(Future<void> ready) async {
+  await ready;
+  final marker = 'base-void';
+}
+
+Future<void> awaitedReturnVoid(Future<void> ready) async {
+  await ready;
+  final marker = 'base-return-void';
+  return;
+}
+
 Future<String> awaitedLabel(bool enabled) async { if (await Future.value(enabled)) return 'base ${await Future.value('awaited')}'; return 'base disabled'; }
 
 Future<String> awaitedLocalLabel(String name) async { try { final base = 'base-local'; final prefix = await Future.value(base); if (name == 'Ada') return '$prefix ${await Future.value('done')}'; return '$prefix $name'; } catch (e) { return 'base-caught $e'; } }
+
+Future<String> awaitedFutureParam(Future<String> value) async {
+  return 'base ${await value}';
+}
+
+Future<String> awaitedStatement(Future<String> ready) async {
+  await ready;
+  return 'base-after-await-statement';
+}
+
+Future<String> awaitedStatementLocal(Future<String> ready) async {
+  await ready;
+  final marker = 'base-after-await-local';
+  return marker;
+}
+
+Future<String> awaitedTryStatementLocal(Future<String> ready) async {
+  try {
+    await ready;
+    final marker = 'base-after-try-await-local';
+    return marker;
+  } catch (e) {
+    return 'base-try-caught $e';
+  }
+}
+
+Future<String> awaitedCatchLocal(Future<String> ready) async {
+  try {
+    await ready;
+    return 'base-catch-local-ok';
+  } catch (e) {
+    final message = 'base-catch-local $e';
+    return message;
+  }
+}
+
+Future<String> awaitedCatchAwait(Future<String> ready) async {
+  try {
+    await ready;
+    return 'base-catch-await-ok';
+  } catch (e) {
+    return await Future.value('base-catch-await $e');
+  }
+}
+
+Future<String> awaitedFinallyLocal(Future<String> ready) async {
+  try {
+    final value = await ready;
+    return 'base-finally-$value';
+  } finally {
+    final cleanup = 'base-finally-cleanup';
+  }
+}
+
+Future<String> awaitedFinallyCleanup(
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  try {
+    final value = await ready;
+    return 'base-finally-cleanup-$value';
+  } finally {
+    await cleanup;
+  }
+}
+
+Future<String> asyncBranchLocal(bool enabled) async {
+  if (enabled) {
+    final status = 'base-branch-enabled';
+    return status;
+  } else {
+    final status = 'base-branch-disabled';
+    return status;
+  }
+}
+
+Future<String> asyncGuardAwaitTail(bool enabled, Future<String> ready) async {
+  if (enabled) return 'base-guard-fast';
+  await ready;
+  return 'base-guard-tail';
+}
+
+Future<int> asyncIntInput() {
+  return Future.value(1);
+}
+
+Future<int> plannedAsyncAwait() async {
+  final x = await asyncIntInput();
+  if (x > 0) return x + 1;
+  return 0;
+}
+
+Future<String> asyncWhileLocal(int limit) async {
+  var i = 0;
+  var out = 'base-while';
+  while (limit > i) {
+    out = '$out-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncWhileBreak(int limit) async {
+  var i = 0;
+  var out = 'base-while-break';
+  while (limit > i) {
+    out = '$out-$i';
+    if (i == 1) break;
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncWhileContinue(int limit) async {
+  var i = 0;
+  var out = 'base-while-continue';
+  while (limit > i) {
+    out = '$out-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    out = '$out-after-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncForLocal(int limit) async {
+  var out = 'base-for';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-$i';
+  }
+  return out;
+}
+
+Future<String> asyncForContinue(int limit) async {
+  var out = 'base-for-continue';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-before-$i';
+    if (i == 1) continue;
+    out = '$out-after-$i';
+  }
+  return out;
+}
+
+Future<String> asyncForBreak(int limit) async {
+  var out = 'base-for-break';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-before-$i';
+    if (i == 1) break;
+    out = '$out-after-$i';
+  }
+  return out;
+}
+
+Future<String> asyncForContinueBreak(int limit) async {
+  var out = 'base-for-continue-break';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-before-$i';
+    if (i == 1) continue;
+    out = '$out-mid-$i';
+    if (i == 2) break;
+    out = '$out-after-$i';
+  }
+  return out;
+}
+
+Stream<String> asyncGenerated() async* {
+  yield 'base-stream';
+}
+
+Stream<String> asyncGeneratedAwait(Future<String> ready) async* {
+  final value = await ready;
+  yield 'base-stream-await-$value';
+}
+
+Stream<String> asyncGeneratedTryFinally(Future<String> ready) async* {
+  try {
+    yield await ready;
+  } finally {
+    final cleanup = 'base-stream-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedFinallyYield(Future<String> ready) async* {
+  yield 'base-stream-finally-yield';
+}
+
+Stream<String> asyncGeneratedCatchAwait(Future<String> ready) async* {
+  yield 'base-stream-catch-await';
+}
+
+Stream<String> asyncGeneratedMany(bool enabled) async* {
+  final prefix = 'base-stream';
+  yield '$prefix-a';
+  if (enabled) yield '$prefix-live';
+  yield '$prefix-tail';
+}
+
+Stream<String> asyncGeneratedWhile() async* {
+  var i = 0;
+  while (2 > i) {
+    yield 'base-stream-while-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedWhileBreak() async* {
+  var i = 0;
+  while (4 > i) {
+    yield 'base-stream-while-break-before-$i';
+    if (i == 2) break;
+    yield 'base-stream-while-break-after-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedWhileContinue() async* {
+  var i = 0;
+  while (3 > i) {
+    yield 'base-stream-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-stream-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedWhileContinueBreak() async* {
+  var i = 0;
+  while (4 > i) {
+    yield 'base-stream-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-stream-while-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-stream-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedDoWhile() async* {
+  var i = 0;
+  do {
+    yield 'base-stream-do-$i';
+    i = i + 1;
+  } while (2 > i);
+}
+
+Stream<String> asyncGeneratedDoWhileBreak() async* {
+  var i = 0;
+  do {
+    yield 'base-stream-do-break-before-$i';
+    if (i == 1) break;
+    yield 'base-stream-do-break-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Stream<String> asyncGeneratedDoWhileContinue() async* {
+  var i = 0;
+  do {
+    yield 'base-stream-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-stream-do-continue-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Stream<String> asyncGeneratedDoWhileContinueBreak() async* {
+  var i = 0;
+  do {
+    yield 'base-stream-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-stream-do-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-stream-do-continue-after-$i';
+    i = i + 1;
+  } while (4 > i);
+}
+
+Stream<String> asyncGeneratedForLoop() async* {
+  for (var i = 0; 2 > i; i = i + 1) {
+    yield 'base-stream-for-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopPostIncrement() async* {
+  for (var i = 0; 2 > i; i++) {
+    yield 'base-stream-for-postinc-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopMultiUpdate() async* {
+  for (var i = 0, j = 10; 2 > i; i = i + 1, j = j + 1) {
+    yield 'base-stream-for-multi-$i-$j';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopExternalLocal() async* {
+  var i = 0;
+  for (; 2 > i; i = i + 1) {
+    yield 'base-stream-for-external-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopBodyUpdate() async* {
+  var i = 0;
+  for (; 2 > i;) {
+    yield 'base-stream-for-body-update-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedForLoopContinue() async* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'base-stream-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'base-stream-for-continue-after-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopContinueBreak() async* {
+  for (var i = 0; 4 > i; i = i + 1) {
+    yield 'base-stream-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'base-stream-for-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-stream-for-continue-after-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopBreak() async* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'base-stream-for-break-before-$i';
+    if (i == 1) break;
+    yield 'base-stream-for-break-after-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForIn() async* {
+  for (final value in ['base-stream-a', 'base-stream-b']) {
+    yield value;
+  }
+}
+
+Stream<String> asyncGeneratedForInBreak() async* {
+  final prefix = 'base-stream-static-break';
+  for (final value in ['a', 'stop', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedForInBreakFirst() async* {
+  final prefix = 'base-stream-static-break-first';
+  for (final value in ['a', 'stop', 'tail']) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedForInContinue() async* {
+  final prefix = 'base-stream-static-continue';
+  for (final value in ['a', 'skip', 'tail']) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedForInContinueAfterYield() async* {
+  final prefix = 'base-stream-static-continue-after-yield';
+  for (final value in ['a', 'skip', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForIn(List<String> extra) async* {
+  for (final value in extra) {
+    yield value;
+  }
+  yield 'base-stream-dynamic-tail';
+}
+
+Stream<String> asyncGeneratedDynamicForInMapped(List<String> extra) async* {
+  final prefix = 'base-stream-map';
+  for (final value in extra) {
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInMany(List<String> extra) async* {
+  final prefix = 'base-stream-many';
+  for (final value in extra) {
+    yield '$prefix-a-$value';
+    yield '$prefix-b-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInIf(List<String> extra) async* {
+  final prefix = 'base-stream-if';
+  for (final value in extra) {
+    if (value == 'live') yield '$prefix-hit-$value';
+    yield '$prefix-tail-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInIfElse(List<String> extra) async* {
+  final prefix = 'base-stream-ifelse';
+  for (final value in extra) {
+    if (value == 'live') {
+      yield '$prefix-hit-$value';
+    } else {
+      yield '$prefix-miss-$value';
+    }
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInLocal(List<String> extra) async* {
+  final prefix = 'base-stream-local';
+  for (final value in extra) {
+    final marker = '$prefix-$value';
+    yield marker;
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinue(List<String> extra) async* {
+  final prefix = 'base-stream-continue';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinueAfterYield(List<String> extra) async* {
+  final prefix = 'base-stream-continue-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInBreak(List<String> extra) async* {
+  final prefix = 'base-stream-break';
+  for (final value in extra) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInBreakAfterYield(List<String> extra) async* {
+  final prefix = 'base-stream-break-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInBreakAtEnd(List<String> extra) async* {
+  final prefix = 'base-stream-break-at-end';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinueThenBreak(List<String> extra) async* {
+  final prefix = 'base-stream-continue-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinueYieldBreak(List<String> extra) async* {
+  final prefix = 'base-stream-continue-yield-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInNested(
+  List<String> extra,
+  List<String> suffixes,
+) async* {
+  final prefix = 'base-stream-nested';
+  for (final value in extra) {
+    for (final suffix in suffixes) {
+      yield '$prefix-$value-$suffix';
+    }
+  }
+}
+
+Stream<String> asyncGeneratedYieldStar() async* {
+  yield* Stream.fromIterable([
+    'base-stream-yield-star-a',
+    'base-stream-yield-star-b',
+  ]);
+}
+
+Stream<String> asyncGeneratedYieldStarDynamic(List<String> extra) async* {
+  yield* Stream.fromIterable(extra);
+  yield 'base-stream-yield-star-dynamic-tail';
+}
+
+Stream<String> asyncGeneratedYieldStarValue(String value) async* {
+  yield* Stream.value('base-stream-yield-star-value-$value');
+}
+
+Stream<String> asyncGeneratedYieldStarFromFuture(String value) async* {
+  yield* Stream.fromFuture(Future.value('base-stream-yield-star-future-$value'));
+}
+
+Stream<String> asyncGeneratedYieldStarPendingFuture(
+  Future<String> ready,
+) async* {
+  yield* Stream.value('base-stream-yield-star-pending');
+}
+
+Stream<String> asyncGeneratedYieldStarEmpty() async* {
+  yield 'base-stream-yield-star-empty-before';
+  yield* Stream<String>.empty();
+}
+
+Stream<String> asyncGeneratedAwaitForFromIterable(List<String> extra) async* {
+  await for (final value in Stream.fromIterable(extra)) {
+    yield 'base-stream-await-for-iterable-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForContinue(List<String> extra) async* {
+  await for (final value in Stream.fromIterable(extra)) {
+    if (value == 'skip') continue;
+    yield 'base-stream-await-for-continue-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForBreak(List<String> extra) async* {
+  await for (final value in Stream.fromIterable(extra)) {
+    if (value == 'stop') break;
+    yield 'base-stream-await-for-break-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForValue(String value) async* {
+  await for (final item in Stream.value(value)) {
+    yield 'base-stream-await-for-value-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForFuture(String value) async* {
+  await for (final item in Stream.fromFuture(Future.value(value))) {
+    yield 'base-stream-await-for-future-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForFutureBreak(String value) async* {
+  await for (final item in Stream.fromFuture(Future.value(value))) {
+    if (item == 'stop') break;
+    yield 'base-stream-await-for-future-break-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForPendingFuture(Future<String> ready) async* {
+  await for (final item in Stream.fromFuture(ready)) {
+    yield 'base-stream-await-for-pending-future-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForPendingContinue(
+  Future<String> ready,
+) async* {
+  await for (final item in Stream.fromFuture(ready)) {
+    if (item == 'skip') continue;
+    yield 'base-stream-await-for-pending-continue-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForEmpty() async* {
+  await for (final item in Stream<String>.empty()) {
+    yield 'base-stream-await-for-empty-$item';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarStream(Stream<String> extra) async* {
+  yield 'base-stream-yield-star-stream';
+}
+
+Stream<String> asyncGeneratedYieldStarStreamFinally(Stream<String> extra) async* {
+  yield 'base-stream-yield-star-stream-finally';
+}
+
+Stream<String> asyncGeneratedYieldStarStreamSandwichFinally(
+  Stream<String> extra,
+) async* {
+  yield 'base-stream-yield-star-stream-sandwich-finally';
+}
+
+Stream<String> asyncGeneratedYieldStarTwoStreamsFinally(
+  Stream<String> first,
+  Stream<String> second,
+) async* {
+  yield 'base-stream-yield-star-two-streams-finally';
+}
+
+Stream<String> asyncGeneratedAwaitFor(Stream<String> extra) async* {
+  yield 'base-stream-await-for';
+}
+
+Stream<String> asyncGeneratedAwaitForFinally(Stream<String> extra) async* {
+  yield 'base-stream-await-for-finally';
+}
+
+Stream<String> asyncGeneratedAwaitForStreamContinue(Stream<String> extra) async* {
+  yield 'base-stream-await-for-stream-continue';
+}
+
+Stream<String> asyncGeneratedAwaitForStreamBreak(Stream<String> extra) async* {
+  yield 'base-stream-await-for-stream-break';
+}
+
+Stream<String> asyncGeneratedAwaitForStreamContinueBreakFinally(
+  Stream<String> extra,
+) async* {
+  yield 'base-stream-await-for-stream-continue-break-finally';
+}
+
+Stream<String> asyncGeneratedAwaitForNestedValueFinally(
+  Stream<String> extra,
+) async* {
+  yield 'base-stream-await-for-nested-value-finally';
+}
+
+Stream<String> asyncGeneratedAwaitForNestedStreamFinally(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  yield 'base-stream-await-for-nested-stream-finally';
+}
+
+Iterable<String> syncGenerated() sync* {
+  yield 'base-iterable';
+}
+
+Iterable<String> syncGeneratedMany(bool enabled) sync* {
+  final prefix = 'base-iterable';
+  yield '$prefix-a';
+  if (enabled) yield '$prefix-live';
+  yield '$prefix-tail';
+}
+
+Iterable<String> syncGeneratedWhile() sync* {
+  var i = 0;
+  while (2 > i) {
+    yield 'base-iterable-while-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileBreak() sync* {
+  var i = 0;
+  while (4 > i) {
+    yield 'base-iterable-while-break-before-$i';
+    if (i == 2) break;
+    yield 'base-iterable-while-break-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileContinue() sync* {
+  var i = 0;
+  while (3 > i) {
+    yield 'base-iterable-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileContinueBreak() sync* {
+  var i = 0;
+  while (4 > i) {
+    yield 'base-iterable-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-while-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-iterable-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedDoWhile() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-$i';
+    i = i + 1;
+  } while (2 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileBreak() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-break-before-$i';
+    if (i == 1) break;
+    yield 'base-iterable-do-break-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileContinue() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-do-continue-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileContinueBreak() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-do-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-iterable-do-continue-after-$i';
+    i = i + 1;
+  } while (4 > i);
+}
+
+Iterable<String> syncGeneratedForLoop() sync* {
+  for (var i = 0; 2 > i; i = i + 1) {
+    yield 'base-iterable-for-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopPostIncrement() sync* {
+  for (var i = 0; 2 > i; i++) {
+    yield 'base-iterable-for-postinc-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopMultiUpdate() sync* {
+  for (var i = 0, j = 10; 2 > i; i = i + 1, j = j + 1) {
+    yield 'base-iterable-for-multi-$i-$j';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopExternalLocal() sync* {
+  var i = 0;
+  for (; 2 > i; i = i + 1) {
+    yield 'base-iterable-for-external-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopBodyUpdate() sync* {
+  var i = 0;
+  for (; 2 > i;) {
+    yield 'base-iterable-for-body-update-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedForLoopContinue() sync* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'base-iterable-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'base-iterable-for-continue-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopContinueBreak() sync* {
+  for (var i = 0; 4 > i; i = i + 1) {
+    yield 'base-iterable-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'base-iterable-for-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-iterable-for-continue-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopBreak() sync* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'base-iterable-for-break-before-$i';
+    if (i == 1) break;
+    yield 'base-iterable-for-break-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForIn() sync* {
+  for (final value in ['base-iterable-a', 'base-iterable-b']) {
+    yield value;
+  }
+}
+
+Iterable<String> syncGeneratedForInBreak() sync* {
+  final prefix = 'base-iterable-static-break';
+  for (final value in ['a', 'stop', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInBreakFirst() sync* {
+  final prefix = 'base-iterable-static-break-first';
+  for (final value in ['a', 'stop', 'tail']) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInContinue() sync* {
+  final prefix = 'base-iterable-static-continue';
+  for (final value in ['a', 'skip', 'tail']) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInContinueAfterYield() sync* {
+  final prefix = 'base-iterable-static-continue-after-yield';
+  for (final value in ['a', 'skip', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForIn(List<String> extra) sync* {
+  for (final value in extra) {
+    yield value;
+  }
+  yield 'base-iterable-dynamic-tail';
+}
+
+Iterable<String> syncGeneratedDynamicForInMapped(List<String> extra) sync* {
+  final prefix = 'base-iterable-map';
+  for (final value in extra) {
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInMany(List<String> extra) sync* {
+  final prefix = 'base-iterable-many';
+  for (final value in extra) {
+    yield '$prefix-a-$value';
+    yield '$prefix-b-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInIf(List<String> extra) sync* {
+  final prefix = 'base-iterable-if';
+  for (final value in extra) {
+    if (value == 'live') yield '$prefix-hit-$value';
+    yield '$prefix-tail-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInIfElse(List<String> extra) sync* {
+  final prefix = 'base-iterable-ifelse';
+  for (final value in extra) {
+    if (value == 'live') {
+      yield '$prefix-hit-$value';
+    } else {
+      yield '$prefix-miss-$value';
+    }
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInLocal(List<String> extra) sync* {
+  final prefix = 'base-iterable-local';
+  for (final value in extra) {
+    final marker = '$prefix-$value';
+    yield marker;
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinue(List<String> extra) sync* {
+  final prefix = 'base-iterable-continue';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueAfterYield(List<String> extra) sync* {
+  final prefix = 'base-iterable-continue-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreak(List<String> extra) sync* {
+  final prefix = 'base-iterable-break';
+  for (final value in extra) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreakAfterYield(List<String> extra) sync* {
+  final prefix = 'base-iterable-break-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreakAtEnd(List<String> extra) sync* {
+  final prefix = 'base-iterable-break-at-end';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueThenBreak(List<String> extra) sync* {
+  final prefix = 'base-iterable-continue-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueYieldBreak(List<String> extra) sync* {
+  final prefix = 'base-iterable-continue-yield-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInNested(
+  List<String> extra,
+  List<String> suffixes,
+) sync* {
+  final prefix = 'base-iterable-nested';
+  for (final value in extra) {
+    for (final suffix in suffixes) {
+      yield '$prefix-$value-$suffix';
+    }
+  }
+}
+
+Iterable<String> syncGeneratedYieldStar() sync* {
+  yield* ['base-yield-star-a', 'base-yield-star-b'];
+}
+
+Iterable<String> syncGeneratedYieldStarDynamic(List<String> extra) sync* {
+  yield* extra;
+  yield 'base-yield-star-dynamic-tail';
+}
+
 List<String> names(bool enabled, bool premium) {
   return ['base'];
 }
@@ -369,6 +1382,10 @@ Box<String> makeStringBox() {
 
 String dynamicNamedCall() {
   return Greeter().surround('patched', prefix: '<', suffix: '>');
+}
+
+bool sameObject(Object value) {
+  return identical(value, value);
 }
 
 String capturedGreeting(String name) {
@@ -525,9 +1542,1073 @@ Future<String> asyncLabel() async {
   return 'patched-async';
 }
 
+Future<void> awaitedVoid(Future<void> ready) async {
+  await ready;
+  final marker = 'patched-void';
+}
+
+Future<void> awaitedReturnVoid(Future<void> ready) async {
+  await ready;
+  final marker = 'patched-return-void';
+  return;
+}
+
 Future<String> awaitedLabel(bool enabled) async { if (await Future.value(enabled)) return 'patched ${await Future.value('awaited')}'; return 'patched disabled'; }
 
 Future<String> awaitedLocalLabel(String name) async { try { final base = 'patched-local'; final prefix = await Future.value(base); if (name == 'Ada') return '$prefix ${await Future.value('done')}'; return '$prefix $name'; } catch (e) { return 'patched-caught $e'; } }
+
+Future<String> awaitedFutureParam(Future<String> value) async {
+  return 'patched ${await value}';
+}
+
+Future<String> awaitedStatement(Future<String> ready) async {
+  await ready;
+  return 'patched-after-await-statement';
+}
+
+Future<String> awaitedStatementLocal(Future<String> ready) async {
+  await ready;
+  final marker = 'patched-after-await-local';
+  return marker;
+}
+
+Future<String> awaitedTryStatementLocal(Future<String> ready) async {
+  try {
+    await ready;
+    final marker = 'patched-after-try-await-local';
+    return marker;
+  } catch (e) {
+    return 'patched-try-caught $e';
+  }
+}
+
+Future<String> awaitedCatchLocal(Future<String> ready) async {
+  try {
+    await ready;
+    return 'patched-catch-local-ok';
+  } catch (e) {
+    final message = 'patched-catch-local $e';
+    return message;
+  }
+}
+
+Future<String> awaitedCatchAwait(Future<String> ready) async {
+  try {
+    await ready;
+    return 'patched-catch-await-ok';
+  } catch (e) {
+    return await Future.value('patched-catch-await $e');
+  }
+}
+
+Future<String> awaitedFinallyLocal(Future<String> ready) async {
+  try {
+    final value = await ready;
+    return 'patched-finally-$value';
+  } finally {
+    final cleanup = 'patched-finally-cleanup';
+  }
+}
+
+Future<String> awaitedFinallyCleanup(
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  try {
+    final value = await ready;
+    return 'patched-finally-cleanup-$value';
+  } finally {
+    await cleanup;
+  }
+}
+
+Future<String> asyncBranchLocal(bool enabled) async {
+  if (enabled) {
+    final status = 'patched-branch-enabled';
+    return status;
+  } else {
+    final status = 'patched-branch-disabled';
+    return status;
+  }
+}
+
+Future<String> asyncGuardAwaitTail(bool enabled, Future<String> ready) async {
+  if (enabled) return 'patched-guard-fast';
+  await ready;
+  return 'patched-guard-tail';
+}
+
+Future<int> asyncIntInput() {
+  return Future.value(1);
+}
+
+Future<int> plannedAsyncAwait() async {
+  final x = await asyncIntInput();
+  if (x > 0) return x + 2;
+  return 0;
+}
+
+Future<String> asyncWhileLocal(int limit) async {
+  var i = 0;
+  var out = 'patched-while';
+  while (limit > i) {
+    out = '$out-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncWhileBreak(int limit) async {
+  var i = 0;
+  var out = 'patched-while-break';
+  while (limit > i) {
+    out = '$out-$i';
+    if (i == 1) break;
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncWhileContinue(int limit) async {
+  var i = 0;
+  var out = 'patched-while-continue';
+  while (limit > i) {
+    out = '$out-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    out = '$out-after-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncForLocal(int limit) async {
+  var out = 'patched-for';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-$i';
+  }
+  return out;
+}
+
+Future<String> asyncForContinue(int limit) async {
+  var out = 'patched-for-continue';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-before-$i';
+    if (i == 1) continue;
+    out = '$out-after-$i';
+  }
+  return out;
+}
+
+Future<String> asyncForBreak(int limit) async {
+  var out = 'patched-for-break';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-before-$i';
+    if (i == 1) break;
+    out = '$out-after-$i';
+  }
+  return out;
+}
+
+Future<String> asyncForContinueBreak(int limit) async {
+  var out = 'patched-for-continue-break';
+  for (var i = 0; limit > i; i = i + 1) {
+    out = '$out-before-$i';
+    if (i == 1) continue;
+    out = '$out-mid-$i';
+    if (i == 2) break;
+    out = '$out-after-$i';
+  }
+  return out;
+}
+
+Stream<String> asyncGenerated() async* {
+  yield 'patched-stream';
+}
+
+Stream<String> asyncGeneratedAwait(Future<String> ready) async* {
+  final value = await ready;
+  yield 'patched-stream-await-$value';
+}
+
+Stream<String> asyncGeneratedTryFinally(Future<String> ready) async* {
+  try {
+    yield await ready;
+  } finally {
+    final cleanup = 'patched-stream-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedFinallyYield(Future<String> ready) async* {
+  try {
+    yield await ready;
+  } finally {
+    yield 'patched-stream-finally-yield-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedCatchAwait(Future<String> ready) async* {
+  try {
+    yield await ready;
+  } catch (e) {
+    yield 'patched-stream-caught-$e';
+  }
+}
+
+Stream<String> asyncGeneratedMany(bool enabled) async* {
+  final prefix = 'patched-stream';
+  yield '$prefix-a';
+  if (enabled) yield '$prefix-live';
+  yield '$prefix-tail';
+}
+
+Stream<String> asyncGeneratedWhile() async* {
+  var i = 0;
+  while (2 > i) {
+    yield 'patched-stream-while-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedWhileBreak() async* {
+  var i = 0;
+  while (4 > i) {
+    yield 'patched-stream-while-break-before-$i';
+    if (i == 2) break;
+    yield 'patched-stream-while-break-after-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedWhileContinue() async* {
+  var i = 0;
+  while (3 > i) {
+    yield 'patched-stream-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-stream-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedWhileContinueBreak() async* {
+  var i = 0;
+  while (4 > i) {
+    yield 'patched-stream-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-stream-while-continue-mid-$i';
+    if (i == 2) break;
+    yield 'patched-stream-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedDoWhile() async* {
+  var i = 0;
+  do {
+    yield 'patched-stream-do-$i';
+    i = i + 1;
+  } while (2 > i);
+}
+
+Stream<String> asyncGeneratedDoWhileBreak() async* {
+  var i = 0;
+  do {
+    yield 'patched-stream-do-break-before-$i';
+    if (i == 1) break;
+    yield 'patched-stream-do-break-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Stream<String> asyncGeneratedDoWhileContinue() async* {
+  var i = 0;
+  do {
+    yield 'patched-stream-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-stream-do-continue-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Stream<String> asyncGeneratedDoWhileContinueBreak() async* {
+  var i = 0;
+  do {
+    yield 'patched-stream-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-stream-do-continue-mid-$i';
+    if (i == 2) break;
+    yield 'patched-stream-do-continue-after-$i';
+    i = i + 1;
+  } while (4 > i);
+}
+
+Stream<String> asyncGeneratedForLoop() async* {
+  for (var i = 0; 2 > i; i = i + 1) {
+    yield 'patched-stream-for-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopPostIncrement() async* {
+  for (var i = 0; 2 > i; i++) {
+    yield 'patched-stream-for-postinc-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopMultiUpdate() async* {
+  for (var i = 0, j = 10; 2 > i; i = i + 1, j = j + 1) {
+    yield 'patched-stream-for-multi-$i-$j';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopExternalLocal() async* {
+  var i = 0;
+  for (; 2 > i; i = i + 1) {
+    yield 'patched-stream-for-external-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopBodyUpdate() async* {
+  var i = 0;
+  for (; 2 > i;) {
+    yield 'patched-stream-for-body-update-$i';
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedForLoopContinue() async* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'patched-stream-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'patched-stream-for-continue-after-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopContinueBreak() async* {
+  for (var i = 0; 4 > i; i = i + 1) {
+    yield 'patched-stream-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'patched-stream-for-continue-mid-$i';
+    if (i == 2) break;
+    yield 'patched-stream-for-continue-after-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForLoopBreak() async* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'patched-stream-for-break-before-$i';
+    if (i == 1) break;
+    yield 'patched-stream-for-break-after-$i';
+  }
+}
+
+Stream<String> asyncGeneratedForIn() async* {
+  for (final value in ['patched-stream-a', 'patched-stream-b']) {
+    yield value;
+  }
+}
+
+Stream<String> asyncGeneratedForInBreak() async* {
+  final prefix = 'patched-stream-static-break';
+  for (final value in ['a', 'stop', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedForInBreakFirst() async* {
+  final prefix = 'patched-stream-static-break-first';
+  for (final value in ['a', 'stop', 'tail']) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedForInContinue() async* {
+  final prefix = 'patched-stream-static-continue';
+  for (final value in ['a', 'skip', 'tail']) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedForInContinueAfterYield() async* {
+  final prefix = 'patched-stream-static-continue-after-yield';
+  for (final value in ['a', 'skip', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForIn(List<String> extra) async* {
+  for (final value in extra) {
+    yield value;
+  }
+  yield 'patched-stream-dynamic-tail';
+}
+
+Stream<String> asyncGeneratedDynamicForInMapped(List<String> extra) async* {
+  final prefix = 'patched-stream-map';
+  for (final value in extra) {
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInMany(List<String> extra) async* {
+  final prefix = 'patched-stream-many';
+  for (final value in extra) {
+    yield '$prefix-a-$value';
+    yield '$prefix-b-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInIf(List<String> extra) async* {
+  final prefix = 'patched-stream-if';
+  for (final value in extra) {
+    if (value == 'live') yield '$prefix-hit-$value';
+    yield '$prefix-tail-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInIfElse(List<String> extra) async* {
+  final prefix = 'patched-stream-ifelse';
+  for (final value in extra) {
+    if (value == 'live') {
+      yield '$prefix-hit-$value';
+    } else {
+      yield '$prefix-miss-$value';
+    }
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInLocal(List<String> extra) async* {
+  final prefix = 'patched-stream-local';
+  for (final value in extra) {
+    final marker = '$prefix-$value';
+    yield marker;
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinue(List<String> extra) async* {
+  final prefix = 'patched-stream-continue';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinueAfterYield(List<String> extra) async* {
+  final prefix = 'patched-stream-continue-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInBreak(List<String> extra) async* {
+  final prefix = 'patched-stream-break';
+  for (final value in extra) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInBreakAfterYield(List<String> extra) async* {
+  final prefix = 'patched-stream-break-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInBreakAtEnd(List<String> extra) async* {
+  final prefix = 'patched-stream-break-at-end';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinueThenBreak(List<String> extra) async* {
+  final prefix = 'patched-stream-continue-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInContinueYieldBreak(List<String> extra) async* {
+  final prefix = 'patched-stream-continue-yield-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Stream<String> asyncGeneratedDynamicForInNested(
+  List<String> extra,
+  List<String> suffixes,
+) async* {
+  final prefix = 'patched-stream-nested';
+  for (final value in extra) {
+    for (final suffix in suffixes) {
+      yield '$prefix-$value-$suffix';
+    }
+  }
+}
+
+Stream<String> asyncGeneratedYieldStar() async* {
+  yield* Stream.fromIterable([
+    'patched-stream-yield-star-a',
+    'patched-stream-yield-star-b',
+  ]);
+}
+
+Stream<String> asyncGeneratedYieldStarDynamic(List<String> extra) async* {
+  yield* Stream.fromIterable(extra);
+  yield 'patched-stream-yield-star-dynamic-tail';
+}
+
+Stream<String> asyncGeneratedYieldStarValue(String value) async* {
+  yield* Stream.value('patched-stream-yield-star-value-$value');
+}
+
+Stream<String> asyncGeneratedYieldStarFromFuture(String value) async* {
+  yield* Stream.fromFuture(Future.value('patched-stream-yield-star-future-$value'));
+}
+
+Stream<String> asyncGeneratedYieldStarPendingFuture(
+  Future<String> ready,
+) async* {
+  yield* Stream.fromFuture(ready);
+}
+
+Stream<String> asyncGeneratedYieldStarEmpty() async* {
+  yield* Stream<String>.empty();
+}
+
+Stream<String> asyncGeneratedAwaitForFromIterable(List<String> extra) async* {
+  await for (final value in Stream.fromIterable(extra)) {
+    yield 'patched-stream-await-for-iterable-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForContinue(List<String> extra) async* {
+  await for (final value in Stream.fromIterable(extra)) {
+    if (value == 'skip') continue;
+    yield 'patched-stream-await-for-continue-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForBreak(List<String> extra) async* {
+  await for (final value in Stream.fromIterable(extra)) {
+    if (value == 'stop') break;
+    yield 'patched-stream-await-for-break-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForValue(String value) async* {
+  await for (final item in Stream.value(value)) {
+    yield 'patched-stream-await-for-value-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForFuture(String value) async* {
+  await for (final item in Stream.fromFuture(Future.value(value))) {
+    yield 'patched-stream-await-for-future-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForFutureBreak(String value) async* {
+  await for (final item in Stream.fromFuture(Future.value(value))) {
+    if (item == 'stop') break;
+    yield 'patched-stream-await-for-future-break-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForPendingFuture(Future<String> ready) async* {
+  await for (final item in Stream.fromFuture(ready)) {
+    yield 'patched-stream-await-for-pending-future-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForPendingContinue(
+  Future<String> ready,
+) async* {
+  await for (final item in Stream.fromFuture(ready)) {
+    if (item == 'skip') continue;
+    yield 'patched-stream-await-for-pending-continue-$item';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForEmpty() async* {
+  await for (final item in Stream<String>.empty()) {
+    yield 'patched-stream-await-for-empty-$item';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarStream(Stream<String> extra) async* {
+  yield* extra;
+}
+
+Stream<String> asyncGeneratedYieldStarStreamFinally(Stream<String> extra) async* {
+  try {
+    yield* extra;
+  } finally {
+    yield 'patched-stream-yield-star-stream-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarStreamSandwichFinally(
+  Stream<String> extra,
+) async* {
+  try {
+    yield 'patched-stream-yield-star-stream-before';
+    yield* extra;
+    yield 'patched-stream-yield-star-stream-after';
+  } finally {
+    yield 'patched-stream-yield-star-stream-sandwich-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarTwoStreamsFinally(
+  Stream<String> first,
+  Stream<String> second,
+) async* {
+  try {
+    yield* first;
+    yield* second;
+  } finally {
+    yield 'patched-stream-yield-star-two-streams-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitFor(Stream<String> extra) async* {
+  await for (final value in extra) {
+    yield value;
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForFinally(Stream<String> extra) async* {
+  try {
+    await for (final value in extra) {
+      yield value;
+    }
+  } finally {
+    yield 'patched-stream-await-for-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForStreamContinue(Stream<String> extra) async* {
+  await for (final value in extra) {
+    if (value == 'skip') continue;
+    yield 'patched-stream-await-for-stream-continue-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForStreamBreak(Stream<String> extra) async* {
+  await for (final value in extra) {
+    if (value == 'stop') break;
+    yield 'patched-stream-await-for-stream-break-$value';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForStreamContinueBreakFinally(
+  Stream<String> extra,
+) async* {
+  try {
+    await for (final value in extra) {
+      if (value == 'skip') continue;
+      if (value == 'stop') break;
+      yield 'patched-stream-await-for-stream-continue-break-$value';
+    }
+  } finally {
+    yield 'patched-stream-await-for-stream-continue-break-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForNestedValueFinally(
+  Stream<String> extra,
+) async* {
+  try {
+    await for (final outer in extra) {
+      await for (final inner in Stream.value('$outer-inner')) {
+        yield 'patched-stream-await-for-nested-$inner';
+      }
+    }
+  } finally {
+    yield 'patched-stream-await-for-nested-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForNestedStreamFinally(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  try {
+    await for (final left in outer) {
+      await for (final right in inner) {
+        yield 'patched-stream-await-for-nested-stream-$left-$right';
+      }
+    }
+  } finally {
+    yield 'patched-stream-await-for-nested-stream-cleanup';
+  }
+}
+
+Iterable<String> syncGenerated() sync* {
+  yield 'patched-iterable';
+}
+
+Iterable<String> syncGeneratedMany(bool enabled) sync* {
+  final prefix = 'patched-iterable';
+  yield '$prefix-a';
+  if (enabled) yield '$prefix-live';
+  yield '$prefix-tail';
+}
+
+Iterable<String> syncGeneratedWhile() sync* {
+  var i = 0;
+  while (2 > i) {
+    yield 'patched-iterable-while-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileBreak() sync* {
+  var i = 0;
+  while (4 > i) {
+    yield 'patched-iterable-while-break-before-$i';
+    if (i == 2) break;
+    yield 'patched-iterable-while-break-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileContinue() sync* {
+  var i = 0;
+  while (3 > i) {
+    yield 'patched-iterable-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-iterable-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileContinueBreak() sync* {
+  var i = 0;
+  while (4 > i) {
+    yield 'patched-iterable-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-iterable-while-continue-mid-$i';
+    if (i == 2) break;
+    yield 'patched-iterable-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedDoWhile() sync* {
+  var i = 0;
+  do {
+    yield 'patched-iterable-do-$i';
+    i = i + 1;
+  } while (2 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileBreak() sync* {
+  var i = 0;
+  do {
+    yield 'patched-iterable-do-break-before-$i';
+    if (i == 1) break;
+    yield 'patched-iterable-do-break-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileContinue() sync* {
+  var i = 0;
+  do {
+    yield 'patched-iterable-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-iterable-do-continue-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileContinueBreak() sync* {
+  var i = 0;
+  do {
+    yield 'patched-iterable-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'patched-iterable-do-continue-mid-$i';
+    if (i == 2) break;
+    yield 'patched-iterable-do-continue-after-$i';
+    i = i + 1;
+  } while (4 > i);
+}
+
+Iterable<String> syncGeneratedForLoop() sync* {
+  for (var i = 0; 2 > i; i = i + 1) {
+    yield 'patched-iterable-for-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopPostIncrement() sync* {
+  for (var i = 0; 2 > i; i++) {
+    yield 'patched-iterable-for-postinc-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopMultiUpdate() sync* {
+  for (var i = 0, j = 10; 2 > i; i = i + 1, j = j + 1) {
+    yield 'patched-iterable-for-multi-$i-$j';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopExternalLocal() sync* {
+  var i = 0;
+  for (; 2 > i; i = i + 1) {
+    yield 'patched-iterable-for-external-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopBodyUpdate() sync* {
+  var i = 0;
+  for (; 2 > i;) {
+    yield 'patched-iterable-for-body-update-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedForLoopContinue() sync* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'patched-iterable-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'patched-iterable-for-continue-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopContinueBreak() sync* {
+  for (var i = 0; 4 > i; i = i + 1) {
+    yield 'patched-iterable-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'patched-iterable-for-continue-mid-$i';
+    if (i == 2) break;
+    yield 'patched-iterable-for-continue-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopBreak() sync* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'patched-iterable-for-break-before-$i';
+    if (i == 1) break;
+    yield 'patched-iterable-for-break-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForIn() sync* {
+  for (final value in ['patched-iterable-a', 'patched-iterable-b']) {
+    yield value;
+  }
+}
+
+Iterable<String> syncGeneratedForInBreak() sync* {
+  final prefix = 'patched-iterable-static-break';
+  for (final value in ['a', 'stop', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInBreakFirst() sync* {
+  final prefix = 'patched-iterable-static-break-first';
+  for (final value in ['a', 'stop', 'tail']) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInContinue() sync* {
+  final prefix = 'patched-iterable-static-continue';
+  for (final value in ['a', 'skip', 'tail']) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInContinueAfterYield() sync* {
+  final prefix = 'patched-iterable-static-continue-after-yield';
+  for (final value in ['a', 'skip', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForIn(List<String> extra) sync* {
+  for (final value in extra) {
+    yield value;
+  }
+  yield 'patched-iterable-dynamic-tail';
+}
+
+Iterable<String> syncGeneratedDynamicForInMapped(List<String> extra) sync* {
+  final prefix = 'patched-iterable-map';
+  for (final value in extra) {
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInMany(List<String> extra) sync* {
+  final prefix = 'patched-iterable-many';
+  for (final value in extra) {
+    yield '$prefix-a-$value';
+    yield '$prefix-b-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInIf(List<String> extra) sync* {
+  final prefix = 'patched-iterable-if';
+  for (final value in extra) {
+    if (value == 'live') yield '$prefix-hit-$value';
+    yield '$prefix-tail-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInIfElse(List<String> extra) sync* {
+  final prefix = 'patched-iterable-ifelse';
+  for (final value in extra) {
+    if (value == 'live') {
+      yield '$prefix-hit-$value';
+    } else {
+      yield '$prefix-miss-$value';
+    }
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInLocal(List<String> extra) sync* {
+  final prefix = 'patched-iterable-local';
+  for (final value in extra) {
+    final marker = '$prefix-$value';
+    yield marker;
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinue(List<String> extra) sync* {
+  final prefix = 'patched-iterable-continue';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueAfterYield(List<String> extra) sync* {
+  final prefix = 'patched-iterable-continue-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreak(List<String> extra) sync* {
+  final prefix = 'patched-iterable-break';
+  for (final value in extra) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreakAfterYield(List<String> extra) sync* {
+  final prefix = 'patched-iterable-break-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreakAtEnd(List<String> extra) sync* {
+  final prefix = 'patched-iterable-break-at-end';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueThenBreak(List<String> extra) sync* {
+  final prefix = 'patched-iterable-continue-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueYieldBreak(List<String> extra) sync* {
+  final prefix = 'patched-iterable-continue-yield-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInNested(
+  List<String> extra,
+  List<String> suffixes,
+) sync* {
+  final prefix = 'patched-iterable-nested';
+  for (final value in extra) {
+    for (final suffix in suffixes) {
+      yield '$prefix-$value-$suffix';
+    }
+  }
+}
+
+Iterable<String> syncGeneratedYieldStar() sync* {
+  yield* ['patched-yield-star-a', 'patched-yield-star-b'];
+}
+
+Iterable<String> syncGeneratedYieldStarDynamic(List<String> extra) sync* {
+  yield* extra;
+  yield 'patched-yield-star-dynamic-tail';
+}
+
 List<String> names(bool enabled, bool premium) {
   return ['patched', ...['spread-a', 'spread-b'], for (final value in ['for-a', 'for-b']) value, if (enabled) 'live' else 'off', if (premium) 'pro', 'tail'];
 }
@@ -606,374 +2687,10 @@ DART
   --dill "$WORKDIR/patch.dill" \
   >"$WORKDIR/patch_inventory.json"
 
-python3 - "$WORKDIR/release_inventory.json" "$WORKDIR/patch_inventory.json" "$WORKDIR/plan.json" <<'PY'
-import json
-import sys
-
-release = json.load(open(sys.argv[1]))
-patch = json.load(open(sys.argv[2]))
-release_by_id = {f["function_id"]: f for f in release["functions"]}
-plan = {"unchanged": [], "interpret": [], "reject": []}
-
-for function in patch["functions"]:
-    old = release_by_id.get(function["function_id"])
-    if old is None:
-        continue
-    entry = {
-        "function_id": function["function_id"],
-        "source_location": function.get("source_location"),
-    }
-    if old["body_hash"] == function["body_hash"]:
-        plan["unchanged"].append(entry)
-    elif function.get("unsupported_reasons"):
-        plan["reject"].append({
-            **entry,
-            "reject_reason": function["unsupported_reasons"][0],
-        })
-    else:
-        plan["interpret"].append(entry)
-
-if len(plan["interpret"]) != 42:
-    raise SystemExit(f"expected 42 interpreted functions, got {len(plan['interpret'])}")
-if len(plan["reject"]) != 2:
-    raise SystemExit(f"expected two rejected functions, got {plan['reject']}")
-
-escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "escapingGreeting"
-]
-if len(escaping) != 1:
-    raise SystemExit(f"expected one escapingGreeting inventory entry, got {escaping}")
-escaping_source = escaping[0].get("bytecode_source")
-if not isinstance(escaping_source, dict):
-    raise SystemExit(f"escaping closure must produce bytecode source: {escaping[0]}")
-if escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"escaping closure should now be supported, got {escaping[0]}")
-if escaping_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected escaping closure make_closure source, got {escaping_source}")
-if len(escaping_source.get("extra_functions", [])) != 1:
-    raise SystemExit(f"expected escaping closure extra function, got {escaping_source}")
-
-stored_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "storedEscapingGreeting"
-]
-if len(stored_escaping) != 1:
-    raise SystemExit(f"expected one storedEscapingGreeting inventory entry, got {stored_escaping}")
-stored_escaping_source = stored_escaping[0].get("bytecode_source")
-if not isinstance(stored_escaping_source, dict):
-    raise SystemExit(f"stored escaping closure must produce bytecode source: {stored_escaping[0]}")
-if stored_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"stored escaping closure should now be supported, got {stored_escaping[0]}")
-if stored_escaping_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected stored escaping closure make_closure source, got {stored_escaping_source}")
-if len(stored_escaping_source.get("extra_functions", [])) != 1:
-    raise SystemExit(f"expected stored escaping closure extra function, got {stored_escaping_source}")
-
-personalized_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "personalizedEscapingGreeting"
-]
-if len(personalized_escaping) != 1:
-    raise SystemExit(f"expected one personalizedEscapingGreeting inventory entry, got {personalized_escaping}")
-personalized_escaping_source = personalized_escaping[0].get("bytecode_source")
-if not isinstance(personalized_escaping_source, dict):
-    raise SystemExit(f"personalized escaping closure must produce bytecode source: {personalized_escaping[0]}")
-if personalized_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"personalized escaping closure should now be supported, got {personalized_escaping[0]}")
-if personalized_escaping_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected personalized escaping closure make_closure source, got {personalized_escaping_source}")
-extra_functions = personalized_escaping_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "suffix"]:
-    raise SystemExit(f"expected personalized escaping closure params, got {personalized_escaping_source}")
-
-named_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "namedEscapingGreeting"
-]
-if len(named_escaping) != 1:
-    raise SystemExit(f"expected one namedEscapingGreeting inventory entry, got {named_escaping}")
-named_escaping_source = named_escaping[0].get("bytecode_source")
-if not isinstance(named_escaping_source, dict):
-    raise SystemExit(f"named escaping closure must produce bytecode source: {named_escaping[0]}")
-if named_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"named escaping closure should now be supported, got {named_escaping[0]}")
-if named_escaping_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected named escaping closure make_closure source, got {named_escaping_source}")
-extra_functions = named_escaping_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "suffix"]:
-    raise SystemExit(f"expected named escaping closure params, got {named_escaping_source}")
-make_closure = named_escaping_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
-if make_closure.get("named_parameters") != ["suffix"]:
-    raise SystemExit(f"expected required named escaping closure metadata, got {named_escaping_source}")
-
-optional_positional_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "optionalPositionalEscapingGreeting"
-]
-if len(optional_positional_escaping) != 1:
-    raise SystemExit(f"expected one optionalPositionalEscapingGreeting inventory entry, got {optional_positional_escaping}")
-optional_positional_source = optional_positional_escaping[0].get("bytecode_source")
-if not isinstance(optional_positional_source, dict):
-    raise SystemExit(f"optional positional escaping closure must produce bytecode source: {optional_positional_escaping[0]}")
-if optional_positional_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"optional positional escaping closure should now be supported, got {optional_positional_escaping[0]}")
-make_closure = optional_positional_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
-if make_closure.get("optional_positional_count") != 1:
-    raise SystemExit(f"expected optional positional escaping closure metadata, got {optional_positional_source}")
-extra_functions = optional_positional_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "suffix"]:
-    raise SystemExit(f"expected optional positional escaping closure params, got {optional_positional_source}")
-
-optional_named_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "optionalNamedEscapingGreeting"
-]
-if len(optional_named_escaping) != 1:
-    raise SystemExit(f"expected one optionalNamedEscapingGreeting inventory entry, got {optional_named_escaping}")
-optional_named_source = optional_named_escaping[0].get("bytecode_source")
-if not isinstance(optional_named_source, dict):
-    raise SystemExit(f"optional named escaping closure must produce bytecode source: {optional_named_escaping[0]}")
-if optional_named_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"optional named escaping closure should now be supported, got {optional_named_escaping[0]}")
-make_closure = optional_named_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
-if make_closure.get("named_parameters") != ["?suffix"]:
-    raise SystemExit(f"expected optional named escaping closure metadata, got {optional_named_source}")
-extra_functions = optional_named_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "suffix"]:
-    raise SystemExit(f"expected optional named escaping closure params, got {optional_named_source}")
-
-generic_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "genericEscapingGreeting"
-]
-if len(generic_escaping) != 1:
-    raise SystemExit(f"expected one genericEscapingGreeting inventory entry, got {generic_escaping}")
-generic_source = generic_escaping[0].get("bytecode_source")
-if not isinstance(generic_source, dict):
-    raise SystemExit(f"generic escaping closure must produce bytecode source: {generic_escaping[0]}")
-if generic_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"generic escaping closure should now be supported, got {generic_escaping[0]}")
-make_closure = generic_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure", {})
-if make_closure.get("type_parameter_count") != 1:
-    raise SystemExit(f"expected generic escaping closure type metadata, got {generic_source}")
-extra_functions = generic_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "value"]:
-    raise SystemExit(f"expected generic escaping closure params, got {generic_source}")
-
-local_function_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "localFunctionEscapingGreeting"
-]
-if len(local_function_escaping) != 1:
-    raise SystemExit(f"expected one localFunctionEscapingGreeting inventory entry, got {local_function_escaping}")
-local_function_source = local_function_escaping[0].get("bytecode_source")
-if not isinstance(local_function_source, dict):
-    raise SystemExit(f"local function escaping closure must produce bytecode source: {local_function_escaping[0]}")
-if local_function_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"local function escaping closure should now be supported, got {local_function_escaping[0]}")
-if local_function_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected local function escaping closure make_closure source, got {local_function_source}")
-extra_functions = local_function_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name"]:
-    raise SystemExit(f"expected local function escaping closure params, got {local_function_source}")
-
-body_local_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "bodyLocalEscapingGreeting"
-]
-if len(body_local_escaping) != 1:
-    raise SystemExit(f"expected one bodyLocalEscapingGreeting inventory entry, got {body_local_escaping}")
-body_local_source = body_local_escaping[0].get("bytecode_source")
-if not isinstance(body_local_source, dict):
-    raise SystemExit(f"body-local escaping closure must produce bytecode source: {body_local_escaping[0]}")
-if body_local_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"body-local escaping closure should now be supported, got {body_local_escaping[0]}")
-if body_local_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected body-local escaping closure make_closure source, got {body_local_source}")
-extra_functions = body_local_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name"]:
-    raise SystemExit(f"expected body-local escaping closure params, got {body_local_source}")
-if extra_functions[0].get("body", {}).get("let", {}).get("locals") is None:
-    raise SystemExit(f"expected body-local escaping closure body let, got {body_local_source}")
-
-try_catch_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "tryCatchEscapingGreeting"
-]
-if len(try_catch_escaping) != 1:
-    raise SystemExit(f"expected one tryCatchEscapingGreeting inventory entry, got {try_catch_escaping}")
-try_catch_source = try_catch_escaping[0].get("bytecode_source")
-if not isinstance(try_catch_source, dict):
-    raise SystemExit(f"try/catch escaping closure must produce bytecode source: {try_catch_escaping[0]}")
-if try_catch_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"try/catch escaping closure should now be supported, got {try_catch_escaping[0]}")
-if try_catch_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected try/catch escaping closure make_closure source, got {try_catch_source}")
-extra_functions = try_catch_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "fail"]:
-    raise SystemExit(f"expected try/catch escaping closure params, got {try_catch_source}")
-if extra_functions[0].get("body", {}).get("try_catch") is None:
-    raise SystemExit(f"expected try/catch escaping closure body try_catch, got {try_catch_source}")
-
-dynamic_call_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "dynamicCallEscapingGreeting"
-]
-if len(dynamic_call_escaping) != 1:
-    raise SystemExit(f"expected one dynamicCallEscapingGreeting inventory entry, got {dynamic_call_escaping}")
-dynamic_call_source = dynamic_call_escaping[0].get("bytecode_source")
-if not isinstance(dynamic_call_source, dict):
-    raise SystemExit(f"dynamic-call escaping closure must produce bytecode source: {dynamic_call_escaping[0]}")
-if dynamic_call_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"dynamic-call escaping closure should now be supported, got {dynamic_call_escaping[0]}")
-if dynamic_call_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected dynamic-call escaping closure make_closure source, got {dynamic_call_source}")
-extra_functions = dynamic_call_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["greeter", "name", "suffix"]:
-    raise SystemExit(f"expected dynamic-call escaping closure params, got {dynamic_call_source}")
-if extra_functions[0].get("body", {}).get("call_dynamic") is None:
-    raise SystemExit(f"expected dynamic-call escaping closure body call_dynamic, got {dynamic_call_source}")
-
-logical_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "logicalEscapingGreeting"
-]
-if len(logical_escaping) != 1:
-    raise SystemExit(f"expected one logicalEscapingGreeting inventory entry, got {logical_escaping}")
-logical_source = logical_escaping[0].get("bytecode_source")
-if not isinstance(logical_source, dict):
-    raise SystemExit(f"logical escaping closure must produce bytecode source: {logical_escaping[0]}")
-if logical_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"logical escaping closure should now be supported, got {logical_escaping[0]}")
-if logical_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected logical escaping closure make_closure source, got {logical_source}")
-extra_functions = logical_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["name", "prefix", "enabled", "premium"]:
-    raise SystemExit(f"expected logical escaping closure params, got {logical_source}")
-if extra_functions[0].get("body", {}).get("conditional") is None:
-    raise SystemExit(f"expected logical escaping closure body conditional, got {logical_source}")
-
-if_else_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "ifElseEscapingGreeting"
-]
-if len(if_else_escaping) != 1:
-    raise SystemExit(f"expected one ifElseEscapingGreeting inventory entry, got {if_else_escaping}")
-if_else_source = if_else_escaping[0].get("bytecode_source")
-if not isinstance(if_else_source, dict):
-    raise SystemExit(f"if/else escaping closure must produce bytecode source: {if_else_escaping[0]}")
-if if_else_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"if/else escaping closure should now be supported, got {if_else_escaping[0]}")
-if if_else_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected if/else escaping closure make_closure source, got {if_else_source}")
-extra_functions = if_else_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "enabled"]:
-    raise SystemExit(f"expected if/else escaping closure params, got {if_else_source}")
-if extra_functions[0].get("body", {}).get("conditional") is None:
-    raise SystemExit(f"expected if/else escaping closure body conditional, got {if_else_source}")
-
-body_local_if_else_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "bodyLocalIfElseEscapingGreeting"
-]
-if len(body_local_if_else_escaping) != 1:
-    raise SystemExit(f"expected one bodyLocalIfElseEscapingGreeting inventory entry, got {body_local_if_else_escaping}")
-body_local_if_else_source = body_local_if_else_escaping[0].get("bytecode_source")
-if not isinstance(body_local_if_else_source, dict):
-    raise SystemExit(f"body-local if/else escaping closure must produce bytecode source: {body_local_if_else_escaping[0]}")
-if body_local_if_else_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"body-local if/else escaping closure should now be supported, got {body_local_if_else_escaping[0]}")
-if body_local_if_else_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected body-local if/else escaping closure make_closure source, got {body_local_if_else_source}")
-extra_functions = body_local_if_else_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "enabled"]:
-    raise SystemExit(f"expected body-local if/else escaping closure params, got {body_local_if_else_source}")
-closure_body = extra_functions[0].get("body", {})
-if closure_body.get("let", {}).get("body", {}).get("conditional") is None:
-    raise SystemExit(f"expected body-local if/else escaping closure body let+conditional, got {body_local_if_else_source}")
-
-branch_local_if_else_escaping = [
-    f for f in patch["functions"]
-    if f.get("member_name") == "branchLocalIfElseEscapingGreeting"
-]
-if len(branch_local_if_else_escaping) != 1:
-    raise SystemExit(f"expected one branchLocalIfElseEscapingGreeting inventory entry, got {branch_local_if_else_escaping}")
-branch_local_if_else_source = branch_local_if_else_escaping[0].get("bytecode_source")
-if not isinstance(branch_local_if_else_source, dict):
-    raise SystemExit(f"branch-local if/else escaping closure must produce bytecode source: {branch_local_if_else_escaping[0]}")
-if branch_local_if_else_escaping[0].get("unsupported_reasons") != []:
-    raise SystemExit(f"branch-local if/else escaping closure should now be supported, got {branch_local_if_else_escaping[0]}")
-if branch_local_if_else_source.get("body", {}).get("let", {}).get("body", {}).get("make_closure") is None:
-    raise SystemExit(f"expected branch-local if/else escaping closure make_closure source, got {branch_local_if_else_source}")
-extra_functions = branch_local_if_else_source.get("extra_functions", [])
-if len(extra_functions) != 1 or extra_functions[0].get("params") != ["prefix", "name", "enabled"]:
-    raise SystemExit(f"expected branch-local if/else escaping closure params, got {branch_local_if_else_source}")
-conditional = extra_functions[0].get("body", {}).get("conditional", {})
-if conditional.get("then", {}).get("let") is None or conditional.get("else", {}).get("let") is None:
-    raise SystemExit(f"expected branch-local if/else escaping closure branch lets, got {branch_local_if_else_source}")
-
-expected_rejects = {
-    "isCallable": "function_type_unsupported",
-    "isRecord": "record_type_unsupported",
-}
-patch_by_member = {f.get("member_name"): f for f in patch["functions"]}
-plan_rejects = {item["function_id"]: item["reject_reason"] for item in plan["reject"]}
-for member, reason in expected_rejects.items():
-    function = patch_by_member.get(member)
-    if function is None:
-        raise SystemExit(f"missing inventory entry for {member}")
-    if function.get("bytecode_source") is not None:
-        raise SystemExit(f"{member} must not produce bytecode source: {function}")
-    if function.get("unsupported_reasons") != [reason]:
-        raise SystemExit(f"expected {member} reason {reason}, got {function}")
-    if plan_rejects.get(function["function_id"]) != reason:
-        raise SystemExit(f"expected plan reject {member}={reason}, got {plan['reject']}")
-
-async_label = patch_by_member.get("asyncLabel")
-if async_label is None:
-    raise SystemExit("missing inventory entry for asyncLabel")
-async_source = async_label.get("bytecode_source")
-if not isinstance(async_source, dict):
-    raise SystemExit(f"asyncLabel should now produce bytecode source: {async_label}")
-if async_label.get("unsupported_reasons") != []:
-    raise SystemExit(f"asyncLabel should now be supported, got {async_label}")
-async_new_object = async_source.get("body", {}).get("new_object", {})
-if async_new_object.get("constructor") != "dart:async::class:_Future.value":
-    raise SystemExit(f"expected asyncLabel _Future.value source, got {async_source}")
-if async_new_object.get("type_args") != ["String"]:
-    raise SystemExit(f"expected asyncLabel Future<String> type arg, got {async_source}")
-awaited = patch_by_member.get("awaitedLabel", {}).get("bytecode_source", {})
-if awaited.get("body", {}).get("new_object", {}).get("constructor") != "dart:async::class:_Future.value":
-    raise SystemExit(f"expected awaitedLabel _Future.value source, got {awaited}")
-awaited_local = patch_by_member.get("awaitedLocalLabel", {}).get("bytecode_source", {})
-awaited_local_let = awaited_local.get("body", {}).get("new_object", {}).get("args", [{}])[0].get("try_catch", {}).get("body", {}).get("let", {})
-if len(awaited_local_let.get("locals", [])) != 2 or awaited_local_let.get("body", {}).get("conditional") is None:
-    raise SystemExit(f"expected awaitedLocalLabel try/catch mixed-local if-return source, got {awaited_local}")
-
-null_sources = [
-    f.get("bytecode_source", {}).get("body")
-    for f in patch["functions"]
-    if f.get("member_name") == "maybeNull"
-]
-if null_sources != [{"null": True}]:
-    raise SystemExit(f"expected maybeNull null bytecode source, got {null_sources}")
-
-label_sources = [
-    f.get("bytecode_source", {}).get("body")
-    for f in patch["functions"]
-    if f.get("member_name") == "label"
-]
-if len(label_sources) != 1:
-    raise SystemExit(f"expected one label bytecode source, got {label_sources}")
-label_source = label_sources[0]
-if "concat" not in label_source:
-    raise SystemExit(f"expected label string concat source, got {label_source}")
-if '"hello "' not in json.dumps(label_source) or '"!"' not in json.dumps(label_source):
-    raise SystemExit(f"expected label concat constants, got {label_source}")
-
-json.dump(plan, open(sys.argv[3], "w"))
-PY
+python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_inventory.py" \
+  "$WORKDIR/release_inventory.json" "$WORKDIR/patch_inventory.json" "$WORKDIR/plan.json"
+python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_generator_sources.py" \
+  "$WORKDIR/patch_inventory.json"
 
 "$DART_BIN" "$ROOT_DIR/tool/fcb_kernel_manifest.dart" \
   --project "$WORKDIR/project" \
@@ -990,647 +2707,13 @@ PY
   --format binary \
   -o "$WORKDIR/module.bin"
 
-python3 - "$WORKDIR/module.fcbm" <<'PY'
-import json
-import sys
+python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_module.py" "$WORKDIR/module.fcbm"
 
-module = json.load(open(sys.argv[1]))
-assert module["version"] == 3, module
-assert len(module["functions"]) == 57, module
-function = next(
-    item for item in module["functions"] if item["name"].endswith("::mainValue")
-)
-assert function["code"][-1] == 255, function
-assert 0x50 in function["code"], function
-source_map = function.get("source_map")
-assert isinstance(source_map, list) and len(source_map) == 1, function
-assert source_map[0]["bytecode_offset"] == 0, source_map
-assert isinstance(source_map[0]["source_location"], str), source_map
-assert source_map[0]["source_location"].strip(), source_map
-assert any(
-    constant.get("type") == "String" and "helper" in constant.get("value", "")
-    for constant in function["constants"]
-), function
-async_label = next(
-    item for item in module["functions"] if item["name"].endswith("::asyncLabel")
-)
-assert async_label.get("async_kind") == "async_future", async_label
-assert 0x55 in async_label["code"], async_label
-assert any(
-    constant.get("type") == "String"
-    and constant.get("value") == "dart:async::class:_Future.value;types:String"
-    for constant in async_label["constants"]
-), async_label
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched-async"
-    for constant in async_label["constants"]
-), async_label
-awaited_label = next(
-    item for item in module["functions"] if item["name"].endswith("::awaitedLabel")
-)
-assert awaited_label.get("async_kind") == "async_future", awaited_label
-assert 0x55 in awaited_label["code"] and 0x42 in awaited_label["code"] and 0x31 in awaited_label["code"], awaited_label
-assert {"slot": 0, "name": "enabled"} in awaited_label.get("debug_locals", []), awaited_label
-awaited_local = next(item for item in module["functions"] if item["name"].endswith("::awaitedLocalLabel"))
-assert awaited_local.get("async_kind") == "async_future", awaited_local
-assert 0x55 in awaited_local["code"] and awaited_local["code"].count(0x04) >= 2 and 0x31 in awaited_local["code"] and 0x42 in awaited_local["code"] and 0x61 in awaited_local["code"], awaited_local
-awaited_local_debug_names = {
-    entry.get("name") for entry in awaited_local.get("debug_locals", [])
-}
-assert {"name", "base", "prefix"}.issubset(awaited_local_debug_names), awaited_local
-double_count = sum(
-    1
-    for constant in function["constants"]
-    if constant.get("type") == "Double" and constant.get("value") == 1.5
-)
-assert double_count == 1, function
-assert any(
-    constant.get("type") == "Double" and constant.get("value") == 1.5
-    for constant in function["constants"]
-), function
-label = next(item for item in module["functions"] if item["name"].endswith("::label"))
-assert label["param_count"] == 1, label
-assert 0x42 in label["code"], label
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "hello "
-    for constant in label["constants"]
-), label
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "!"
-    for constant in label["constants"]
-), label
-display = next(item for item in module["functions"] if item["name"].endswith("::displayName"))
-assert display["param_count"] == 1, display
-assert 0x43 in display["code"], display
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "label"
-    for constant in display["constants"]
-), display
-is_known = next(item for item in module["functions"] if item["name"].endswith("::isKnown"))
-assert is_known["param_count"] == 1, is_known
-assert 0x45 in is_known["code"], is_known
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "String"
-    for constant in is_known["constants"]
-), is_known
-is_user = next(item for item in module["functions"] if item["name"].endswith("::isUser"))
-assert is_user["param_count"] == 1, is_user
-assert 0x45 in is_user["code"], is_user
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::User"
-    for constant in is_user["constants"]
-), is_user
-is_string_list = next(item for item in module["functions"] if item["name"].endswith("::isStringList"))
-assert is_string_list["param_count"] == 1, is_string_list
-assert 0x45 in is_string_list["code"], is_string_list
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "List<String>"
-    for constant in is_string_list["constants"]
-), is_string_list
-as_string_list = next(item for item in module["functions"] if item["name"].endswith("::asStringList"))
-assert as_string_list["param_count"] == 1, as_string_list
-assert 0x46 in as_string_list["code"], as_string_list
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "List<String>"
-    for constant in as_string_list["constants"]
-), as_string_list
-make_user = next(item for item in module["functions"] if item["name"].endswith("::makeUser"))
-assert make_user["param_count"] == 0, make_user
-assert 0x55 in make_user["code"], make_user
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:User."
-    for constant in make_user["constants"]
-), make_user
-make_config = next(item for item in module["functions"] if item["name"].endswith("::makeConfig"))
-assert make_config["param_count"] == 0, make_config
-assert 0x55 in make_config["code"], make_config
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Config.;named:name,label"
-    for constant in make_config["constants"]
-), make_config
-make_string_box = next(item for item in module["functions"] if item["name"].endswith("::makeStringBox"))
-assert make_string_box["param_count"] == 0, make_string_box
-assert 0x55 in make_string_box["code"], make_string_box
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Box.;types:String"
-    for constant in make_string_box["constants"]
-), make_string_box
-dynamic_named_call = next(item for item in module["functions"] if item["name"].endswith("::dynamicNamedCall"))
-assert dynamic_named_call["param_count"] == 0, dynamic_named_call
-assert 0x55 in dynamic_named_call["code"], dynamic_named_call
-assert 0x51 in dynamic_named_call["code"], dynamic_named_call
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Greeter."
-    for constant in dynamic_named_call["constants"]
-), dynamic_named_call
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "surround;named:prefix,suffix"
-    for constant in dynamic_named_call["constants"]
-), dynamic_named_call
-for value in ["patched", "<", ">"]:
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == value
-        for constant in dynamic_named_call["constants"]
-    ), dynamic_named_call
-captured_greeting = next(item for item in module["functions"] if item["name"].endswith("::capturedGreeting"))
-assert captured_greeting["param_count"] == 1, captured_greeting
-assert 0x42 in captured_greeting["code"], captured_greeting
-assert 0x03 in captured_greeting["code"], captured_greeting
-assert 0x04 in captured_greeting["code"], captured_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in captured_greeting["constants"]
-), captured_greeting
-stored_closure_greeting = next(item for item in module["functions"] if item["name"].endswith("::storedClosureGreeting"))
-assert stored_closure_greeting["param_count"] == 1, stored_closure_greeting
-assert 0x42 in stored_closure_greeting["code"], stored_closure_greeting
-assert 0x03 in stored_closure_greeting["code"], stored_closure_greeting
-assert 0x04 in stored_closure_greeting["code"], stored_closure_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in stored_closure_greeting["constants"]
-), stored_closure_greeting
-passed_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::passedEscapingGreeting"))
-assert passed_escaping_greeting["param_count"] == 1, passed_escaping_greeting
-assert 0x42 in passed_escaping_greeting["code"], passed_escaping_greeting
-assert 0x03 in passed_escaping_greeting["code"], passed_escaping_greeting
-assert 0x04 in passed_escaping_greeting["code"], passed_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in passed_escaping_greeting["constants"]
-), passed_escaping_greeting
-escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::escapingGreeting"))
-assert escaping_greeting["param_count"] == 1, escaping_greeting
-assert 0x54 in escaping_greeting["code"], escaping_greeting
-assert 0x03 in escaping_greeting["code"], escaping_greeting
-assert 0x04 in escaping_greeting["code"], escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in escaping_greeting["constants"]
-), escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::escapingGreeting.<closure0>();captures:2")
-    for constant in escaping_greeting["constants"]
-), escaping_greeting
-escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::escapingGreeting.<closure0>()"))
-assert escaping_closure["param_count"] == 2, escaping_closure
-assert 0x42 in escaping_closure["code"], escaping_closure
-stored_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::storedEscapingGreeting"))
-assert stored_escaping_greeting["param_count"] == 1, stored_escaping_greeting
-assert 0x54 in stored_escaping_greeting["code"], stored_escaping_greeting
-assert 0x03 in stored_escaping_greeting["code"], stored_escaping_greeting
-assert 0x04 in stored_escaping_greeting["code"], stored_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in stored_escaping_greeting["constants"]
-), stored_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::storedEscapingGreeting.<closure0>();captures:2")
-    for constant in stored_escaping_greeting["constants"]
-), stored_escaping_greeting
-stored_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::storedEscapingGreeting.<closure0>()"))
-assert stored_escaping_closure["param_count"] == 2, stored_escaping_closure
-assert 0x42 in stored_escaping_closure["code"], stored_escaping_closure
-personalized_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::personalizedEscapingGreeting"))
-assert personalized_escaping_greeting["param_count"] == 1, personalized_escaping_greeting
-assert 0x54 in personalized_escaping_greeting["code"], personalized_escaping_greeting
-assert 0x03 in personalized_escaping_greeting["code"], personalized_escaping_greeting
-assert 0x04 in personalized_escaping_greeting["code"], personalized_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in personalized_escaping_greeting["constants"]
-), personalized_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::personalizedEscapingGreeting.<closure0>();captures:2")
-    for constant in personalized_escaping_greeting["constants"]
-), personalized_escaping_greeting
-personalized_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::personalizedEscapingGreeting.<closure0>()"))
-assert personalized_escaping_closure["param_count"] == 3, personalized_escaping_closure
-assert 0x42 in personalized_escaping_closure["code"], personalized_escaping_closure
-named_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::namedEscapingGreeting"))
-assert named_escaping_greeting["param_count"] == 1, named_escaping_greeting
-assert 0x54 in named_escaping_greeting["code"], named_escaping_greeting
-assert 0x03 in named_escaping_greeting["code"], named_escaping_greeting
-assert 0x04 in named_escaping_greeting["code"], named_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in named_escaping_greeting["constants"]
-), named_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::namedEscapingGreeting.<closure0>();captures:2;named:suffix")
-    for constant in named_escaping_greeting["constants"]
-), named_escaping_greeting
-named_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::namedEscapingGreeting.<closure0>()"))
-assert named_escaping_closure["param_count"] == 3, named_escaping_closure
-assert 0x42 in named_escaping_closure["code"], named_escaping_closure
-optional_positional_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::optionalPositionalEscapingGreeting"))
-assert optional_positional_escaping_greeting["param_count"] == 1, optional_positional_escaping_greeting
-assert 0x54 in optional_positional_escaping_greeting["code"], optional_positional_escaping_greeting
-assert 0x03 in optional_positional_escaping_greeting["code"], optional_positional_escaping_greeting
-assert 0x04 in optional_positional_escaping_greeting["code"], optional_positional_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in optional_positional_escaping_greeting["constants"]
-), optional_positional_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::optionalPositionalEscapingGreeting.<closure0>();captures:2;optional-pos:1")
-    for constant in optional_positional_escaping_greeting["constants"]
-), optional_positional_escaping_greeting
-optional_positional_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::optionalPositionalEscapingGreeting.<closure0>()"))
-assert optional_positional_escaping_closure["param_count"] == 3, optional_positional_escaping_closure
-assert 0x42 in optional_positional_escaping_closure["code"], optional_positional_escaping_closure
-optional_named_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::optionalNamedEscapingGreeting"))
-assert optional_named_escaping_greeting["param_count"] == 1, optional_named_escaping_greeting
-assert 0x54 in optional_named_escaping_greeting["code"], optional_named_escaping_greeting
-assert 0x03 in optional_named_escaping_greeting["code"], optional_named_escaping_greeting
-assert 0x04 in optional_named_escaping_greeting["code"], optional_named_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in optional_named_escaping_greeting["constants"]
-), optional_named_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::optionalNamedEscapingGreeting.<closure0>();captures:2;named:?suffix")
-    for constant in optional_named_escaping_greeting["constants"]
-), optional_named_escaping_greeting
-optional_named_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::optionalNamedEscapingGreeting.<closure0>()"))
-assert optional_named_escaping_closure["param_count"] == 3, optional_named_escaping_closure
-assert 0x42 in optional_named_escaping_closure["code"], optional_named_escaping_closure
-generic_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::genericEscapingGreeting"))
-assert generic_escaping_greeting["param_count"] == 1, generic_escaping_greeting
-assert 0x54 in generic_escaping_greeting["code"], generic_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::genericEscapingGreeting.<closure0>();captures:2;type-params:1")
-    for constant in generic_escaping_greeting["constants"]
-), generic_escaping_greeting
-generic_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::genericEscapingGreeting.<closure0>()"))
-assert generic_escaping_closure["param_count"] == 3, generic_escaping_closure
-assert 0x42 in generic_escaping_closure["code"], generic_escaping_closure
-local_function_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::localFunctionEscapingGreeting"))
-assert local_function_escaping_greeting["param_count"] == 1, local_function_escaping_greeting
-assert 0x54 in local_function_escaping_greeting["code"], local_function_escaping_greeting
-assert 0x03 in local_function_escaping_greeting["code"], local_function_escaping_greeting
-assert 0x04 in local_function_escaping_greeting["code"], local_function_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in local_function_escaping_greeting["constants"]
-), local_function_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::localFunctionEscapingGreeting.<closure0>();captures:2")
-    for constant in local_function_escaping_greeting["constants"]
-), local_function_escaping_greeting
-local_function_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::localFunctionEscapingGreeting.<closure0>()"))
-assert local_function_escaping_closure["param_count"] == 2, local_function_escaping_closure
-assert 0x42 in local_function_escaping_closure["code"], local_function_escaping_closure
-body_local_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::bodyLocalEscapingGreeting"))
-assert body_local_escaping_greeting["param_count"] == 1, body_local_escaping_greeting
-assert 0x54 in body_local_escaping_greeting["code"], body_local_escaping_greeting
-assert 0x03 in body_local_escaping_greeting["code"], body_local_escaping_greeting
-assert 0x04 in body_local_escaping_greeting["code"], body_local_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in body_local_escaping_greeting["constants"]
-), body_local_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::bodyLocalEscapingGreeting.<closure0>();captures:2")
-    for constant in body_local_escaping_greeting["constants"]
-), body_local_escaping_greeting
-body_local_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::bodyLocalEscapingGreeting.<closure0>()"))
-assert body_local_escaping_closure["param_count"] == 2, body_local_escaping_closure
-assert 0x42 in body_local_escaping_closure["code"], body_local_escaping_closure
-assert 0x03 in body_local_escaping_closure["code"], body_local_escaping_closure
-assert 0x04 in body_local_escaping_closure["code"], body_local_escaping_closure
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "body"
-    for constant in body_local_escaping_closure["constants"]
-), body_local_escaping_closure
-try_catch_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::tryCatchEscapingGreeting"))
-assert try_catch_escaping_greeting["param_count"] == 1, try_catch_escaping_greeting
-assert 0x54 in try_catch_escaping_greeting["code"], try_catch_escaping_greeting
-assert 0x03 in try_catch_escaping_greeting["code"], try_catch_escaping_greeting
-assert 0x04 in try_catch_escaping_greeting["code"], try_catch_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::tryCatchEscapingGreeting.<closure0>();captures:1")
-    for constant in try_catch_escaping_greeting["constants"]
-), try_catch_escaping_greeting
-try_catch_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::tryCatchEscapingGreeting.<closure0>()"))
-assert try_catch_escaping_closure["param_count"] == 2, try_catch_escaping_closure
-assert 0x61 in try_catch_escaping_closure["code"], try_catch_escaping_closure
-assert 0x60 in try_catch_escaping_closure["code"], try_catch_escaping_closure
-assert 0x31 in try_catch_escaping_closure["code"], try_catch_escaping_closure
-assert 0x30 in try_catch_escaping_closure["code"], try_catch_escaping_closure
-assert 0x03 in try_catch_escaping_closure["code"], try_catch_escaping_closure
-assert 0x04 in try_catch_escaping_closure["code"], try_catch_escaping_closure
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "-boom"
-    for constant in try_catch_escaping_closure["constants"]
-), try_catch_escaping_closure
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "-caught "
-    for constant in try_catch_escaping_closure["constants"]
-), try_catch_escaping_closure
-dynamic_call_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::dynamicCallEscapingGreeting"))
-assert dynamic_call_escaping_greeting["param_count"] == 1, dynamic_call_escaping_greeting
-assert 0x55 in dynamic_call_escaping_greeting["code"], dynamic_call_escaping_greeting
-assert 0x54 in dynamic_call_escaping_greeting["code"], dynamic_call_escaping_greeting
-assert 0x03 in dynamic_call_escaping_greeting["code"], dynamic_call_escaping_greeting
-assert 0x04 in dynamic_call_escaping_greeting["code"], dynamic_call_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Greeter."
-    for constant in dynamic_call_escaping_greeting["constants"]
-), dynamic_call_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::dynamicCallEscapingGreeting.<closure0>();captures:2")
-    for constant in dynamic_call_escaping_greeting["constants"]
-), dynamic_call_escaping_greeting
-dynamic_call_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::dynamicCallEscapingGreeting.<closure0>()"))
-assert dynamic_call_escaping_closure["param_count"] == 3, dynamic_call_escaping_closure
-assert 0x51 in dynamic_call_escaping_closure["code"], dynamic_call_escaping_closure
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "surround;named:prefix,suffix"
-    for constant in dynamic_call_escaping_closure["constants"]
-), dynamic_call_escaping_closure
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched-"
-    for constant in dynamic_call_escaping_closure["constants"]
-), dynamic_call_escaping_closure
-logical_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::logicalEscapingGreeting"))
-assert logical_escaping_greeting["param_count"] == 1, logical_escaping_greeting
-assert 0x54 in logical_escaping_greeting["code"], logical_escaping_greeting
-assert 0x03 in logical_escaping_greeting["code"], logical_escaping_greeting
-assert 0x04 in logical_escaping_greeting["code"], logical_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::logicalEscapingGreeting.<closure0>();captures:2")
-    for constant in logical_escaping_greeting["constants"]
-), logical_escaping_greeting
-logical_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::logicalEscapingGreeting.<closure0>()"))
-assert logical_escaping_closure["param_count"] == 4, logical_escaping_closure
-assert logical_escaping_closure["code"].count(0x31) >= 4, logical_escaping_closure
-assert 0x30 in logical_escaping_closure["code"], logical_escaping_closure
-assert 0x42 in logical_escaping_closure["code"], logical_escaping_closure
-assert 0x21 in logical_escaping_closure["code"], logical_escaping_closure
-for value in ["vip", " pro", " basic"]:
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == value
-        for constant in logical_escaping_closure["constants"]
-    ), logical_escaping_closure
-assert any(
-    constant.get("type") == "Bool" and constant.get("value") == True
-    for constant in logical_escaping_closure["constants"]
-), logical_escaping_closure
-assert any(
-    constant.get("type") == "Bool" and constant.get("value") == False
-    for constant in logical_escaping_closure["constants"]
-), logical_escaping_closure
-if_else_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::ifElseEscapingGreeting"))
-assert if_else_escaping_greeting["param_count"] == 1, if_else_escaping_greeting
-assert 0x54 in if_else_escaping_greeting["code"], if_else_escaping_greeting
-assert 0x03 in if_else_escaping_greeting["code"], if_else_escaping_greeting
-assert 0x04 in if_else_escaping_greeting["code"], if_else_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::ifElseEscapingGreeting.<closure0>();captures:2")
-    for constant in if_else_escaping_greeting["constants"]
-), if_else_escaping_greeting
-if_else_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::ifElseEscapingGreeting.<closure0>()"))
-assert if_else_escaping_closure["param_count"] == 3, if_else_escaping_closure
-assert 0x31 in if_else_escaping_closure["code"], if_else_escaping_closure
-assert 0x30 in if_else_escaping_closure["code"], if_else_escaping_closure
-assert 0x42 in if_else_escaping_closure["code"], if_else_escaping_closure
-for value in [" enabled", " disabled"]:
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == value
-        for constant in if_else_escaping_closure["constants"]
-    ), if_else_escaping_closure
-body_local_if_else_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::bodyLocalIfElseEscapingGreeting"))
-assert body_local_if_else_escaping_greeting["param_count"] == 1, body_local_if_else_escaping_greeting
-assert 0x54 in body_local_if_else_escaping_greeting["code"], body_local_if_else_escaping_greeting
-assert 0x03 in body_local_if_else_escaping_greeting["code"], body_local_if_else_escaping_greeting
-assert 0x04 in body_local_if_else_escaping_greeting["code"], body_local_if_else_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::bodyLocalIfElseEscapingGreeting.<closure0>();captures:2")
-    for constant in body_local_if_else_escaping_greeting["constants"]
-), body_local_if_else_escaping_greeting
-body_local_if_else_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::bodyLocalIfElseEscapingGreeting.<closure0>()"))
-assert body_local_if_else_escaping_closure["param_count"] == 3, body_local_if_else_escaping_closure
-assert 0x31 in body_local_if_else_escaping_closure["code"], body_local_if_else_escaping_closure
-assert 0x30 in body_local_if_else_escaping_closure["code"], body_local_if_else_escaping_closure
-assert 0x42 in body_local_if_else_escaping_closure["code"], body_local_if_else_escaping_closure
-assert 0x03 in body_local_if_else_escaping_closure["code"], body_local_if_else_escaping_closure
-assert 0x04 in body_local_if_else_escaping_closure["code"], body_local_if_else_escaping_closure
-for value in ["body", " enabled", " disabled"]:
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == value
-        for constant in body_local_if_else_escaping_closure["constants"]
-    ), body_local_if_else_escaping_closure
-branch_local_if_else_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::branchLocalIfElseEscapingGreeting"))
-assert branch_local_if_else_escaping_greeting["param_count"] == 1, branch_local_if_else_escaping_greeting
-assert 0x54 in branch_local_if_else_escaping_greeting["code"], branch_local_if_else_escaping_greeting
-assert 0x03 in branch_local_if_else_escaping_greeting["code"], branch_local_if_else_escaping_greeting
-assert 0x04 in branch_local_if_else_escaping_greeting["code"], branch_local_if_else_escaping_greeting
-assert any(
-    constant.get("type") == "String" and constant.get("value", "").endswith("::branchLocalIfElseEscapingGreeting.<closure0>();captures:2")
-    for constant in branch_local_if_else_escaping_greeting["constants"]
-), branch_local_if_else_escaping_greeting
-branch_local_if_else_escaping_closure = next(item for item in module["functions"] if item["name"].endswith("::branchLocalIfElseEscapingGreeting.<closure0>()"))
-assert branch_local_if_else_escaping_closure["param_count"] == 3, branch_local_if_else_escaping_closure
-assert 0x31 in branch_local_if_else_escaping_closure["code"], branch_local_if_else_escaping_closure
-assert 0x30 in branch_local_if_else_escaping_closure["code"], branch_local_if_else_escaping_closure
-assert 0x42 in branch_local_if_else_escaping_closure["code"], branch_local_if_else_escaping_closure
-assert branch_local_if_else_escaping_closure["code"].count(0x03) >= 2, branch_local_if_else_escaping_closure
-assert branch_local_if_else_escaping_closure["code"].count(0x04) >= 2, branch_local_if_else_escaping_closure
-for value in ["branch-enabled", "branch-disabled"]:
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == value
-        for constant in branch_local_if_else_escaping_closure["constants"]
-    ), branch_local_if_else_escaping_closure
-top_level_tear_off = next(item for item in module["functions"] if item["name"].endswith("::topLevelTearOff"))
-assert top_level_tear_off["param_count"] == 0, top_level_tear_off
-assert 0x54 in top_level_tear_off["code"], top_level_tear_off
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::stableTearOffLabel"
-    for constant in top_level_tear_off["constants"]
-), top_level_tear_off
-recover_from_throw = next(item for item in module["functions"] if item["name"].endswith("::recoverFromThrow"))
-assert recover_from_throw["param_count"] == 1, recover_from_throw
-assert 0x61 in recover_from_throw["code"], recover_from_throw
-assert 0x60 in recover_from_throw["code"], recover_from_throw
-assert 0x31 in recover_from_throw["code"], recover_from_throw
-assert 0x30 in recover_from_throw["code"], recover_from_throw
-assert 0x03 in recover_from_throw["code"], recover_from_throw
-assert 0x04 in recover_from_throw["code"], recover_from_throw
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched-boom"
-    for constant in recover_from_throw["constants"]
-), recover_from_throw
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched-caught "
-    for constant in recover_from_throw["constants"]
-), recover_from_throw
-always_throw = next(item for item in module["functions"] if item["name"].endswith("::alwaysThrow"))
-assert always_throw["param_count"] == 0, always_throw
-assert 0x60 in always_throw["code"], always_throw
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched-boom"
-    for constant in always_throw["constants"]
-), always_throw
-names = next(item for item in module["functions"] if item["name"].endswith("::names"))
-assert names["param_count"] == 2, names
-assert 0x40 in names["code"], names
-assert 0x31 in names["code"], names
-assert 0x30 in names["code"], names
-assert names["code"].count(0x31) >= 2, names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched"
-    for constant in names["constants"]
-), names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "tail"
-    for constant in names["constants"]
-), names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "spread-a"
-    for constant in names["constants"]
-), names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "spread-b"
-    for constant in names["constants"]
-), names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "for-a"
-    for constant in names["constants"]
-), names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "for-b"
-    for constant in names["constants"]
-), names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "off"
-    for constant in names["constants"]
-), names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "pro"
-    for constant in names["constants"]
-), names
-labels = next(item for item in module["functions"] if item["name"].endswith("::labels"))
-assert labels["param_count"] == 2, labels
-assert 0x41 in labels["code"], labels
-assert 0x31 in labels["code"], labels
-assert 0x30 in labels["code"], labels
-assert labels["code"].count(0x31) >= 2, labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "mode"
-    for constant in labels["constants"]
-), labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "tail"
-    for constant in labels["constants"]
-), labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "spread"
-    for constant in labels["constants"]
-), labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "yes"
-    for constant in labels["constants"]
-), labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "for"
-    for constant in labels["constants"]
-), labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "off"
-    for constant in labels["constants"]
-), labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "tier"
-    for constant in labels["constants"]
-), labels
-dynamic_names = next(item for item in module["functions"] if item["name"].endswith("::dynamicNames"))
-assert dynamic_names["param_count"] == 1, dynamic_names
-assert 0x40 in dynamic_names["code"], dynamic_names
-assert 0x51 in dynamic_names["code"], dynamic_names
-assert 0x03 in dynamic_names["code"], dynamic_names
-assert 0x04 in dynamic_names["code"], dynamic_names
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "addAll"
-    for constant in dynamic_names["constants"]
-), dynamic_names
-runtime_for_names = next(item for item in module["functions"] if item["name"].endswith("::runtimeForNames"))
-assert runtime_for_names["param_count"] == 1, runtime_for_names
-assert 0x40 in runtime_for_names["code"], runtime_for_names
-assert 0x51 in runtime_for_names["code"], runtime_for_names
-assert 0x03 in runtime_for_names["code"], runtime_for_names
-assert 0x04 in runtime_for_names["code"], runtime_for_names
-assert 0x31 in runtime_for_names["code"], runtime_for_names
-assert 0x30 in runtime_for_names["code"], runtime_for_names
-for value in ["get:iterator", "moveNext", "get:current", "add"]:
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == value
-        for constant in runtime_for_names["constants"]
-    ), runtime_for_names
-dynamic_labels = next(item for item in module["functions"] if item["name"].endswith("::dynamicLabels"))
-assert dynamic_labels["param_count"] == 1, dynamic_labels
-assert 0x41 in dynamic_labels["code"], dynamic_labels
-assert 0x51 in dynamic_labels["code"], dynamic_labels
-assert 0x03 in dynamic_labels["code"], dynamic_labels
-assert 0x04 in dynamic_labels["code"], dynamic_labels
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "addAll"
-    for constant in dynamic_labels["constants"]
-), dynamic_labels
-runtime_for_labels = next(item for item in module["functions"] if item["name"].endswith("::runtimeForLabels"))
-assert runtime_for_labels["param_count"] == 1, runtime_for_labels
-assert 0x41 in runtime_for_labels["code"], runtime_for_labels
-assert 0x51 in runtime_for_labels["code"], runtime_for_labels
-assert 0x03 in runtime_for_labels["code"], runtime_for_labels
-assert 0x04 in runtime_for_labels["code"], runtime_for_labels
-assert 0x31 in runtime_for_labels["code"], runtime_for_labels
-assert 0x30 in runtime_for_labels["code"], runtime_for_labels
-for value in ["get:entries", "get:iterator", "moveNext", "get:current", "get:key", "get:value", "[]="]:
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == value
-        for constant in runtime_for_labels["constants"]
-    ), runtime_for_labels
-choose_label = next(item for item in module["functions"] if item["name"].endswith("::chooseLabel"))
-assert choose_label["param_count"] == 1, choose_label
-assert 0x31 in choose_label["code"], choose_label
-assert 0x30 in choose_label["code"], choose_label
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched-live"
-    for constant in choose_label["constants"]
-), choose_label
-assert any(
-    constant.get("type") == "String" and constant.get("value") == "patched-off"
-    for constant in choose_label["constants"]
-), choose_label
-print("kernel compile-from-plan drill passed")
-PY
+python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_binary.py" "$WORKDIR/module.bin"
 
-python3 - "$WORKDIR/module.bin" <<'PY'
-import struct
-import sys
-
-data = open(sys.argv[1], "rb").read()
-assert data[:4] == b"FCBM", data[:4]
-version = struct.unpack(">I", data[4:8])[0]
-function_count = struct.unpack(">H", data[8:10])[0]
-assert version == 3, version
-assert function_count == 57, function_count
-assert b"\x50" in data, data
-assert b"\x40" in data, data
-assert b"\x41" in data, data
-assert b"\x42" in data, data
-assert b"\x43" in data, data
-assert b"\x45" in data, data
-assert b"\x55" in data, data
-assert b"\x54" in data, data
-assert b"\x60" in data, data
-assert b"\x61" in data, data
-assert b"\x51" in data, data
-assert b"\x03" in data, data
-assert b"\x04" in data, data
-assert b"\x31" in data, data
-assert b"\x30" in data, data
-assert b"enabled" in data, data
-assert b"prefix" in data, data
-print("kernel binary compile-from-plan drill passed")
-PY
+if [ -x "$FCB_RUN_VM_TESTS" ]; then
+  FCB_SOURCE_ASYNC_STAR_MODULE="$WORKDIR/module.bin" \
+    "$FCB_RUN_VM_TESTS" FcbPatchRuntimeAsyncStarSourceModuleStreamListen
+else
+  echo "skipping source async* runtime e2e: missing run_vm_tests at $FCB_RUN_VM_TESTS" >&2
+fi

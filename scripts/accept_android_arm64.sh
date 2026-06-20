@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEVICE_CHECK_SCRIPT="$ROOT_DIR/scripts/check_android_arm64_device.sh"
 TEST_SCRIPT="${FCB_TEST_SCRIPT:-$ROOT_DIR/scripts/test_android_arm64.sh}"
+INTERPRET_FAILURE_SCRIPT="${FCB_INTERPRET_FAILURE_SCRIPT:-$ROOT_DIR/scripts/test_android_interpret_failure.sh}"
 APP_DIR="${FCB_APP_DIR:-$ROOT_DIR/examples/counter_app}"
 ENGINE_SRC_DIR="${FCB_ENGINE_SRC_DIR:-$ROOT_DIR/vendor/flutter/engine/src}"
 ENGINE_OUT_NAME="${FCB_ENGINE_OUT_NAME:-android_release_arm64}"
@@ -25,6 +26,7 @@ Runs the FCB Android arm64 acceptance suite against the current adb device:
   1. device primary ABI must be arm64-v8a
   2. no-patch launch must return 1/8/7/base/baseline widget tree/base-field/10
   3. bytecode-patch launch must return 42/42/42/patched/patched widget tree/patched-field/42
+  4. interpret-failure launch must fall back to baseline and mark the patch bad
 
 By default this script requires the device primary ABI to be arm64-v8a.
 Set FCB_ALLOW_SECONDARY_ABI=1 to also accept x86_64 emulators that support
@@ -42,6 +44,10 @@ Environment:
   FCB_SKIP_BUILD          Skip all Flutter builds. Default: 0
   FCB_ADB                 adb path, passed through to the underlying test script.
   FCB_ALLOW_SECONDARY_ABI Accept arm64-v8a as secondary ABI (native-bridge). Default: 0
+  FCB_MAX_INTERPRETER_RATIO
+                          Max interpreter ratio for bytecode-patch phases. Default: 0.01
+  FCB_SKIP_INTERPRET_FAILURE_DRILL
+                          Skip the interpret-failure fallback drill. Default: 0
 USAGE
 }
 
@@ -66,6 +72,10 @@ run_phase() {
   local expected_field_status="${10}"
   local expected_quad="${11}"
   local phase_workdir="$WORKDIR/$name"
+  local max_interpreter_ratio=""
+  if [ "$install_patch" = "1" ]; then
+    max_interpreter_ratio="${FCB_MAX_INTERPRETER_RATIO:-0.01}"
+  fi
 
   echo "== FCB arm64 acceptance: $name =="
   local require_primary=1
@@ -87,6 +97,7 @@ run_phase() {
     FCB_EXPECTED_WIDGET_TREE_LABEL="$expected_widget_tree" \
     FCB_EXPECTED_FIELD_STATUS_LABEL="$expected_field_status" \
     FCB_EXPECTED_QUAD_COUNTER="$expected_quad" \
+    FCB_MAX_INTERPRETER_RATIO="$max_interpreter_ratio" \
     FCB_PATCH_RETURN_VALUE=42 \
     FCB_PATCH_STRING_VALUE=patched \
     FCB_INCLUDE_ARG_FUNCTION_PATCH=1 \
@@ -202,6 +213,18 @@ phase_result_summary() {
   done <"$result_file"
 }
 
+run_interpret_failure_phase() {
+  [ "${FCB_SKIP_INTERPRET_FAILURE_DRILL:-0}" != "1" ] || return 0
+  echo "== FCB arm64 acceptance: interpret-failure =="
+  FCB_WORKDIR="$WORKDIR/interpret-failure" \
+    FCB_TEST_ANDROID_SCRIPT="$TEST_SCRIPT" \
+    FCB_ADB="$ADB" \
+    FCB_SKIP_BUILD=1 \
+    FCB_FLUTTER_CLEAN=0 \
+    FCB_MAX_INTERPRETER_RATIO="${FCB_MAX_INTERPRETER_RATIO:-0.01}" \
+    "$INTERPRET_FAILURE_SCRIPT"
+}
+
 write_summary() {
   local summary="$WORKDIR/summary.txt"
   local serial primary_abi abi_list
@@ -231,6 +254,18 @@ write_summary() {
     echo "patch_logcat: $WORKDIR/patch/logs/logcat.txt"
     phase_observed_summary "patch"
     phase_result_summary "patch"
+    if [ "${FCB_SKIP_INTERPRET_FAILURE_DRILL:-0}" = "1" ]; then
+      echo "interpret_failure_skipped: true"
+    else
+      echo "interpret_failure_summary: $WORKDIR/interpret-failure/summary.txt"
+      if [ -f "$WORKDIR/interpret-failure/summary.txt" ]; then
+        while IFS= read -r line; do
+          echo "interpret_failure_${line}"
+        done <"$WORKDIR/interpret-failure/summary.txt"
+      else
+        echo "interpret_failure_summary_missing: true"
+      fi
+    fi
     file_summary "apk" "$apk"
     file_summary "app_so" "$app_so"
     file_summary "libflutter_so" "$libflutter_so"
@@ -259,6 +294,7 @@ main() {
   assert_phase_result "nopatch" "nopatch" "1" "8" "7" "base" "baseline widget tree" "base-field" "10"
   run_phase "patch" 1 "$second_skip_build" 0 "42" "42" "42" "patched" "patched widget tree" "patched-field" "42"
   assert_phase_result "patch" "patch" "42" "42" "42" "patched" "patched widget tree" "patched-field" "42"
+  run_interpret_failure_phase
 
   write_summary
   echo "FCB Android arm64 acceptance passed."

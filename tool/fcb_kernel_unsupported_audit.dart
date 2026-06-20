@@ -9,7 +9,7 @@ List<String> fcbUnsupportedReasons(
   Map<String, Object?>? source,
 ) {
   if (function.dartAsyncMarker != AsyncMarker.Sync) {
-    if (_isAsyncFutureValueSource(source)) return [];
+    if (_isAsyncSource(source)) return [];
     return ['async_await_unsupported'];
   }
   final typeCheckReason = _runtimeTypeCheckUnsupportedReason(function);
@@ -28,8 +28,14 @@ List<String> fcbUnsupportedReasons(
   return [];
 }
 
-bool _isAsyncFutureValueSource(Map<String, Object?>? source) {
-  return source?['async_future_value'] == true;
+bool _isAsyncSource(Map<String, Object?>? source) {
+  if (source == null) return false;
+  final asyncKind = source['async_kind']?.toString();
+  if (asyncKind == 'sync_star' || asyncKind == 'async_star') {
+    return true;
+  }
+  return source?['async_future'] == true ||
+      source?['async_future_value'] == true;
 }
 
 String? _runtimeTypeCheckUnsupportedReason(FunctionNode function) {

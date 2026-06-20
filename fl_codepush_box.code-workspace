@@ -3,7 +3,7 @@
     { "name": "fcb (main)", "path": "." },
     { "name": "vendor/flutter", "path": "vendor/flutter" },
     {
-      "name": "vendor/flutter dart sdk",
+      "name": "vendor/dart",
       "path": "vendor/flutter/engine/src/flutter/third_party/dart"
     }
   ]

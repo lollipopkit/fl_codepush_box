@@ -26,18 +26,23 @@ void main() {
         .setMockMethodCallHandler(pathsChannel, null);
   });
 
-  testWidgets('counter starts from baseline and increments', (tester) async {
+  testWidgets('counter renders current source values and increments', (
+    tester,
+  ) async {
     await tester.pumpWidget(const CounterApp());
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('Counter: 1'), findsOneWidget);
-    expect(find.text('Widget tree: baseline widget tree'), findsOneWidget);
+    expect(find.text('Counter: 42'), findsOneWidget);
+    expect(find.text('Status: patched'), findsOneWidget);
+    expect(find.text('Widget tree: patched widget tree'), findsOneWidget);
+    expect(find.text('Field status: base-field'), findsOneWidget);
+    expect(find.text('Quad: 42'), findsOneWidget);
     expect(find.text('Method channel'), findsOneWidget);
     expect(find.text('/tmp/fcb-test-cache'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.add));
     await tester.pump();
 
-    expect(find.text('Counter: 2'), findsOneWidget);
+    expect(find.text('Counter: 43'), findsOneWidget);
   });
 }

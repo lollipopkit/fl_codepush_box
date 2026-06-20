@@ -142,7 +142,7 @@ mod tests {
         bytecode_summary, estimated_interpreter_ratio, inspect_patch, patch_report_summary,
     };
     use fcb_bytecode::format::{
-        BytecodeFunction, BytecodeModule, Constant, OpCode, SourceMapEntry,
+        AsyncKind, BytecodeFunction, BytecodeModule, Constant, OpCode, SourceMapEntry,
     };
     use fcb_core::linker::{FunctionDecision, LinkerPlan};
 
@@ -209,6 +209,7 @@ mod tests {
         let module = BytecodeModule::new(vec![BytecodeFunction {
             name: "package:app/main.dart::mainValue".to_string(),
             return_convention: "tagged".to_string(),
+            async_kind: AsyncKind::Sync,
             param_count: 0,
             local_count: 1,
             constants: vec![Constant::String(
@@ -254,6 +255,7 @@ mod tests {
         let module = BytecodeModule::new(vec![BytecodeFunction {
             name: "package:app/main.dart::mainValue".to_string(),
             return_convention: "tagged".to_string(),
+            async_kind: AsyncKind::Sync,
             param_count: 0,
             local_count: 1,
             constants: vec![Constant::String(

@@ -5,8 +5,66 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SDK_DIR="${FCB_VENDOR_SDK_DIR:-$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart}"
 OUT_DIR="${FCB_VENDOR_VM_TEST_DIR:-$ROOT_DIR/target/fcb/vendor-vm-test}"
 CXX_BIN="${CXX:-clang++}"
+SDK_DELTA_AUDIT="${FCB_VENDOR_SDK_DELTA_AUDIT:-$ROOT_DIR/scripts/audit_vendor_dart_sdk_delta.sh}"
 DEBUG_RUN_VM_TESTS="${FCB_VENDOR_VM_DEBUG_RUNNER:-$ROOT_DIR/vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests}"
 RELEASE_RUN_VM_TESTS="${FCB_VENDOR_VM_RELEASE_RUNNER:-$ROOT_DIR/vendor/flutter/engine/src/out/host_release_arm64/run_vm_tests}"
+RUN_VM_TEST_LOG_DIR="$OUT_DIR/run-vm-tests"
+
+COMMON_VM_TEST_FILTERS=(
+  FcbPatchRuntimeMapCrossesDynamicCallBoundary
+  FcbPatchRuntimeListMaterializesAsDartArray
+  FcbPatchRuntimeNewObjectFutureValue
+  FcbPatchRuntimeAwaitCompletedFutureValue
+  FcbPatchRuntimeAwaitCompletedFutureErrorCaught
+  FcbPatchRuntimeAwaitChainedCompletedFutureValue
+  FcbPatchRuntimeAwaitPendingFutureSuspendsAndResumes
+  FcbPatchRuntimeDisablePatchDrainsSuspendedAwait
+  FcbPatchRuntimeResumePatchErrorMarksBadPatch
+  FcbPatchRuntimeResumeErrorCompletesWithoutBadPatch
+  FcbPatchRuntimeClearDrainsSuspendedAwait
+  FcbPatchRuntimeAwaitPendingFutureDrainsMicrotask
+  FcbPatchRuntimeAwaitTwoPendingFuturesDrainsMicrotasks
+  FcbPatchRuntimeAwaitPendingErrorCaughtFromMicrotask
+  FcbPatchRuntimeAwaitPendingErrorCompletesFutureError
+  FcbPatchRuntimeAwaitPendingFutureRunsFinally
+  FcbPatchRuntimeAwaitPendingErrorRunsFinally
+  FcbPatchRuntimeAsyncReturnCompletedFutureValue
+  FcbPatchRuntimeAsyncReturnAdoptsFutureValue
+  FcbPatchRuntimeAsyncReturnCompletedFutureNull
+  FcbPatchRuntimeSyncStarYieldsValues
+  FcbPatchRuntimeSyncStarReiterates
+  FcbPatchRuntimeSyncStarAbandonedIterableFinalizer
+  FcbPatchRuntimeSyncStarAbandonedIteratorFinalizer
+  FcbPatchRuntimeClearDrainsSyncGenerators
+  FcbPatchRuntimeAsyncStarReturnsStream
+  FcbPatchRuntimeAsyncStarPendingAwaitResumes
+  FcbPatchRuntimeAsyncStarPendingAwaitErrorAddsStreamError
+  FcbPatchRuntimeAsyncStarBackpressureResumes
+  FcbPatchRuntimeAsyncStarCancelRunsFinally
+  FcbPatchRuntimeAsyncStarSourceModuleStreamListen
+  FcbPatchRuntimeBusinessStreamSourceE2e
+  FcbPatchRuntimeAsyncStarPendingAwaitSurvivesGc
+  FcbPatchRuntimeTryCatchesCallDynamicException
+  FcbPatchRuntimeTryCatchesCallOriginalException
+  FcbPatchRuntimeTryCatchesNewObjectException
+  FcbPatchRuntimeTryCatchesCallClosureException
+  FcbPatchRuntimeTryCatchesMakeClosureMissingTarget
+  FcbPatchRuntimeTryCatchesAsTypeMismatch
+  FcbPatchRuntimeTypeEnvironmentListT
+  FcbPatchRuntimeGcStress
+)
+
+DEBUG_VM_TEST_FILTERS=(
+  FcbPatchDebuggerCollectsActiveInterpreterFrame
+  FcbPatchDebuggerCollectsAsyncResumeFrame
+  FcbPatchDebuggerCollectsAsyncStarResumeFrame
+  FcbPatchDebuggerAsyncStarErrorHasSourceStackFrame
+  FcbPatchDebuggerExposesActiveHandlerMetadata
+  FcbPatchDebuggerDoesNotTreatFinallyAsCatchHandler
+  FcbPatchDebuggerFrameEvaluationUsesSourceLibrary
+  FcbPatchDebuggerCollectsMaterializedClosureActiveFrame
+  FcbPatchDebuggerSourceBreakpointAndStepPause
+)
 
 usage() {
   cat <<USAGE
@@ -19,6 +77,7 @@ summary consumed by make audit-plan-completion.
 Environment:
   FCB_VENDOR_SDK_DIR       Dart SDK checkout. Default: vendor/flutter/engine/src/flutter/third_party/dart
   FCB_VENDOR_VM_TEST_DIR   Evidence output dir. Default: target/fcb/vendor-vm-test
+  FCB_VENDOR_SDK_DELTA_AUDIT    SDK delta audit script.
   FCB_VENDOR_VM_DEBUG_RUNNER    Debug run_vm_tests binary.
   FCB_VENDOR_VM_RELEASE_RUNNER  Release run_vm_tests binary.
   CXX                       C++ compiler. Default: clang++
@@ -41,18 +100,28 @@ fi
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_try_test.cc" ] || die "missing FCB VM runtime try test source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_async.cc" ] || die "missing FCB VM runtime async source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_closure.cc" ] || die "missing FCB VM runtime closure source"
+[ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_generator.cc" ] || die "missing FCB VM runtime generator source"
+[ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_suspend.cc" ] || die "missing FCB VM runtime suspend source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_vm.cc" ] || die "missing FCB VM runtime VM helper source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_value.cc" ] || die "missing FCB VM runtime value source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader.cc" ] || die "missing FCB VM runtime loader source"
 [ -f "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader_test.cc" ] || die "missing FCB VM runtime loader test source"
 command -v "$CXX_BIN" >/dev/null 2>&1 || die "missing C++ compiler: $CXX_BIN"
 
-mkdir -p "$OUT_DIR"
+mkdir -p "$OUT_DIR" "$RUN_VM_TEST_LOG_DIR"
 LOG="$OUT_DIR/standalone-test.log"
+SDK_DELTA_AUDIT_LOG="$OUT_DIR/sdk-delta-audit.log"
 DEBUG_VM_LOG="$OUT_DIR/debug-run-vm-tests.log"
 RELEASE_VM_LOG="$OUT_DIR/release-run-vm-tests.log"
 BIN="$OUT_DIR/fcb_patch_runtime_test"
 DART_COMMIT="$(git -C "$SDK_DIR" rev-parse HEAD)"
+
+[ -x "$SDK_DELTA_AUDIT" ] || die "missing SDK delta audit script: $SDK_DELTA_AUDIT"
+FCB_VENDOR_SDK_DIR="$SDK_DIR" "$SDK_DELTA_AUDIT" >"$SDK_DELTA_AUDIT_LOG" 2>&1 || {
+  cat "$SDK_DELTA_AUDIT_LOG" >&2
+  echo "vendor Dart SDK delta audit failed; log: $SDK_DELTA_AUDIT_LOG" >&2
+  exit 1
+}
 
 "$CXX_BIN" \
   -std=c++20 \
@@ -62,7 +131,9 @@ DART_COMMIT="$(git -C "$SDK_DIR" rev-parse HEAD)"
   "$SDK_DIR/runtime/vm/fcb_patch_runtime.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_async.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_closure.cc" \
+  "$SDK_DIR/runtime/vm/fcb_patch_runtime_generator.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_helpers.cc" \
+  "$SDK_DIR/runtime/vm/fcb_patch_runtime_suspend.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_vm.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_value.cc" \
   "$SDK_DIR/runtime/vm/fcb_patch_runtime_loader.cc" \
@@ -109,6 +180,39 @@ collect_vm_tests() {
     || die "$label run_vm_tests list missing new object exception test"
 }
 
+require_vm_test() {
+  local list_log="$1"
+  local label="$2"
+  local filter="$3"
+  grep -Fq "$filter Pass" "$list_log" || die "$label run_vm_tests list missing $filter"
+}
+
+run_vm_test_filter() {
+  local runner="$1"
+  local label="$2"
+  local filter="$3"
+  local log="$RUN_VM_TEST_LOG_DIR/$label-$filter.log"
+  echo "running $label $filter" >>"$log"
+  "$runner" "$filter" >>"$log" 2>&1 || {
+    cat "$log" >&2
+    echo "$label run_vm_tests $filter failed; log: $log" >&2
+    exit 1
+  }
+  grep -Fq "Done:" "$log" || die "$label run_vm_tests $filter did not report completion"
+}
+
+run_vm_test_filters() {
+  local runner="$1"
+  local list_log="$2"
+  local label="$3"
+  shift 3
+  local filter
+  for filter in "$@"; do
+    require_vm_test "$list_log" "$label" "$filter"
+    run_vm_test_filter "$runner" "$label" "$filter"
+  done
+}
+
 collect_vm_tests "$DEBUG_RUN_VM_TESTS" "$DEBUG_VM_LOG" "debug"
 grep -Fq "FcbPatchDebuggerCollectsActiveInterpreterFrame Pass" "$DEBUG_VM_LOG" \
   || die "debug run_vm_tests list missing active debugger frame test"
@@ -116,16 +220,22 @@ grep -Fq "FcbPatchDebuggerFrameEvaluationUsesSourceLibrary Pass" "$DEBUG_VM_LOG"
   || die "debug run_vm_tests list missing debugger eval source library test"
 grep -Fq "FcbPatchDebuggerCollectsMaterializedClosureActiveFrame Pass" "$DEBUG_VM_LOG" \
   || die "debug run_vm_tests list missing materialized closure debugger frame test"
+run_vm_test_filters "$DEBUG_RUN_VM_TESTS" "$DEBUG_VM_LOG" "debug" "${DEBUG_VM_TEST_FILTERS[@]}"
 collect_vm_tests "$RELEASE_RUN_VM_TESTS" "$RELEASE_VM_LOG" "release"
+run_vm_test_filters "$RELEASE_RUN_VM_TESTS" "$RELEASE_VM_LOG" "release" "${COMMON_VM_TEST_FILTERS[@]}"
 
 {
   echo "standalone FcbPatchRuntime passed"
   echo "sdk_dir: $SDK_DIR"
   echo "dart_commit: $DART_COMMIT"
   echo "standalone_tests: runtime/vm/fcb_patch_runtime_loader_test.cc runtime/vm/fcb_patch_runtime_test.cc runtime/vm/fcb_patch_runtime_try_test.cc"
+  echo "sdk_delta_audit: $SDK_DELTA_AUDIT_LOG"
   echo "standalone_log: $LOG"
   echo "debug_vm_tests: $DEBUG_VM_LOG"
   echo "release_vm_tests: $RELEASE_VM_LOG"
+  echo "run_vm_test_filter_logs: $RUN_VM_TEST_LOG_DIR"
+  echo "debug_vm_test_filters: ${DEBUG_VM_TEST_FILTERS[*]}"
+  echo "release_vm_test_filters: ${COMMON_VM_TEST_FILTERS[*]}"
 } >"$OUT_DIR/summary.txt"
 
 echo "vendor VM runtime test passed: $OUT_DIR/summary.txt"

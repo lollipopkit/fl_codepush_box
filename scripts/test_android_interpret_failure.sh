@@ -178,6 +178,7 @@ main() {
   FCB_EXPECTED_ADJUSTED_COUNTER=8 \
   FCB_EXPECTED_STATIC_COUNTER=7 \
   FCB_EXPECTED_STATUS_LABEL=base \
+  FCB_EXPECTED_WIDGET_TREE_LABEL="baseline widget tree" \
   FCB_EXPECTED_FIELD_STATUS_LABEL=base-field \
   FCB_EXPECTED_QUAD_COUNTER=10 \
   FCB_SERVER_URL="$SERVER_URL" \
@@ -200,7 +201,7 @@ main() {
     echo "device_logcat: $WORKDIR/device/logs/logcat.txt"
     echo "state_after_failure: $STATE_FILE"
     echo "patch_number: $PATCH_NUMBER"
-    echo "baseline_observed_after_failure: 1/8/7/base/base-field/10"
+    echo "baseline_observed_after_failure: 1/8/7/base/baseline widget tree/base-field/10"
     echo "bad_patch_recorded: true"
     if [ -n "$SERVER_DB" ]; then
       echo "server_events_evidence: $SERVER_EVENT_FILE"

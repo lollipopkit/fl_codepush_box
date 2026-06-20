@@ -13,8 +13,14 @@ import 'fcb_kernel_unsupported_audit.dart';
 
 part 'fcb_kernel_logical_expr.dart';
 part 'fcb_kernel_async_expr.dart';
+part 'fcb_kernel_generator_expr.dart';
+part 'fcb_kernel_generator_for_expr.dart';
+part 'fcb_kernel_generator_loop_expr.dart';
+part 'fcb_kernel_generator_stream_expr.dart';
 part 'fcb_kernel_returning_closure.dart';
 part 'fcb_kernel_statement_expr.dart';
+part 'fcb_kernel_static_invocation_expr.dart';
+part 'fcb_kernel_reader_text.dart';
 part 'fcb_kernel_unary_binary_expr.dart';
 
 void main(List<String> args) {
@@ -252,6 +258,14 @@ Map<String, Object?>? _bytecodeSource(
     function,
   );
   if (asyncValue != null) return asyncValue;
+  final generator = _generatorSource(
+    libraryUri,
+    qualified,
+    params,
+    paramsSet,
+    function,
+  );
+  if (generator != null) return generator;
   final returningClosure = _returningClosureSource(
     libraryUri,
     qualified,
@@ -430,6 +444,14 @@ Map<String, Object?>? _expr(
         }
         return {'list': items};
       }
+      final originalCall = _unboundDartStaticInvocationExpr(
+        expression,
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      if (originalCall != null) return originalCall;
       return _sourceExpr(_nodeText(expression), params);
     }
     final args = <Map<String, Object?>>[];
@@ -439,7 +461,11 @@ Map<String, Object?>? _expr(
       args.add(compiledArg);
     }
     if (expression.arguments.named.isNotEmpty) return null;
-    return {'call_static': _staticTargetName(target), 'args': args};
+    final targetName = _staticTargetName(target);
+    if (target.enclosingLibrary.importUri.scheme == 'dart') {
+      return {'call_original': targetName, 'args': args};
+    }
+    return {'call_static': targetName, 'args': args};
   }
   if (expression is ConstructorInvocation) {
     final args = <Map<String, Object?>>[];
@@ -466,7 +492,12 @@ Map<String, Object?>? _expr(
       if (typeName == null) return null;
       typeArgs.add(typeName);
     }
-    final constructor = expression.target;
+    final Constructor constructor;
+    try {
+      constructor = expression.target;
+    } catch (_) {
+      return null;
+    }
     final klass = constructor.enclosingClass;
     final constructorLibraryUri = _constructorLibraryUri(
       klass.enclosingLibrary,
@@ -1419,32 +1450,6 @@ Map<String, Object?>? _sourceExpr(String raw, Set<String> params) {
     return {'call_static': call.group(1)!, 'args': args};
   }
   return null;
-}
-
-String? _typeName(DartType type) => fcbKernelTypeName(type);
-
-String _staticTargetName(Procedure target) {
-  final library = target.enclosingLibrary.importUri.toString();
-  final klass = target.enclosingClass;
-  if (klass != null) {
-    return '$library::class:${klass.name}.${target.name.text}';
-  }
-  return '$library::${target.name.text}';
-}
-
-String _constructorLibraryUri(Library library, String fallbackLibraryUri) {
-  final uri = library.importUri;
-  if (uri.scheme == 'package' || uri.scheme == 'dart') {
-    return uri.toString();
-  }
-  return fallbackLibraryUri;
-}
-
-String _nodeText(Node? node) {
-  if (node == null) return '';
-  final buffer = StringBuffer();
-  Printer(buffer, syntheticNames: NameSystem()).writeNode(node);
-  return buffer.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 
 String _location(TreeNode node) {

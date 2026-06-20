@@ -1,4 +1,4 @@
-.PHONY: all up down restart status clean build-webui build-server ci-local-core test-s3-storage test-admin-runtime test-crash-rollback test-kernel-compile test-flutter-package test-vendor-vm-runtime
+.PHONY: all up down restart status clean build-webui build-server ci-local-core check-workflows check-github-actions-inventory check-phase-h-runbooks test-s3-storage test-admin-runtime test-crash-rollback test-kernel-compile test-flutter-package test-vendor-sdk-delta test-vendor-vm-runtime
 
 # Default port and database path configuration
 FCB_SERVER_ADDR ?= 127.0.0.1:8080
@@ -15,6 +15,42 @@ all: build-webui build-server
 ci-local-core:
 	@echo "Running local core CI..."
 	scripts/ci_local_core.sh
+
+check-workflows: check-github-actions-inventory
+	@echo "Checking GitHub workflow files..."
+	@test -d .github/workflows
+	@for workflow in .github/workflows/*.yml; do \
+		test -s "$$workflow" || { echo "empty workflow: $$workflow" >&2; exit 1; }; \
+		grep -Eq '^[[:space:]]*on:' "$$workflow" || { echo "workflow missing on: $$workflow" >&2; exit 1; }; \
+		grep -Eq '^[[:space:]]*jobs:' "$$workflow" || { echo "workflow missing jobs: $$workflow" >&2; exit 1; }; \
+	done
+
+check-github-actions-inventory:
+	@echo "Checking GitHub Actions inventory..."
+	@for workflow in \
+		.github/workflows/android_emulator.yml \
+		.github/workflows/desktop.yml \
+		.github/workflows/e2e_x64.yml \
+		.github/workflows/flutter_package.yml \
+		.github/workflows/ios_simulator.yml \
+		.github/workflows/rust.yml \
+		.github/workflows/server.yml \
+		.github/workflows/server_s3.yml; do \
+		test -s "$$workflow" || { echo "missing workflow: $$workflow" >&2; exit 1; }; \
+	done
+
+check-phase-h-runbooks:
+	@echo "Checking Phase H runbooks..."
+	@for path in \
+		plans/phase_h_vendor_ci_devices.md \
+		docs/ios_distribution.md \
+		docs/apple_compliance.md \
+		docs/known_issues.md \
+		scripts/full_arm64_drill.sh \
+		scripts/full_ios_drill.sh \
+		scripts/check_android_arm64_device.sh; do \
+		test -s "$$path" || { echo "missing Phase H runbook artifact: $$path" >&2; exit 1; }; \
+	done
 
 test-s3-storage:
 	@echo "Running S3 storage drill..."
@@ -35,6 +71,10 @@ test-kernel-compile:
 test-flutter-package:
 	@echo "Running fcb_code_push Flutter package tests..."
 	cd packages/fcb_code_push && $(FLUTTER) test
+
+test-vendor-sdk-delta:
+	@echo "Running vendor Dart SDK delta audit..."
+	scripts/audit_vendor_dart_sdk_delta.sh
 
 test-vendor-vm-runtime:
 	@echo "Running vendor Dart VM FCB runtime test..."
