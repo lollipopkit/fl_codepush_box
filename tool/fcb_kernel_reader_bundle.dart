@@ -7,6 +7,8 @@ const _kernelReaderParts = [
   'fcb_kernel_unsupported_audit.dart',
   'fcb_kernel_logical_expr.dart',
   'fcb_kernel_async_expr.dart',
+  'fcb_kernel_async_loop_expr.dart',
+  'fcb_kernel_collection_expr.dart',
   'fcb_kernel_generator_expr.dart',
   'fcb_kernel_generator_for_expr.dart',
   'fcb_kernel_generator_loop_expr.dart',

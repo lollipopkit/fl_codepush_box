@@ -534,6 +534,78 @@ if (
     or async_dynamic_nested_inner.get("body", {}).get("yield", {}).get("concat") is None
 ):
     raise SystemExit(f"expected asyncGeneratedDynamicForInNested nested yield_for_in source, got {async_generated_dynamic_for_in_nested}")
+sync_generated_dynamic_for_in_nested_control = patch_by_member.get("syncGeneratedDynamicForInNestedBreakContinue", {}).get("bytecode_source", {})
+sync_dynamic_nested_control_let = sync_generated_dynamic_for_in_nested_control.get("body", {}).get("let", {})
+sync_dynamic_nested_control_outer = sync_dynamic_nested_control_let.get("body", {}).get("yield_for_in", {})
+sync_dynamic_nested_control_outer_before = sync_dynamic_nested_control_outer.get("before_break", {}).get("conditional", {})
+sync_dynamic_nested_control_inner = sync_dynamic_nested_control_outer_before.get("else", {}).get("yield_for_in", {})
+sync_dynamic_nested_control_inner_before = sync_dynamic_nested_control_inner.get("before_break", {}).get("conditional", {})
+sync_dynamic_nested_control_inner_break = sync_dynamic_nested_control_inner.get("break_condition", {}).get("conditional", {})
+sync_dynamic_nested_control_inner_body = sync_dynamic_nested_control_inner.get("body", {}).get("conditional", {})
+sync_dynamic_nested_control_outer_break = sync_dynamic_nested_control_outer.get("break_condition", {}).get("conditional", {})
+sync_dynamic_nested_control_outer_body = sync_dynamic_nested_control_outer.get("body", {}).get("conditional", {})
+if (
+    sync_generated_dynamic_for_in_nested_control.get("async_kind") != "sync_star"
+    or sync_dynamic_nested_control_let.get("locals", [{}])[0].get("name") != "prefix"
+    or sync_dynamic_nested_control_outer.get("source", {}).get("arg") != "extra"
+    or sync_dynamic_nested_control_outer.get("local", {}).get("name") != "value"
+    or sync_dynamic_nested_control_outer_before.get("condition", {}).get("op") != "=="
+    or sync_dynamic_nested_control_outer_before.get("then", {}).get("null") is not True
+    or sync_dynamic_nested_control_outer_break.get("condition", {}).get("op") != "=="
+    or sync_dynamic_nested_control_outer_break.get("then", {}).get("bool") is not False
+    or sync_dynamic_nested_control_outer_break.get("else", {}).get("op") != "=="
+    or sync_dynamic_nested_control_outer_body.get("condition", {}).get("op") != "=="
+    or sync_dynamic_nested_control_outer_body.get("then", {}).get("null") is not True
+    or sync_dynamic_nested_control_outer_body.get("else", {}).get("null") is not True
+    or sync_dynamic_nested_control_inner.get("source", {}).get("arg") != "suffixes"
+    or sync_dynamic_nested_control_inner.get("local", {}).get("name") != "suffix"
+    or sync_dynamic_nested_control_inner_before.get("condition", {}).get("op") != "=="
+    or sync_dynamic_nested_control_inner_before.get("then", {}).get("null") is not True
+    or sync_dynamic_nested_control_inner_before.get("else", {}).get("yield", {}).get("concat") is None
+    or sync_dynamic_nested_control_inner_break.get("condition", {}).get("op") != "=="
+    or sync_dynamic_nested_control_inner_break.get("then", {}).get("bool") is not False
+    or sync_dynamic_nested_control_inner_break.get("else", {}).get("op") != "=="
+    or sync_dynamic_nested_control_inner_body.get("condition", {}).get("op") != "=="
+    or sync_dynamic_nested_control_inner_body.get("then", {}).get("null") is not True
+    or sync_dynamic_nested_control_inner_body.get("else", {}).get("null") is not True
+):
+    raise SystemExit(f"expected syncGeneratedDynamicForInNestedBreakContinue nested control source, got {sync_generated_dynamic_for_in_nested_control}")
+async_generated_dynamic_for_in_nested_control = patch_by_member.get("asyncGeneratedDynamicForInNestedBreakContinue", {}).get("bytecode_source", {})
+async_dynamic_nested_control_let = async_generated_dynamic_for_in_nested_control.get("body", {}).get("let", {})
+async_dynamic_nested_control_outer = async_dynamic_nested_control_let.get("body", {}).get("yield_for_in", {})
+async_dynamic_nested_control_outer_before = async_dynamic_nested_control_outer.get("before_break", {}).get("conditional", {})
+async_dynamic_nested_control_inner = async_dynamic_nested_control_outer_before.get("else", {}).get("yield_for_in", {})
+async_dynamic_nested_control_inner_before = async_dynamic_nested_control_inner.get("before_break", {}).get("conditional", {})
+async_dynamic_nested_control_inner_break = async_dynamic_nested_control_inner.get("break_condition", {}).get("conditional", {})
+async_dynamic_nested_control_inner_body = async_dynamic_nested_control_inner.get("body", {}).get("conditional", {})
+async_dynamic_nested_control_outer_break = async_dynamic_nested_control_outer.get("break_condition", {}).get("conditional", {})
+async_dynamic_nested_control_outer_body = async_dynamic_nested_control_outer.get("body", {}).get("conditional", {})
+if (
+    async_generated_dynamic_for_in_nested_control.get("async_kind") != "async_star"
+    or async_dynamic_nested_control_let.get("locals", [{}])[0].get("name") != "prefix"
+    or async_dynamic_nested_control_outer.get("source", {}).get("arg") != "extra"
+    or async_dynamic_nested_control_outer.get("local", {}).get("name") != "value"
+    or async_dynamic_nested_control_outer_before.get("condition", {}).get("op") != "=="
+    or async_dynamic_nested_control_outer_before.get("then", {}).get("null") is not True
+    or async_dynamic_nested_control_outer_break.get("condition", {}).get("op") != "=="
+    or async_dynamic_nested_control_outer_break.get("then", {}).get("bool") is not False
+    or async_dynamic_nested_control_outer_break.get("else", {}).get("op") != "=="
+    or async_dynamic_nested_control_outer_body.get("condition", {}).get("op") != "=="
+    or async_dynamic_nested_control_outer_body.get("then", {}).get("null") is not True
+    or async_dynamic_nested_control_outer_body.get("else", {}).get("null") is not True
+    or async_dynamic_nested_control_inner.get("source", {}).get("arg") != "suffixes"
+    or async_dynamic_nested_control_inner.get("local", {}).get("name") != "suffix"
+    or async_dynamic_nested_control_inner_before.get("condition", {}).get("op") != "=="
+    or async_dynamic_nested_control_inner_before.get("then", {}).get("null") is not True
+    or async_dynamic_nested_control_inner_before.get("else", {}).get("yield", {}).get("concat") is None
+    or async_dynamic_nested_control_inner_break.get("condition", {}).get("op") != "=="
+    or async_dynamic_nested_control_inner_break.get("then", {}).get("bool") is not False
+    or async_dynamic_nested_control_inner_break.get("else", {}).get("op") != "=="
+    or async_dynamic_nested_control_inner_body.get("condition", {}).get("op") != "=="
+    or async_dynamic_nested_control_inner_body.get("then", {}).get("null") is not True
+    or async_dynamic_nested_control_inner_body.get("else", {}).get("null") is not True
+):
+    raise SystemExit(f"expected asyncGeneratedDynamicForInNestedBreakContinue nested control source, got {async_generated_dynamic_for_in_nested_control}")
 sync_generated_yield_star = patch_by_member.get("syncGeneratedYieldStar", {}).get("bytecode_source", {})
 yield_star_items = sync_generated_yield_star.get("body", {}).get("seq", [])
 if (
@@ -1019,6 +1091,29 @@ if (
     raise SystemExit(
         "expected asyncGeneratedAwaitForNestedStreamFinally nested generic Stream await-for "
         f"source, got {async_generated_await_for_nested_stream}"
+    )
+
+async_generated_await_for_triple_nested_stream = patch_by_member.get(
+    "asyncGeneratedAwaitForTripleNestedStreamFinally", {}
+).get("bytecode_source", {})
+async_generated_await_for_triple_nested_stream_json = json.dumps(
+    async_generated_await_for_triple_nested_stream
+)
+if (
+    async_generated_await_for_triple_nested_stream.get("async_kind") != "async_star"
+    or async_generated_await_for_triple_nested_stream_json.count('"method": "moveNext"') < 3
+    or async_generated_await_for_triple_nested_stream_json.count('"method": "cancel"') < 3
+    or '"arg": "outer"' not in async_generated_await_for_triple_nested_stream_json
+    or '"arg": "middle"' not in async_generated_await_for_triple_nested_stream_json
+    or '"arg": "inner"' not in async_generated_await_for_triple_nested_stream_json
+    or '"string": "patched-stream-await-for-triple-nested-"' not in async_generated_await_for_triple_nested_stream_json
+    or '"string": "patched-stream-await-for-triple-nested-cleanup"' not in async_generated_await_for_triple_nested_stream_json
+    or '"string": "skip"' not in async_generated_await_for_triple_nested_stream_json
+    or '"string": "stop-middle"' not in async_generated_await_for_triple_nested_stream_json
+):
+    raise SystemExit(
+        "expected asyncGeneratedAwaitForTripleNestedStreamFinally triple nested "
+        f"generic Stream await-for source, got {async_generated_await_for_triple_nested_stream}"
     )
 
 null_sources = [

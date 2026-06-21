@@ -1,4 +1,4 @@
-.PHONY: all up down restart status clean build-webui build-server ci-local-core check-workflows check-github-actions-inventory check-phase-h-runbooks test-s3-storage test-admin-runtime test-crash-rollback test-kernel-compile test-flutter-package test-vendor-sdk-delta test-vendor-vm-runtime
+.PHONY: all up down restart status clean build-webui build-server ci-local-core check-workflows check-github-actions-inventory check-phase-h-runbooks check-kernel-compile-fixture-size check-phase-e-host-evidence check-phase-e-completion test-phase-e-completion-gate test-s3-storage test-admin-runtime test-crash-rollback test-kernel-compile test-flutter-package test-vendor-sdk-delta test-vendor-vm-runtime test-desktop-embedder-bridge test-desktop-embedder-full check-macos-metal-toolchain check-android-arm64-device test-android-arm64-acceptance
 
 # Default port and database path configuration
 FCB_SERVER_ADDR ?= 127.0.0.1:8080
@@ -52,6 +52,22 @@ check-phase-h-runbooks:
 		test -s "$$path" || { echo "missing Phase H runbook artifact: $$path" >&2; exit 1; }; \
 	done
 
+check-kernel-compile-fixture-size:
+	@echo "Checking Kernel compile-from-plan fixture sizes..."
+	scripts/check_kernel_compile_fixture_size.sh
+
+check-phase-e-host-evidence:
+	@echo "Checking Phase E host evidence..."
+	scripts/check_phase_e_host_evidence.sh
+
+check-phase-e-completion:
+	@echo "Checking full Phase E completion evidence..."
+	scripts/check_phase_e_completion.sh
+
+test-phase-e-completion-gate:
+	@echo "Running Phase E completion gate regression test..."
+	tests/e2e/test_phase_e_completion_gate.sh
+
 test-s3-storage:
 	@echo "Running S3 storage drill..."
 	scripts/test_s3_storage.sh
@@ -79,6 +95,26 @@ test-vendor-sdk-delta:
 test-vendor-vm-runtime:
 	@echo "Running vendor Dart VM FCB runtime test..."
 	scripts/test_vendor_vm_runtime.sh
+
+test-desktop-embedder-bridge:
+	@echo "Running desktop embedder FCB bridge validation..."
+	scripts/test_desktop_embedder_bridge.sh
+
+test-desktop-embedder-full:
+	@echo "Running full desktop embedder target validation..."
+	scripts/test_desktop_embedder_full.sh
+
+check-macos-metal-toolchain:
+	@echo "Checking macOS Metal Toolchain..."
+	scripts/check_macos_metal_toolchain.sh
+
+check-android-arm64-device:
+	@echo "Checking Android arm64 device..."
+	scripts/check_android_arm64_device.sh
+
+test-android-arm64-acceptance:
+	@echo "Running Android arm64 acceptance validation..."
+	scripts/accept_android_arm64.sh
 
 # Build the Web UI static assets
 build-webui:

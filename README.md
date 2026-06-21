@@ -13,11 +13,15 @@ rollout, and automatic rollback.
   restart** (no live hot-swap).
 - Every patch is **Ed25519-signed** and hash-verified before install. A patch
   that fails to boot is automatically rolled back to the last known good version.
-- Two backends:
-  - **`bytecode`** — ships interpreted Dart bytecode. Store-compliant
-    (Android + iOS). The product line.
+- Three backends (see [`docs/backends.md`](docs/backends.md)):
+  - **`bytecode`** — ships interpreted Dart bytecode run by the forked-VM
+    interpreter. Store-compliant on every platform (Android + iOS + desktop).
+    The default and product line.
+  - **`dart_vm`** — desktop only (macOS/Linux/Windows): ship the unstripped
+    official Dart VM and run an updated kernel `.dill` through it (JIT). For
+    self-distribution; not for iOS.
   - **`snapshot_replace`** — ships native `.so` diffs. **Enterprise/internal
-    only, not Play/App Store compliant.** See [`docs/backends.md`](docs/backends.md).
+    only, not Play/App Store compliant.**
 
 ## Components
 

@@ -11,6 +11,30 @@ def assert_stream_generators(module):
     assert sync_generated_yield_star_dynamic["code"].count(0x64) == 2, sync_generated_yield_star_dynamic
     assert 0x51 in sync_generated_yield_star_dynamic["code"], sync_generated_yield_star_dynamic
     assert 0x31 in sync_generated_yield_star_dynamic["code"], sync_generated_yield_star_dynamic
+    sync_generated_nested_control = next(
+        item
+        for item in module["functions"]
+        if item["name"].endswith("::syncGeneratedDynamicForInNestedBreakContinue")
+    )
+    assert sync_generated_nested_control.get("async_kind") == "sync_star", sync_generated_nested_control
+    assert sync_generated_nested_control["code"].count(0x64) == 1, sync_generated_nested_control
+    assert sync_generated_nested_control["code"].count(0x51) >= 2, sync_generated_nested_control
+    assert sync_generated_nested_control["code"].count(0x31) >= 4, sync_generated_nested_control
+    assert sync_generated_nested_control["code"].count(0x30) >= 4, sync_generated_nested_control
+    assert {"slot": 0, "name": "extra"} in sync_generated_nested_control.get("debug_locals", []), sync_generated_nested_control
+    assert {"slot": 1, "name": "suffixes"} in sync_generated_nested_control.get("debug_locals", []), sync_generated_nested_control
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-iterable-nested-control"
+        for constant in sync_generated_nested_control["constants"]
+    ), sync_generated_nested_control
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "skip"
+        for constant in sync_generated_nested_control["constants"]
+    ), sync_generated_nested_control
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "stop"
+        for constant in sync_generated_nested_control["constants"]
+    ), sync_generated_nested_control
     async_generated_yield_star = next(
         item for item in module["functions"] if item["name"].endswith("::asyncGeneratedYieldStar")
     )
@@ -23,6 +47,30 @@ def assert_stream_generators(module):
     assert async_generated_yield_star_dynamic["code"].count(0x64) == 2, async_generated_yield_star_dynamic
     assert 0x51 in async_generated_yield_star_dynamic["code"], async_generated_yield_star_dynamic
     assert 0x31 in async_generated_yield_star_dynamic["code"], async_generated_yield_star_dynamic
+    async_generated_nested_control = next(
+        item
+        for item in module["functions"]
+        if item["name"].endswith("::asyncGeneratedDynamicForInNestedBreakContinue")
+    )
+    assert async_generated_nested_control.get("async_kind") == "async_star", async_generated_nested_control
+    assert async_generated_nested_control["code"].count(0x64) == 1, async_generated_nested_control
+    assert async_generated_nested_control["code"].count(0x51) >= 2, async_generated_nested_control
+    assert async_generated_nested_control["code"].count(0x31) >= 4, async_generated_nested_control
+    assert async_generated_nested_control["code"].count(0x30) >= 4, async_generated_nested_control
+    assert {"slot": 0, "name": "extra"} in async_generated_nested_control.get("debug_locals", []), async_generated_nested_control
+    assert {"slot": 1, "name": "suffixes"} in async_generated_nested_control.get("debug_locals", []), async_generated_nested_control
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-stream-nested-control"
+        for constant in async_generated_nested_control["constants"]
+    ), async_generated_nested_control
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "skip"
+        for constant in async_generated_nested_control["constants"]
+    ), async_generated_nested_control
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "stop"
+        for constant in async_generated_nested_control["constants"]
+    ), async_generated_nested_control
     async_generated_yield_star_stream = next(
         item for item in module["functions"] if item["name"].endswith("::asyncGeneratedYieldStarStream")
     )
@@ -388,3 +436,45 @@ def assert_stream_generators(module):
         constant.get("type") == "String" and constant.get("value") == "patched-stream-await-for-nested-stream-cleanup"
         for constant in async_generated_await_for_nested_stream["constants"]
     ), async_generated_await_for_nested_stream
+    async_generated_await_for_nested_stream_break_continue = next(
+        item
+        for item in module["functions"]
+        if item["name"].endswith("::asyncGeneratedAwaitForNestedStreamBreakContinueFinally")
+    )
+    assert async_generated_await_for_nested_stream_break_continue.get("async_kind") == "async_star", async_generated_await_for_nested_stream_break_continue
+    assert async_generated_await_for_nested_stream_break_continue["code"].count(0x55) >= 2, async_generated_await_for_nested_stream_break_continue
+    assert async_generated_await_for_nested_stream_break_continue["code"].count(0x62) >= 2, async_generated_await_for_nested_stream_break_continue
+    assert async_generated_await_for_nested_stream_break_continue["code"].count(0x64) == 2, async_generated_await_for_nested_stream_break_continue
+    assert async_generated_await_for_nested_stream_break_continue["code"].count(0x65) >= 3, async_generated_await_for_nested_stream_break_continue
+    assert async_generated_await_for_nested_stream_break_continue["code"].count(0x66) >= 3, async_generated_await_for_nested_stream_break_continue
+    assert 0x30 in async_generated_await_for_nested_stream_break_continue["code"], async_generated_await_for_nested_stream_break_continue
+    assert 0x31 in async_generated_await_for_nested_stream_break_continue["code"], async_generated_await_for_nested_stream_break_continue
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-stream-await-for-nested-stream-break-continue-"
+        for constant in async_generated_await_for_nested_stream_break_continue["constants"]
+    ), async_generated_await_for_nested_stream_break_continue
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-stream-await-for-nested-stream-break-continue-cleanup"
+        for constant in async_generated_await_for_nested_stream_break_continue["constants"]
+    ), async_generated_await_for_nested_stream_break_continue
+    async_generated_await_for_triple_nested_stream = next(
+        item
+        for item in module["functions"]
+        if item["name"].endswith("::asyncGeneratedAwaitForTripleNestedStreamFinally")
+    )
+    assert async_generated_await_for_triple_nested_stream.get("async_kind") == "async_star", async_generated_await_for_triple_nested_stream
+    assert async_generated_await_for_triple_nested_stream["code"].count(0x55) >= 3, async_generated_await_for_triple_nested_stream
+    assert async_generated_await_for_triple_nested_stream["code"].count(0x62) >= 3, async_generated_await_for_triple_nested_stream
+    assert async_generated_await_for_triple_nested_stream["code"].count(0x64) == 2, async_generated_await_for_triple_nested_stream
+    assert async_generated_await_for_triple_nested_stream["code"].count(0x65) >= 4, async_generated_await_for_triple_nested_stream
+    assert async_generated_await_for_triple_nested_stream["code"].count(0x66) >= 4, async_generated_await_for_triple_nested_stream
+    assert 0x30 in async_generated_await_for_triple_nested_stream["code"], async_generated_await_for_triple_nested_stream
+    assert 0x31 in async_generated_await_for_triple_nested_stream["code"], async_generated_await_for_triple_nested_stream
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-stream-await-for-triple-nested-"
+        for constant in async_generated_await_for_triple_nested_stream["constants"]
+    ), async_generated_await_for_triple_nested_stream
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-stream-await-for-triple-nested-cleanup"
+        for constant in async_generated_await_for_triple_nested_stream["constants"]
+    ), async_generated_await_for_triple_nested_stream

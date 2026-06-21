@@ -15,6 +15,7 @@ RUN_FLUTTER="${FCB_LOCAL_CI_FLUTTER:-auto}"
 RUN_S3="${FCB_LOCAL_CI_S3:-0}"
 RUN_NPM_CI="${FCB_LOCAL_CI_NPM_CI:-auto}"
 RUN_VENDOR_VM="${FCB_LOCAL_CI_VENDOR_VM:-0}"
+RUN_PHASE_E_HOST_EVIDENCE="${FCB_LOCAL_CI_PHASE_E_HOST_EVIDENCE:-0}"
 COMPLETED_STEPS=()
 SKIPPED_STEPS=()
 
@@ -36,6 +37,8 @@ Environment:
   FCB_LOCAL_CI_S3       Run Docker/MinIO S3 drill: 1|0. Default: 0
   FCB_LOCAL_CI_NPM_CI   Run npm ci before WebUI checks: 1|0|auto. Default: auto
   FCB_LOCAL_CI_VENDOR_VM Run vendor Dart SDK delta + VM gate: 1|0. Default: 0
+  FCB_LOCAL_CI_PHASE_E_HOST_EVIDENCE
+                         Check existing Phase E VM/Kernel host evidence summaries: 1|0. Default: 0
   DART_BIN              Dart binary. Default: dart
   FLUTTER               Flutter binary. Default: flutter
 USAGE
@@ -115,6 +118,7 @@ run_step cargo-clippy "$CARGO" clippy --workspace --no-default-features --all-ta
 run_step cargo-test "$CARGO" test --workspace --no-default-features
 run_step crash-rollback make test-crash-rollback
 run_step phase-h-runbooks make check-phase-h-runbooks
+run_step kernel-compile-fixture-size make check-kernel-compile-fixture-size
 run_shell_step server-vet "cd server && $GO vet ./..."
 run_shell_step server-test "cd server && $GO test -count=1 ./..."
 
@@ -155,6 +159,14 @@ else
   skip_step vendor-vm-runtime "set FCB_LOCAL_CI_VENDOR_VM=1 to run vendor Dart SDK delta + VM gate"
 fi
 
+run_step phase-e-completion-gate make test-phase-e-completion-gate
+
+if enabled "$RUN_PHASE_E_HOST_EVIDENCE"; then
+  run_step phase-e-host-evidence make check-phase-e-host-evidence
+else
+  skip_step phase-e-host-evidence "set FCB_LOCAL_CI_PHASE_E_HOST_EVIDENCE=1 to check Phase E host evidence summaries"
+fi
+
 if enabled "$RUN_S3"; then
   run_step s3-storage make test-s3-storage
 else
@@ -168,6 +180,7 @@ fi
   echo "e2e: $RUN_E2E"
   echo "flutter: $RUN_FLUTTER"
   echo "vendor_vm: $RUN_VENDOR_VM"
+  echo "phase_e_host_evidence: $RUN_PHASE_E_HOST_EVIDENCE"
   echo "s3: $RUN_S3"
   echo
   echo "completed_steps:"

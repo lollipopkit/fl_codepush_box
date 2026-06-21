@@ -387,6 +387,12 @@ interpreter_ratio_from_stats() {
   printf '%s\n' "$stats" | awk -F/ 'NF >= 3 { print $3; exit }'
 }
 
+interpreter_stats_has_samples() {
+  local stats="$1"
+  printf '%s\n' "$stats" |
+    awk -F/ 'NF >= 3 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { exit ($2 > 0) ? 0 : 1 } { exit 1 }'
+}
+
 ratio_lte() {
   local ratio="$1"
   local max="$2"
@@ -677,6 +683,11 @@ install_and_launch() {
       grep -Ein 'fcb|interpreterStats|updater|patch|bytecode|flutter|dart' \
         "$LOGCAT_FILE" >&2 || true
       die "FCB_MAX_INTERPRETER_RATIO=$MAX_INTERPRETER_RATIO was set but interpreterStats ratio was not observed; full log: $LOGCAT_FILE"
+    fi
+    if ! interpreter_stats_has_samples "$interpreter_stats"; then
+      grep -Ein 'fcb|interpreterStats|updater|patch|bytecode|flutter|dart' \
+        "$LOGCAT_FILE" >&2 || true
+      die "interpreterStats has no samples: $interpreter_stats; full log: $LOGCAT_FILE"
     fi
     if ! ratio_lte "$interpreter_ratio" "$MAX_INTERPRETER_RATIO"; then
       grep -Ein 'fcb|interpreterStats|updater|patch|bytecode|flutter|dart' \

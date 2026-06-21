@@ -70,6 +70,36 @@ Map<String, Object?>? _letBodySourceExpr(
   };
 }
 
+Map<String, Object?>? _syncExpressionStatementSequenceExpr(
+  Statement? body,
+  Set<String> params,
+  String libraryUri,
+) {
+  if (body is! Block || body.statements.isEmpty) return null;
+  final items = <Map<String, Object?>>[];
+  for (var i = 0; i < body.statements.length; i++) {
+    final statement = body.statements[i];
+    if (statement is ReturnStatement &&
+        i == body.statements.length - 1 &&
+        statement.expression != null) {
+      final expr = _expr(statement.expression!, params, libraryUri);
+      if (expr == null) return null;
+      items.add(expr);
+      continue;
+    }
+    if (statement is! ExpressionStatement) {
+      return null;
+    }
+    final expr = _expr(statement.expression, params, libraryUri);
+    if (expr == null) return null;
+    items.add(expr);
+  }
+  if (body.statements.last is! ReturnStatement) {
+    items.add({'null': true});
+  }
+  return {'seq': items};
+}
+
 Map<String, Object?>? _tailStatementsSourceExpr(
   List<Statement> statements,
   Set<String> params,
@@ -84,14 +114,62 @@ Map<String, Object?>? _tailStatementsSourceExpr(
     }
     return _ifReturnBodySourceExpr(only, params, libraryUri, locals, closures);
   }
-  if (statements.length != 2) return null;
-  return _ifReturnBodySourceExpr(
-    Block(statements),
+  final ifReturn = statements.length == 2
+      ? _ifReturnBodySourceExpr(
+          Block(statements),
+          params,
+          libraryUri,
+          locals,
+          closures,
+        )
+      : null;
+  if (ifReturn != null) return ifReturn;
+  return _tailStatementSequenceExpr(
+    statements,
     params,
     libraryUri,
     locals,
     closures,
   );
+}
+
+Map<String, Object?>? _tailStatementSequenceExpr(
+  List<Statement> statements,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
+) {
+  if (statements.length < 2) return null;
+  final items = <Map<String, Object?>>[];
+  for (var i = 0; i < statements.length; i++) {
+    final statement = statements[i];
+    if (statement is ReturnStatement &&
+        i == statements.length - 1 &&
+        statement.expression != null) {
+      final expr = _expr(
+        statement.expression!,
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      if (expr == null) return null;
+      items.add(expr);
+      continue;
+    }
+    if (statement is! ExpressionStatement) return null;
+    final expr = _expr(
+      statement.expression,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    if (expr == null) return null;
+    items.add(expr);
+  }
+  return {'seq': items};
 }
 
 Map<String, Object?>? _ifReturnBodySourceExpr(

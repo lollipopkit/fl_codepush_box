@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/android-interpret-failure}"
 TEST_ANDROID_SCRIPT="${FCB_TEST_ANDROID_SCRIPT:-$ROOT_DIR/scripts/test_android.sh}"
 ADB="${FCB_ADB:-$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/android_tools/sdk/platform-tools/adb}"
+ADB_TIMEOUT_SECONDS="${FCB_ADB_TIMEOUT_SECONDS:-30}"
+MAX_INTERPRETER_RATIO="${FCB_MAX_INTERPRETER_RATIO:-0.01}"
 PKG="${FCB_ANDROID_PACKAGE:-com.example.fcb_counter_app}"
 PATCH_NUMBER="${FCB_PATCH_NUMBER:-1}"
 SUMMARY_FILE="$WORKDIR/summary.txt"
@@ -40,6 +42,7 @@ Environment:
   FCB_WORKDIR              Drill output root. Default: target/fcb/android-interpret-failure
   FCB_TEST_ANDROID_SCRIPT  Android test script. Default: scripts/test_android.sh
   FCB_ADB                  adb path. Default: Engine Android SDK adb
+  FCB_ADB_TIMEOUT_SECONDS  adb command timeout in seconds. Default: 30
   FCB_ANDROID_PACKAGE      Android package. Default: com.example.fcb_counter_app
   FCB_PATCH_NUMBER         Patch number to install. Default: 1
   FCB_SKIP_BUILD           Passed through to scripts/test_android.sh. Default: 0
@@ -51,6 +54,8 @@ Environment:
   FCB_CHANNEL              Channel passed to counter_app. Default: stable
   FCB_PLATFORM             Platform passed to counter_app. Default: android
   FCB_ARCH                 Arch passed to counter_app. Default: arm64-v8a
+  FCB_MAX_INTERPRETER_RATIO
+                            Max interpreter ratio for the failing patch launch. Default: 0.01
   FCB_SERVER_DB            Optional sqlite DB path; when set, verifies patch_events has crash_rollback.
 USAGE
 }
@@ -70,7 +75,30 @@ require_file() {
 }
 
 adb_cmd() {
-  "$ADB" "$@"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$ADB_TIMEOUT_SECONDS" "$ADB" "$@"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$ADB" "$ADB_TIMEOUT_SECONDS" "$@" <<'PY'
+import subprocess
+import sys
+
+adb = sys.argv[1]
+timeout = float(sys.argv[2])
+cmd = [adb] + sys.argv[3:]
+try:
+    result = subprocess.run(cmd, timeout=timeout)
+except subprocess.TimeoutExpired:
+    print(
+        "error: adb command timed out after %gs: %s" %
+        (timeout, " ".join(cmd)),
+        file=sys.stderr,
+    )
+    sys.exit(124)
+sys.exit(result.returncode)
+PY
+  else
+    "$ADB" "$@"
+  fi
 }
 
 read_device_state() {
@@ -165,10 +193,12 @@ main() {
 
   FCB_WORKDIR="$WORKDIR/device" \
   FCB_ADB="$ADB" \
+  FCB_ADB_TIMEOUT_SECONDS="$ADB_TIMEOUT_SECONDS" \
   FCB_ANDROID_PACKAGE="$PKG" \
   FCB_INSTALL_BYTECODE_PATCH=1 \
   FCB_PATCH_NUMBER="$PATCH_NUMBER" \
   FCB_PATCH_CODE_KIND=return_underflow \
+  FCB_MAX_INTERPRETER_RATIO="$MAX_INTERPRETER_RATIO" \
   FCB_INCLUDE_ARG_FUNCTION_PATCH=0 \
   FCB_INCLUDE_STATIC_METHOD_PATCH=0 \
   FCB_INCLUDE_STRING_FUNCTION_PATCH=0 \

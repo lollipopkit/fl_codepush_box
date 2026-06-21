@@ -37,6 +37,25 @@ require_file() {
 adb_cmd() {
   if command -v timeout >/dev/null 2>&1; then
     timeout "$ADB_TIMEOUT_SECONDS" "$ADB" "$@"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$ADB" "$ADB_TIMEOUT_SECONDS" "$@" <<'PY'
+import subprocess
+import sys
+
+adb = sys.argv[1]
+timeout = float(sys.argv[2])
+cmd = [adb] + sys.argv[3:]
+try:
+  result = subprocess.run(cmd, timeout=timeout)
+except subprocess.TimeoutExpired:
+  print(
+      "error: adb command timed out after %gs: %s" %
+      (timeout, " ".join(cmd)),
+      file=sys.stderr,
+  )
+  sys.exit(124)
+sys.exit(result.returncode)
+PY
   else
     "$ADB" "$@"
   fi

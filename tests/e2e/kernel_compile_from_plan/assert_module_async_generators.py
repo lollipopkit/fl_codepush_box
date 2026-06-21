@@ -1,3 +1,4 @@
+from assert_module_dynamic_for_in import assert_dynamic_for_in
 from assert_module_stream_generators import assert_stream_generators
 
 def assert_async_generators(module):
@@ -150,6 +151,149 @@ def assert_async_generators(module):
         entry.get("name") for entry in async_branch_local.get("debug_locals", [])
     }
     assert {"enabled", "status"}.issubset(async_branch_local_names), async_branch_local
+    async_nested_branch_local = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncNestedBranchLocal")
+    )
+    assert async_nested_branch_local.get("async_kind") == "async_future", async_nested_branch_local
+    assert async_nested_branch_local["code"].count(0x31) >= 2, async_nested_branch_local
+    assert async_nested_branch_local["code"].count(0x04) >= 6, async_nested_branch_local
+    assert 0x42 in async_nested_branch_local["code"], async_nested_branch_local
+    assert 0x63 in async_nested_branch_local["code"], async_nested_branch_local
+    async_nested_branch_local_names = {
+        entry.get("name") for entry in async_nested_branch_local.get("debug_locals", [])
+    }
+    assert {"enabled", "premium", "state", "tier"}.issubset(
+        async_nested_branch_local_names
+    ), async_nested_branch_local
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-nested-disabled-basic"
+        for constant in async_nested_branch_local["constants"]
+    ), async_nested_branch_local
+    async_nested_await_branch_local = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncNestedAwaitBranchLocal")
+    )
+    assert async_nested_await_branch_local.get("async_kind") == "async_future", async_nested_await_branch_local
+    assert async_nested_await_branch_local["code"].count(0x31) >= 2, async_nested_await_branch_local
+    assert async_nested_await_branch_local["code"].count(0x62) == 2, async_nested_await_branch_local
+    assert 0x42 in async_nested_await_branch_local["code"], async_nested_await_branch_local
+    assert 0x63 in async_nested_await_branch_local["code"], async_nested_await_branch_local
+    async_nested_await_branch_local_names = {
+        entry.get("name") for entry in async_nested_await_branch_local.get("debug_locals", [])
+    }
+    assert {"enabled", "premium", "ready", "state", "tier"}.issubset(
+        async_nested_await_branch_local_names
+    ), async_nested_await_branch_local
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-nested-await-disabled-basic"
+        for constant in async_nested_await_branch_local["constants"]
+    ), async_nested_await_branch_local
+    async_ifelse_side_effect = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncIfElseSideEffectTail")
+    )
+    assert async_ifelse_side_effect.get("async_kind") == "async_future", async_ifelse_side_effect
+    assert 0x31 in async_ifelse_side_effect["code"], async_ifelse_side_effect
+    assert 0x62 in async_ifelse_side_effect["code"], async_ifelse_side_effect
+    assert async_ifelse_side_effect["code"].count(0x04) >= 4, async_ifelse_side_effect
+    assert 0x63 in async_ifelse_side_effect["code"], async_ifelse_side_effect
+    async_ifelse_side_effect_names = {
+        entry.get("name") for entry in async_ifelse_side_effect.get("debug_locals", [])
+    }
+    assert {"enabled", "ready", "out", "state"}.issubset(
+        async_ifelse_side_effect_names
+    ), async_ifelse_side_effect
+    for value in [
+        "patched-ifelse-side-effect",
+        "patched-ifelse-disabled",
+        "-tail",
+    ]:
+        assert any(
+            constant.get("type") == "String" and constant.get("value") == value
+            for constant in async_ifelse_side_effect["constants"]
+        ), async_ifelse_side_effect
+    async_if_side_effect = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncIfSideEffectTail")
+    )
+    assert async_if_side_effect.get("async_kind") == "async_future", async_if_side_effect
+    assert 0x31 in async_if_side_effect["code"], async_if_side_effect
+    assert 0x62 in async_if_side_effect["code"], async_if_side_effect
+    assert async_if_side_effect["code"].count(0x04) >= 3, async_if_side_effect
+    assert 0x63 in async_if_side_effect["code"], async_if_side_effect
+    async_if_side_effect_names = {
+        entry.get("name") for entry in async_if_side_effect.get("debug_locals", [])
+    }
+    assert {"enabled", "ready", "out", "state"}.issubset(
+        async_if_side_effect_names
+    ), async_if_side_effect
+    for value in ["patched-if-side-effect", "-tail"]:
+        assert any(
+            constant.get("type") == "String" and constant.get("value") == value
+            for constant in async_if_side_effect["constants"]
+        ), async_if_side_effect
+    async_conditional_await = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncConditionalAwaitExpr")
+    )
+    assert async_conditional_await.get("async_kind") == "async_future", async_conditional_await
+    assert 0x31 in async_conditional_await["code"], async_conditional_await
+    assert 0x62 in async_conditional_await["code"], async_conditional_await
+    assert 0x63 in async_conditional_await["code"], async_conditional_await
+    async_conditional_await_names = {
+        entry.get("name") for entry in async_conditional_await.get("debug_locals", [])
+    }
+    assert {"enabled", "ready"}.issubset(
+        async_conditional_await_names
+    ), async_conditional_await
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-conditional-disabled"
+        for constant in async_conditional_await["constants"]
+    ), async_conditional_await
+    async_less_than_await = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncLessThanAwaitTail")
+    )
+    assert async_less_than_await.get("async_kind") == "async_future", async_less_than_await
+    assert 0x31 in async_less_than_await["code"], async_less_than_await
+    assert 0x62 in async_less_than_await["code"], async_less_than_await
+    assert 0x63 in async_less_than_await["code"], async_less_than_await
+    async_less_than_await_names = {
+        entry.get("name") for entry in async_less_than_await.get("debug_locals", [])
+    }
+    assert {"limit", "ready"}.issubset(async_less_than_await_names), async_less_than_await
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-less-than-tail"
+        for constant in async_less_than_await["constants"]
+    ), async_less_than_await
+    async_less_equal_await = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncLessEqualAwaitTail")
+    )
+    assert async_less_equal_await.get("async_kind") == "async_future", async_less_equal_await
+    assert 0x31 in async_less_equal_await["code"], async_less_equal_await
+    assert 0x62 in async_less_equal_await["code"], async_less_equal_await
+    assert 0x63 in async_less_equal_await["code"], async_less_equal_await
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-less-equal-tail"
+        for constant in async_less_equal_await["constants"]
+    ), async_less_equal_await
+    async_greater_equal_await = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncGreaterEqualAwaitTail")
+    )
+    assert async_greater_equal_await.get("async_kind") == "async_future", async_greater_equal_await
+    assert async_greater_equal_await["code"].count(0x31) >= 2, async_greater_equal_await
+    assert 0x62 in async_greater_equal_await["code"], async_greater_equal_await
+    assert 0x63 in async_greater_equal_await["code"], async_greater_equal_await
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-greater-equal-tail"
+        for constant in async_greater_equal_await["constants"]
+    ), async_greater_equal_await
+    async_not_equal_await = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncNotEqualAwaitTail")
+    )
+    assert async_not_equal_await.get("async_kind") == "async_future", async_not_equal_await
+    assert async_not_equal_await["code"].count(0x31) >= 2, async_not_equal_await
+    assert 0x62 in async_not_equal_await["code"], async_not_equal_await
+    assert 0x63 in async_not_equal_await["code"], async_not_equal_await
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-not-equal-tail"
+        for constant in async_not_equal_await["constants"]
+    ), async_not_equal_await
     async_guard_tail = next(
         item for item in module["functions"] if item["name"].endswith("::asyncGuardAwaitTail")
     )
@@ -208,6 +352,203 @@ def assert_async_generators(module):
         entry.get("name") for entry in async_while_continue.get("debug_locals", [])
     }
     assert {"limit", "i", "out"}.issubset(async_while_continue_names), async_while_continue
+    async_while_continue_break = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncWhileContinueBreak")
+    )
+    assert async_while_continue_break.get("async_kind") == "async_future", async_while_continue_break
+    assert 0x31 in async_while_continue_break["code"], async_while_continue_break
+    assert 0x30 in async_while_continue_break["code"], async_while_continue_break
+    assert async_while_continue_break["code"].count(0x04) >= 7, async_while_continue_break
+    assert 0x63 in async_while_continue_break["code"], async_while_continue_break
+    async_while_continue_break_names = {
+        entry.get("name") for entry in async_while_continue_break.get("debug_locals", [])
+    }
+    assert {"limit", "i", "out"}.issubset(async_while_continue_break_names), async_while_continue_break
+    async_while_await_continue_break = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncWhileAwaitContinueBreak")
+    )
+    assert async_while_await_continue_break.get("async_kind") == "async_future", async_while_await_continue_break
+    assert 0x31 in async_while_await_continue_break["code"], async_while_await_continue_break
+    assert 0x30 in async_while_await_continue_break["code"], async_while_await_continue_break
+    assert async_while_await_continue_break["code"].count(0x62) >= 2, async_while_await_continue_break
+    assert async_while_await_continue_break["code"].count(0x04) >= 7, async_while_await_continue_break
+    assert 0x63 in async_while_await_continue_break["code"], async_while_await_continue_break
+    async_while_await_continue_break_names = {
+        entry.get("name") for entry in async_while_await_continue_break.get("debug_locals", [])
+    }
+    assert {
+        "limit",
+        "skip",
+        "stop",
+        "i",
+        "out",
+    }.issubset(async_while_await_continue_break_names), async_while_await_continue_break
+    async_while_await_condition = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncWhileAwaitCondition")
+    )
+    assert async_while_await_condition.get("async_kind") == "async_future", async_while_await_condition
+    assert 0x31 in async_while_await_condition["code"], async_while_await_condition
+    assert 0x30 in async_while_await_condition["code"], async_while_await_condition
+    assert 0x62 in async_while_await_condition["code"], async_while_await_condition
+    assert 0x63 in async_while_await_condition["code"], async_while_await_condition
+    async_while_await_condition_names = {
+        entry.get("name") for entry in async_while_await_condition.get("debug_locals", [])
+    }
+    assert {"keepGoing", "i", "out"}.issubset(async_while_await_condition_names), async_while_await_condition
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-while-await-condition"
+        for constant in async_while_await_condition["constants"]
+    ), async_while_await_condition
+    async_while_nested_branch = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncWhileNestedAwaitBranchLocal")
+    )
+    assert async_while_nested_branch.get("async_kind") == "async_future", async_while_nested_branch
+    assert 0x31 in async_while_nested_branch["code"], async_while_nested_branch
+    assert 0x30 in async_while_nested_branch["code"], async_while_nested_branch
+    assert 0x62 in async_while_nested_branch["code"], async_while_nested_branch
+    assert async_while_nested_branch["code"].count(0x04) >= 8, async_while_nested_branch
+    assert 0x63 in async_while_nested_branch["code"], async_while_nested_branch
+    async_while_nested_branch_names = {
+        entry.get("name") for entry in async_while_nested_branch.get("debug_locals", [])
+    }
+    assert {
+        "limit",
+        "premium",
+        "ready",
+        "i",
+        "out",
+        "state",
+        "tier",
+    }.issubset(async_while_nested_branch_names), async_while_nested_branch
+    for value in [
+        "patched-while-nested-await-branch",
+        "patched-while-nested-pro",
+        "patched-while-nested-basic",
+        "patched-while-nested-tail",
+    ]:
+        assert any(
+            constant.get("type") == "String" and constant.get("value") == value
+            for constant in async_while_nested_branch["constants"]
+        ), async_while_nested_branch
+    async_do_while_local = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncDoWhileLocal")
+    )
+    assert async_do_while_local.get("async_kind") == "async_future", async_do_while_local
+    assert 0x31 in async_do_while_local["code"], async_do_while_local
+    assert 0x30 in async_do_while_local["code"], async_do_while_local
+    assert async_do_while_local["code"].count(0x04) >= 4, async_do_while_local
+    assert 0x63 in async_do_while_local["code"], async_do_while_local
+    async_do_while_local_names = {
+        entry.get("name") for entry in async_do_while_local.get("debug_locals", [])
+    }
+    assert {"limit", "i", "out"}.issubset(async_do_while_local_names), async_do_while_local
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-do-while"
+        for constant in async_do_while_local["constants"]
+    ), async_do_while_local
+    async_do_while_await = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncDoWhileAwaitCondition")
+    )
+    assert async_do_while_await.get("async_kind") == "async_future", async_do_while_await
+    assert 0x31 in async_do_while_await["code"], async_do_while_await
+    assert 0x30 in async_do_while_await["code"], async_do_while_await
+    assert 0x62 in async_do_while_await["code"], async_do_while_await
+    assert async_do_while_await["code"].count(0x04) >= 4, async_do_while_await
+    assert 0x63 in async_do_while_await["code"], async_do_while_await
+    async_do_while_await_names = {
+        entry.get("name") for entry in async_do_while_await.get("debug_locals", [])
+    }
+    assert {"keepGoing", "i", "out"}.issubset(async_do_while_await_names), async_do_while_await
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-do-while-await"
+        for constant in async_do_while_await["constants"]
+    ), async_do_while_await
+    async_do_while_branch = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncDoWhileBranchLocal")
+    )
+    assert async_do_while_branch.get("async_kind") == "async_future", async_do_while_branch
+    assert 0x31 in async_do_while_branch["code"], async_do_while_branch
+    assert 0x30 in async_do_while_branch["code"], async_do_while_branch
+    assert async_do_while_branch["code"].count(0x04) >= 6, async_do_while_branch
+    assert 0x63 in async_do_while_branch["code"], async_do_while_branch
+    async_do_while_branch_names = {
+        entry.get("name") for entry in async_do_while_branch.get("debug_locals", [])
+    }
+    assert {"limit", "i", "out", "segment"}.issubset(async_do_while_branch_names), async_do_while_branch
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-do-while-branch"
+        for constant in async_do_while_branch["constants"]
+    ), async_do_while_branch
+    async_do_while_break = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncDoWhileBreak")
+    )
+    assert async_do_while_break.get("async_kind") == "async_future", async_do_while_break
+    assert async_do_while_break["code"].count(0x31) >= 2, async_do_while_break
+    assert async_do_while_break["code"].count(0x30) >= 2, async_do_while_break
+    assert async_do_while_break["code"].count(0x04) >= 6, async_do_while_break
+    assert 0x63 in async_do_while_break["code"], async_do_while_break
+    async_do_while_break_names = {
+        entry.get("name") for entry in async_do_while_break.get("debug_locals", [])
+    }
+    assert {"limit", "i", "out"}.issubset(async_do_while_break_names), async_do_while_break
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-do-while-break"
+        for constant in async_do_while_break["constants"]
+    ), async_do_while_break
+    async_do_while_continue_break = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncDoWhileContinueBreak")
+    )
+    assert async_do_while_continue_break.get("async_kind") == "async_future", async_do_while_continue_break
+    assert async_do_while_continue_break["code"].count(0x31) >= 3, async_do_while_continue_break
+    assert async_do_while_continue_break["code"].count(0x30) >= 3, async_do_while_continue_break
+    assert async_do_while_continue_break["code"].count(0x04) >= 8, async_do_while_continue_break
+    assert 0x63 in async_do_while_continue_break["code"], async_do_while_continue_break
+    async_do_while_continue_break_names = {
+        entry.get("name") for entry in async_do_while_continue_break.get("debug_locals", [])
+    }
+    assert {"limit", "i", "out"}.issubset(async_do_while_continue_break_names), async_do_while_continue_break
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-do-while-continue-break"
+        for constant in async_do_while_continue_break["constants"]
+    ), async_do_while_continue_break
+    async_do_while_await_guard_continue_break = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncDoWhileAwaitGuardContinueBreak")
+    )
+    assert async_do_while_await_guard_continue_break.get("async_kind") == "async_future", async_do_while_await_guard_continue_break
+    assert async_do_while_await_guard_continue_break["code"].count(0x31) >= 3, async_do_while_await_guard_continue_break
+    assert async_do_while_await_guard_continue_break["code"].count(0x30) >= 3, async_do_while_await_guard_continue_break
+    assert async_do_while_await_guard_continue_break["code"].count(0x62) >= 2, async_do_while_await_guard_continue_break
+    assert async_do_while_await_guard_continue_break["code"].count(0x04) >= 8, async_do_while_await_guard_continue_break
+    assert 0x63 in async_do_while_await_guard_continue_break["code"], async_do_while_await_guard_continue_break
+    async_do_while_await_guard_continue_break_names = {
+        entry.get("name") for entry in async_do_while_await_guard_continue_break.get("debug_locals", [])
+    }
+    assert {
+        "limit",
+        "skip",
+        "stop",
+        "i",
+        "out",
+    }.issubset(async_do_while_await_guard_continue_break_names), async_do_while_await_guard_continue_break
+    async_do_while_await_guard_continue_break_await_condition = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncDoWhileAwaitGuardContinueBreakAwaitCondition")
+    )
+    assert async_do_while_await_guard_continue_break_await_condition.get("async_kind") == "async_future", async_do_while_await_guard_continue_break_await_condition
+    assert async_do_while_await_guard_continue_break_await_condition["code"].count(0x31) >= 3, async_do_while_await_guard_continue_break_await_condition
+    assert async_do_while_await_guard_continue_break_await_condition["code"].count(0x30) >= 3, async_do_while_await_guard_continue_break_await_condition
+    assert async_do_while_await_guard_continue_break_await_condition["code"].count(0x62) >= 3, async_do_while_await_guard_continue_break_await_condition
+    assert async_do_while_await_guard_continue_break_await_condition["code"].count(0x04) >= 8, async_do_while_await_guard_continue_break_await_condition
+    assert 0x63 in async_do_while_await_guard_continue_break_await_condition["code"], async_do_while_await_guard_continue_break_await_condition
+    async_do_while_await_guard_continue_break_await_condition_names = {
+        entry.get("name") for entry in async_do_while_await_guard_continue_break_await_condition.get("debug_locals", [])
+    }
+    assert {
+        "keepGoing",
+        "skip",
+        "stop",
+        "i",
+        "out",
+    }.issubset(async_do_while_await_guard_continue_break_await_condition_names), async_do_while_await_guard_continue_break_await_condition
     async_for_local = next(
         item for item in module["functions"] if item["name"].endswith("::asyncForLocal")
     )
@@ -256,6 +597,157 @@ def assert_async_generators(module):
         entry.get("name") for entry in async_for_continue_break.get("debug_locals", [])
     }
     assert {"limit", "i", "out"}.issubset(async_for_continue_break_names), async_for_continue_break
+    async_for_await_guard_continue_break = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncForAwaitGuardContinueBreak")
+    )
+    assert async_for_await_guard_continue_break.get("async_kind") == "async_future", async_for_await_guard_continue_break
+    assert 0x31 in async_for_await_guard_continue_break["code"], async_for_await_guard_continue_break
+    assert 0x30 in async_for_await_guard_continue_break["code"], async_for_await_guard_continue_break
+    assert async_for_await_guard_continue_break["code"].count(0x62) >= 2, async_for_await_guard_continue_break
+    assert async_for_await_guard_continue_break["code"].count(0x04) >= 7, async_for_await_guard_continue_break
+    assert 0x63 in async_for_await_guard_continue_break["code"], async_for_await_guard_continue_break
+    async_for_await_guard_continue_break_names = {
+        entry.get("name") for entry in async_for_await_guard_continue_break.get("debug_locals", [])
+    }
+    assert {
+        "limit",
+        "skip",
+        "stop",
+        "i",
+        "out",
+    }.issubset(async_for_await_guard_continue_break_names), async_for_await_guard_continue_break
+    async_for_await_guard_continue_break_await_update = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncForAwaitGuardContinueBreakAwaitUpdate")
+    )
+    assert async_for_await_guard_continue_break_await_update.get("async_kind") == "async_future", async_for_await_guard_continue_break_await_update
+    assert 0x31 in async_for_await_guard_continue_break_await_update["code"], async_for_await_guard_continue_break_await_update
+    assert 0x30 in async_for_await_guard_continue_break_await_update["code"], async_for_await_guard_continue_break_await_update
+    assert async_for_await_guard_continue_break_await_update["code"].count(0x62) >= 3, async_for_await_guard_continue_break_await_update
+    assert async_for_await_guard_continue_break_await_update["code"].count(0x04) >= 7, async_for_await_guard_continue_break_await_update
+    assert 0x63 in async_for_await_guard_continue_break_await_update["code"], async_for_await_guard_continue_break_await_update
+    async_for_await_guard_continue_break_await_update_names = {
+        entry.get("name") for entry in async_for_await_guard_continue_break_await_update.get("debug_locals", [])
+    }
+    assert {
+        "limit",
+        "skip",
+        "stop",
+        "next",
+        "i",
+        "out",
+    }.issubset(async_for_await_guard_continue_break_await_update_names), async_for_await_guard_continue_break_await_update
+    async_for_await_update = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncForAwaitUpdate")
+    )
+    assert async_for_await_update.get("async_kind") == "async_future", async_for_await_update
+    assert 0x31 in async_for_await_update["code"], async_for_await_update
+    assert 0x30 in async_for_await_update["code"], async_for_await_update
+    assert 0x62 in async_for_await_update["code"], async_for_await_update
+    assert 0x63 in async_for_await_update["code"], async_for_await_update
+    async_for_await_update_names = {
+        entry.get("name") for entry in async_for_await_update.get("debug_locals", [])
+    }
+    assert {"limit", "next", "i", "out"}.issubset(async_for_await_update_names), async_for_await_update
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-for-await-update"
+        for constant in async_for_await_update["constants"]
+    ), async_for_await_update
+    async_for_await_update_branch = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncForAwaitUpdateBranchLocal")
+    )
+    assert async_for_await_update_branch.get("async_kind") == "async_future", async_for_await_update_branch
+    assert 0x31 in async_for_await_update_branch["code"], async_for_await_update_branch
+    assert 0x30 in async_for_await_update_branch["code"], async_for_await_update_branch
+    assert 0x62 in async_for_await_update_branch["code"], async_for_await_update_branch
+    assert async_for_await_update_branch["code"].count(0x04) >= 5, async_for_await_update_branch
+    assert 0x63 in async_for_await_update_branch["code"], async_for_await_update_branch
+    async_for_await_update_branch_names = {
+        entry.get("name") for entry in async_for_await_update_branch.get("debug_locals", [])
+    }
+    assert {"limit", "next", "i", "out", "segment"}.issubset(async_for_await_update_branch_names), async_for_await_update_branch
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-for-await-update-branch"
+        for constant in async_for_await_update_branch["constants"]
+    ), async_for_await_update_branch
+    async_for_nested_branch = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncForNestedAwaitBranchLocal")
+    )
+    assert async_for_nested_branch.get("async_kind") == "async_future", async_for_nested_branch
+    assert 0x31 in async_for_nested_branch["code"], async_for_nested_branch
+    assert 0x30 in async_for_nested_branch["code"], async_for_nested_branch
+    assert 0x62 in async_for_nested_branch["code"], async_for_nested_branch
+    assert async_for_nested_branch["code"].count(0x04) >= 8, async_for_nested_branch
+    assert 0x63 in async_for_nested_branch["code"], async_for_nested_branch
+    async_for_nested_branch_names = {
+        entry.get("name") for entry in async_for_nested_branch.get("debug_locals", [])
+    }
+    assert {
+        "limit",
+        "premium",
+        "ready",
+        "i",
+        "out",
+        "state",
+        "tier",
+    }.issubset(async_for_nested_branch_names), async_for_nested_branch
+    for value in [
+        "patched-for-nested-await-branch",
+        "patched-for-nested-pro",
+        "patched-for-nested-basic",
+        "patched-for-nested-tail",
+    ]:
+        assert any(
+            constant.get("type") == "String" and constant.get("value") == value
+            for constant in async_for_nested_branch["constants"]
+        ), async_for_nested_branch
+    async_for_await_update_nested_branch = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncForAwaitUpdateNestedBranchLocal")
+    )
+    assert async_for_await_update_nested_branch.get("async_kind") == "async_future", async_for_await_update_nested_branch
+    assert 0x31 in async_for_await_update_nested_branch["code"], async_for_await_update_nested_branch
+    assert 0x30 in async_for_await_update_nested_branch["code"], async_for_await_update_nested_branch
+    assert async_for_await_update_nested_branch["code"].count(0x62) >= 2, async_for_await_update_nested_branch
+    assert async_for_await_update_nested_branch["code"].count(0x04) >= 8, async_for_await_update_nested_branch
+    assert 0x63 in async_for_await_update_nested_branch["code"], async_for_await_update_nested_branch
+    async_for_await_update_nested_branch_names = {
+        entry.get("name") for entry in async_for_await_update_nested_branch.get("debug_locals", [])
+    }
+    assert {
+        "limit",
+        "premium",
+        "ready",
+        "next",
+        "i",
+        "out",
+        "state",
+        "tier",
+    }.issubset(async_for_await_update_nested_branch_names), async_for_await_update_nested_branch
+    for value in [
+        "patched-for-await-update-nested-branch",
+        "patched-for-await-update-nested-pro",
+        "patched-for-await-update-nested-basic",
+        "patched-for-await-update-nested-tail",
+    ]:
+        assert any(
+            constant.get("type") == "String" and constant.get("value") == value
+            for constant in async_for_await_update_nested_branch["constants"]
+        ), async_for_await_update_nested_branch
+    async_for_multi_update = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncForMultiUpdate")
+    )
+    assert async_for_multi_update.get("async_kind") == "async_future", async_for_multi_update
+    assert 0x31 in async_for_multi_update["code"], async_for_multi_update
+    assert 0x30 in async_for_multi_update["code"], async_for_multi_update
+    assert async_for_multi_update["code"].count(0x04) >= 5, async_for_multi_update
+    assert 0x63 in async_for_multi_update["code"], async_for_multi_update
+    async_for_multi_update_names = {
+        entry.get("name") for entry in async_for_multi_update.get("debug_locals", [])
+    }
+    assert {"limit", "i", "j", "out"}.issubset(async_for_multi_update_names), async_for_multi_update
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == "patched-for-multi-update"
+        for constant in async_for_multi_update["constants"]
+    ), async_for_multi_update
     sync_generated = next(
         item for item in module["functions"] if item["name"].endswith("::syncGenerated")
     )
@@ -759,290 +1251,7 @@ def assert_async_generators(module):
     assert 0x51 in async_generated_for_in_continue_after_yield["code"], async_generated_for_in_continue_after_yield
     assert any(entry.get("name") == "prefix" for entry in async_generated_for_in_continue_after_yield.get("debug_locals", [])), async_generated_for_in_continue_after_yield
     assert any(entry.get("name") == "value" for entry in async_generated_for_in_continue_after_yield.get("debug_locals", [])), async_generated_for_in_continue_after_yield
-    sync_generated_dynamic_for_in = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForIn")
-    )
-    assert sync_generated_dynamic_for_in.get("async_kind") == "sync_star", sync_generated_dynamic_for_in
-    assert sync_generated_dynamic_for_in["code"].count(0x64) == 2, sync_generated_dynamic_for_in
-    assert 0x51 in sync_generated_dynamic_for_in["code"], sync_generated_dynamic_for_in
-    assert 0x31 in sync_generated_dynamic_for_in["code"], sync_generated_dynamic_for_in
-    async_generated_dynamic_for_in = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForIn")
-    )
-    assert async_generated_dynamic_for_in.get("async_kind") == "async_star", async_generated_dynamic_for_in
-    assert async_generated_dynamic_for_in["code"].count(0x64) == 2, async_generated_dynamic_for_in
-    assert 0x51 in async_generated_dynamic_for_in["code"], async_generated_dynamic_for_in
-    assert 0x31 in async_generated_dynamic_for_in["code"], async_generated_dynamic_for_in
-    sync_generated_dynamic_for_in_mapped = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInMapped")
-    )
-    assert sync_generated_dynamic_for_in_mapped.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_mapped
-    assert sync_generated_dynamic_for_in_mapped["code"].count(0x64) == 1, sync_generated_dynamic_for_in_mapped
-    assert 0x42 in sync_generated_dynamic_for_in_mapped["code"], sync_generated_dynamic_for_in_mapped
-    assert 0x51 in sync_generated_dynamic_for_in_mapped["code"], sync_generated_dynamic_for_in_mapped
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_mapped.get("debug_locals", [])), sync_generated_dynamic_for_in_mapped
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_mapped.get("debug_locals", [])), sync_generated_dynamic_for_in_mapped
-    async_generated_dynamic_for_in_mapped = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInMapped")
-    )
-    assert async_generated_dynamic_for_in_mapped.get("async_kind") == "async_star", async_generated_dynamic_for_in_mapped
-    assert async_generated_dynamic_for_in_mapped["code"].count(0x64) == 1, async_generated_dynamic_for_in_mapped
-    assert 0x42 in async_generated_dynamic_for_in_mapped["code"], async_generated_dynamic_for_in_mapped
-    assert 0x51 in async_generated_dynamic_for_in_mapped["code"], async_generated_dynamic_for_in_mapped
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_mapped.get("debug_locals", [])), async_generated_dynamic_for_in_mapped
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_mapped.get("debug_locals", [])), async_generated_dynamic_for_in_mapped
-    sync_generated_dynamic_for_in_many = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInMany")
-    )
-    assert sync_generated_dynamic_for_in_many.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_many
-    assert sync_generated_dynamic_for_in_many["code"].count(0x64) == 2, sync_generated_dynamic_for_in_many
-    assert sync_generated_dynamic_for_in_many["code"].count(0x42) >= 2, sync_generated_dynamic_for_in_many
-    assert 0x51 in sync_generated_dynamic_for_in_many["code"], sync_generated_dynamic_for_in_many
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_many.get("debug_locals", [])), sync_generated_dynamic_for_in_many
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_many.get("debug_locals", [])), sync_generated_dynamic_for_in_many
-    async_generated_dynamic_for_in_many = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInMany")
-    )
-    assert async_generated_dynamic_for_in_many.get("async_kind") == "async_star", async_generated_dynamic_for_in_many
-    assert async_generated_dynamic_for_in_many["code"].count(0x64) == 2, async_generated_dynamic_for_in_many
-    assert async_generated_dynamic_for_in_many["code"].count(0x42) >= 2, async_generated_dynamic_for_in_many
-    assert 0x51 in async_generated_dynamic_for_in_many["code"], async_generated_dynamic_for_in_many
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_many.get("debug_locals", [])), async_generated_dynamic_for_in_many
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_many.get("debug_locals", [])), async_generated_dynamic_for_in_many
-    sync_generated_dynamic_for_in_if = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInIf")
-    )
-    assert sync_generated_dynamic_for_in_if.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_if
-    assert sync_generated_dynamic_for_in_if["code"].count(0x64) == 2, sync_generated_dynamic_for_in_if
-    assert 0x31 in sync_generated_dynamic_for_in_if["code"], sync_generated_dynamic_for_in_if
-    assert 0x42 in sync_generated_dynamic_for_in_if["code"], sync_generated_dynamic_for_in_if
-    assert 0x51 in sync_generated_dynamic_for_in_if["code"], sync_generated_dynamic_for_in_if
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_if.get("debug_locals", [])), sync_generated_dynamic_for_in_if
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_if.get("debug_locals", [])), sync_generated_dynamic_for_in_if
-    async_generated_dynamic_for_in_if = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInIf")
-    )
-    assert async_generated_dynamic_for_in_if.get("async_kind") == "async_star", async_generated_dynamic_for_in_if
-    assert async_generated_dynamic_for_in_if["code"].count(0x64) == 2, async_generated_dynamic_for_in_if
-    assert 0x31 in async_generated_dynamic_for_in_if["code"], async_generated_dynamic_for_in_if
-    assert 0x42 in async_generated_dynamic_for_in_if["code"], async_generated_dynamic_for_in_if
-    assert 0x51 in async_generated_dynamic_for_in_if["code"], async_generated_dynamic_for_in_if
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_if.get("debug_locals", [])), async_generated_dynamic_for_in_if
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_if.get("debug_locals", [])), async_generated_dynamic_for_in_if
-    sync_generated_dynamic_for_in_ifelse = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInIfElse")
-    )
-    assert sync_generated_dynamic_for_in_ifelse.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_ifelse
-    assert sync_generated_dynamic_for_in_ifelse["code"].count(0x64) == 2, sync_generated_dynamic_for_in_ifelse
-    assert 0x31 in sync_generated_dynamic_for_in_ifelse["code"], sync_generated_dynamic_for_in_ifelse
-    assert 0x42 in sync_generated_dynamic_for_in_ifelse["code"], sync_generated_dynamic_for_in_ifelse
-    assert 0x51 in sync_generated_dynamic_for_in_ifelse["code"], sync_generated_dynamic_for_in_ifelse
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_ifelse.get("debug_locals", [])), sync_generated_dynamic_for_in_ifelse
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_ifelse.get("debug_locals", [])), sync_generated_dynamic_for_in_ifelse
-    async_generated_dynamic_for_in_ifelse = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInIfElse")
-    )
-    assert async_generated_dynamic_for_in_ifelse.get("async_kind") == "async_star", async_generated_dynamic_for_in_ifelse
-    assert async_generated_dynamic_for_in_ifelse["code"].count(0x64) == 2, async_generated_dynamic_for_in_ifelse
-    assert 0x31 in async_generated_dynamic_for_in_ifelse["code"], async_generated_dynamic_for_in_ifelse
-    assert 0x42 in async_generated_dynamic_for_in_ifelse["code"], async_generated_dynamic_for_in_ifelse
-    assert 0x51 in async_generated_dynamic_for_in_ifelse["code"], async_generated_dynamic_for_in_ifelse
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_ifelse.get("debug_locals", [])), async_generated_dynamic_for_in_ifelse
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_ifelse.get("debug_locals", [])), async_generated_dynamic_for_in_ifelse
-    sync_generated_dynamic_for_in_local = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInLocal")
-    )
-    assert sync_generated_dynamic_for_in_local.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_local
-    assert sync_generated_dynamic_for_in_local["code"].count(0x64) == 1, sync_generated_dynamic_for_in_local
-    assert sync_generated_dynamic_for_in_local["code"].count(0x04) >= 3, sync_generated_dynamic_for_in_local
-    assert 0x42 in sync_generated_dynamic_for_in_local["code"], sync_generated_dynamic_for_in_local
-    assert 0x51 in sync_generated_dynamic_for_in_local["code"], sync_generated_dynamic_for_in_local
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_local.get("debug_locals", [])), sync_generated_dynamic_for_in_local
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_local.get("debug_locals", [])), sync_generated_dynamic_for_in_local
-    assert any(entry.get("name") == "marker" for entry in sync_generated_dynamic_for_in_local.get("debug_locals", [])), sync_generated_dynamic_for_in_local
-    async_generated_dynamic_for_in_local = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInLocal")
-    )
-    assert async_generated_dynamic_for_in_local.get("async_kind") == "async_star", async_generated_dynamic_for_in_local
-    assert async_generated_dynamic_for_in_local["code"].count(0x64) == 1, async_generated_dynamic_for_in_local
-    assert async_generated_dynamic_for_in_local["code"].count(0x04) >= 3, async_generated_dynamic_for_in_local
-    assert 0x42 in async_generated_dynamic_for_in_local["code"], async_generated_dynamic_for_in_local
-    assert 0x51 in async_generated_dynamic_for_in_local["code"], async_generated_dynamic_for_in_local
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_local.get("debug_locals", [])), async_generated_dynamic_for_in_local
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_local.get("debug_locals", [])), async_generated_dynamic_for_in_local
-    assert any(entry.get("name") == "marker" for entry in async_generated_dynamic_for_in_local.get("debug_locals", [])), async_generated_dynamic_for_in_local
-    sync_generated_dynamic_for_in_continue = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInContinue")
-    )
-    assert sync_generated_dynamic_for_in_continue.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_continue
-    assert sync_generated_dynamic_for_in_continue["code"].count(0x64) == 1, sync_generated_dynamic_for_in_continue
-    assert 0x31 in sync_generated_dynamic_for_in_continue["code"], sync_generated_dynamic_for_in_continue
-    assert 0x42 in sync_generated_dynamic_for_in_continue["code"], sync_generated_dynamic_for_in_continue
-    assert 0x51 in sync_generated_dynamic_for_in_continue["code"], sync_generated_dynamic_for_in_continue
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_continue.get("debug_locals", [])), sync_generated_dynamic_for_in_continue
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_continue.get("debug_locals", [])), sync_generated_dynamic_for_in_continue
-    async_generated_dynamic_for_in_continue = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInContinue")
-    )
-    assert async_generated_dynamic_for_in_continue.get("async_kind") == "async_star", async_generated_dynamic_for_in_continue
-    assert async_generated_dynamic_for_in_continue["code"].count(0x64) == 1, async_generated_dynamic_for_in_continue
-    assert 0x31 in async_generated_dynamic_for_in_continue["code"], async_generated_dynamic_for_in_continue
-    assert 0x42 in async_generated_dynamic_for_in_continue["code"], async_generated_dynamic_for_in_continue
-    assert 0x51 in async_generated_dynamic_for_in_continue["code"], async_generated_dynamic_for_in_continue
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_continue.get("debug_locals", [])), async_generated_dynamic_for_in_continue
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_continue.get("debug_locals", [])), async_generated_dynamic_for_in_continue
-    sync_generated_dynamic_for_in_continue_after_yield = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInContinueAfterYield")
-    )
-    assert sync_generated_dynamic_for_in_continue_after_yield.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_continue_after_yield
-    assert sync_generated_dynamic_for_in_continue_after_yield["code"].count(0x64) == 2, sync_generated_dynamic_for_in_continue_after_yield
-    assert 0x31 in sync_generated_dynamic_for_in_continue_after_yield["code"], sync_generated_dynamic_for_in_continue_after_yield
-    assert 0x42 in sync_generated_dynamic_for_in_continue_after_yield["code"], sync_generated_dynamic_for_in_continue_after_yield
-    assert 0x51 in sync_generated_dynamic_for_in_continue_after_yield["code"], sync_generated_dynamic_for_in_continue_after_yield
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_continue_after_yield.get("debug_locals", [])), sync_generated_dynamic_for_in_continue_after_yield
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_continue_after_yield.get("debug_locals", [])), sync_generated_dynamic_for_in_continue_after_yield
-    async_generated_dynamic_for_in_continue_after_yield = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInContinueAfterYield")
-    )
-    assert async_generated_dynamic_for_in_continue_after_yield.get("async_kind") == "async_star", async_generated_dynamic_for_in_continue_after_yield
-    assert async_generated_dynamic_for_in_continue_after_yield["code"].count(0x64) == 2, async_generated_dynamic_for_in_continue_after_yield
-    assert 0x31 in async_generated_dynamic_for_in_continue_after_yield["code"], async_generated_dynamic_for_in_continue_after_yield
-    assert 0x42 in async_generated_dynamic_for_in_continue_after_yield["code"], async_generated_dynamic_for_in_continue_after_yield
-    assert 0x51 in async_generated_dynamic_for_in_continue_after_yield["code"], async_generated_dynamic_for_in_continue_after_yield
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_continue_after_yield.get("debug_locals", [])), async_generated_dynamic_for_in_continue_after_yield
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_continue_after_yield.get("debug_locals", [])), async_generated_dynamic_for_in_continue_after_yield
-    sync_generated_dynamic_for_in_break = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInBreak")
-    )
-    assert sync_generated_dynamic_for_in_break.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_break
-    assert sync_generated_dynamic_for_in_break["code"].count(0x64) == 1, sync_generated_dynamic_for_in_break
-    assert sync_generated_dynamic_for_in_break["code"].count(0x30) >= 2, sync_generated_dynamic_for_in_break
-    assert 0x31 in sync_generated_dynamic_for_in_break["code"], sync_generated_dynamic_for_in_break
-    assert 0x42 in sync_generated_dynamic_for_in_break["code"], sync_generated_dynamic_for_in_break
-    assert 0x51 in sync_generated_dynamic_for_in_break["code"], sync_generated_dynamic_for_in_break
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_break.get("debug_locals", [])), sync_generated_dynamic_for_in_break
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_break.get("debug_locals", [])), sync_generated_dynamic_for_in_break
-    async_generated_dynamic_for_in_break = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInBreak")
-    )
-    assert async_generated_dynamic_for_in_break.get("async_kind") == "async_star", async_generated_dynamic_for_in_break
-    assert async_generated_dynamic_for_in_break["code"].count(0x64) == 1, async_generated_dynamic_for_in_break
-    assert async_generated_dynamic_for_in_break["code"].count(0x30) >= 2, async_generated_dynamic_for_in_break
-    assert 0x31 in async_generated_dynamic_for_in_break["code"], async_generated_dynamic_for_in_break
-    assert 0x42 in async_generated_dynamic_for_in_break["code"], async_generated_dynamic_for_in_break
-    assert 0x51 in async_generated_dynamic_for_in_break["code"], async_generated_dynamic_for_in_break
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_break.get("debug_locals", [])), async_generated_dynamic_for_in_break
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_break.get("debug_locals", [])), async_generated_dynamic_for_in_break
-    sync_generated_dynamic_for_in_break_after_yield = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInBreakAfterYield")
-    )
-    assert sync_generated_dynamic_for_in_break_after_yield.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_break_after_yield
-    assert sync_generated_dynamic_for_in_break_after_yield["code"].count(0x64) == 2, sync_generated_dynamic_for_in_break_after_yield
-    assert sync_generated_dynamic_for_in_break_after_yield["code"].count(0x30) >= 2, sync_generated_dynamic_for_in_break_after_yield
-    assert 0x31 in sync_generated_dynamic_for_in_break_after_yield["code"], sync_generated_dynamic_for_in_break_after_yield
-    assert 0x42 in sync_generated_dynamic_for_in_break_after_yield["code"], sync_generated_dynamic_for_in_break_after_yield
-    assert 0x51 in sync_generated_dynamic_for_in_break_after_yield["code"], sync_generated_dynamic_for_in_break_after_yield
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_break_after_yield.get("debug_locals", [])), sync_generated_dynamic_for_in_break_after_yield
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_break_after_yield.get("debug_locals", [])), sync_generated_dynamic_for_in_break_after_yield
-    async_generated_dynamic_for_in_break_after_yield = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInBreakAfterYield")
-    )
-    assert async_generated_dynamic_for_in_break_after_yield.get("async_kind") == "async_star", async_generated_dynamic_for_in_break_after_yield
-    assert async_generated_dynamic_for_in_break_after_yield["code"].count(0x64) == 2, async_generated_dynamic_for_in_break_after_yield
-    assert async_generated_dynamic_for_in_break_after_yield["code"].count(0x30) >= 2, async_generated_dynamic_for_in_break_after_yield
-    assert 0x31 in async_generated_dynamic_for_in_break_after_yield["code"], async_generated_dynamic_for_in_break_after_yield
-    assert 0x42 in async_generated_dynamic_for_in_break_after_yield["code"], async_generated_dynamic_for_in_break_after_yield
-    assert 0x51 in async_generated_dynamic_for_in_break_after_yield["code"], async_generated_dynamic_for_in_break_after_yield
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_break_after_yield.get("debug_locals", [])), async_generated_dynamic_for_in_break_after_yield
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_break_after_yield.get("debug_locals", [])), async_generated_dynamic_for_in_break_after_yield
-    sync_generated_dynamic_for_in_break_at_end = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInBreakAtEnd")
-    )
-    assert sync_generated_dynamic_for_in_break_at_end.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_break_at_end
-    assert sync_generated_dynamic_for_in_break_at_end["code"].count(0x64) == 1, sync_generated_dynamic_for_in_break_at_end
-    assert sync_generated_dynamic_for_in_break_at_end["code"].count(0x30) >= 2, sync_generated_dynamic_for_in_break_at_end
-    assert 0x31 in sync_generated_dynamic_for_in_break_at_end["code"], sync_generated_dynamic_for_in_break_at_end
-    assert 0x42 in sync_generated_dynamic_for_in_break_at_end["code"], sync_generated_dynamic_for_in_break_at_end
-    assert 0x51 in sync_generated_dynamic_for_in_break_at_end["code"], sync_generated_dynamic_for_in_break_at_end
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_break_at_end.get("debug_locals", [])), sync_generated_dynamic_for_in_break_at_end
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_break_at_end.get("debug_locals", [])), sync_generated_dynamic_for_in_break_at_end
-    async_generated_dynamic_for_in_break_at_end = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInBreakAtEnd")
-    )
-    assert async_generated_dynamic_for_in_break_at_end.get("async_kind") == "async_star", async_generated_dynamic_for_in_break_at_end
-    assert async_generated_dynamic_for_in_break_at_end["code"].count(0x64) == 1, async_generated_dynamic_for_in_break_at_end
-    assert async_generated_dynamic_for_in_break_at_end["code"].count(0x30) >= 2, async_generated_dynamic_for_in_break_at_end
-    assert 0x31 in async_generated_dynamic_for_in_break_at_end["code"], async_generated_dynamic_for_in_break_at_end
-    assert 0x42 in async_generated_dynamic_for_in_break_at_end["code"], async_generated_dynamic_for_in_break_at_end
-    assert 0x51 in async_generated_dynamic_for_in_break_at_end["code"], async_generated_dynamic_for_in_break_at_end
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_break_at_end.get("debug_locals", [])), async_generated_dynamic_for_in_break_at_end
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_break_at_end.get("debug_locals", [])), async_generated_dynamic_for_in_break_at_end
-    sync_generated_dynamic_for_in_continue_then_break = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInContinueThenBreak")
-    )
-    assert sync_generated_dynamic_for_in_continue_then_break.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_continue_then_break
-    assert sync_generated_dynamic_for_in_continue_then_break["code"].count(0x64) == 1, sync_generated_dynamic_for_in_continue_then_break
-    assert sync_generated_dynamic_for_in_continue_then_break["code"].count(0x31) >= 2, sync_generated_dynamic_for_in_continue_then_break
-    assert 0x30 in sync_generated_dynamic_for_in_continue_then_break["code"], sync_generated_dynamic_for_in_continue_then_break
-    assert 0x42 in sync_generated_dynamic_for_in_continue_then_break["code"], sync_generated_dynamic_for_in_continue_then_break
-    assert 0x51 in sync_generated_dynamic_for_in_continue_then_break["code"], sync_generated_dynamic_for_in_continue_then_break
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_continue_then_break.get("debug_locals", [])), sync_generated_dynamic_for_in_continue_then_break
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_continue_then_break.get("debug_locals", [])), sync_generated_dynamic_for_in_continue_then_break
-    async_generated_dynamic_for_in_continue_then_break = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInContinueThenBreak")
-    )
-    assert async_generated_dynamic_for_in_continue_then_break.get("async_kind") == "async_star", async_generated_dynamic_for_in_continue_then_break
-    assert async_generated_dynamic_for_in_continue_then_break["code"].count(0x64) == 1, async_generated_dynamic_for_in_continue_then_break
-    assert async_generated_dynamic_for_in_continue_then_break["code"].count(0x31) >= 2, async_generated_dynamic_for_in_continue_then_break
-    assert 0x30 in async_generated_dynamic_for_in_continue_then_break["code"], async_generated_dynamic_for_in_continue_then_break
-    assert 0x42 in async_generated_dynamic_for_in_continue_then_break["code"], async_generated_dynamic_for_in_continue_then_break
-    assert 0x51 in async_generated_dynamic_for_in_continue_then_break["code"], async_generated_dynamic_for_in_continue_then_break
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_continue_then_break.get("debug_locals", [])), async_generated_dynamic_for_in_continue_then_break
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_continue_then_break.get("debug_locals", [])), async_generated_dynamic_for_in_continue_then_break
-    sync_generated_dynamic_for_in_continue_yield_break = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInContinueYieldBreak")
-    )
-    assert sync_generated_dynamic_for_in_continue_yield_break.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_continue_yield_break
-    assert sync_generated_dynamic_for_in_continue_yield_break["code"].count(0x64) == 2, sync_generated_dynamic_for_in_continue_yield_break
-    assert sync_generated_dynamic_for_in_continue_yield_break["code"].count(0x31) >= 3, sync_generated_dynamic_for_in_continue_yield_break
-    assert 0x30 in sync_generated_dynamic_for_in_continue_yield_break["code"], sync_generated_dynamic_for_in_continue_yield_break
-    assert 0x42 in sync_generated_dynamic_for_in_continue_yield_break["code"], sync_generated_dynamic_for_in_continue_yield_break
-    assert 0x51 in sync_generated_dynamic_for_in_continue_yield_break["code"], sync_generated_dynamic_for_in_continue_yield_break
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_continue_yield_break.get("debug_locals", [])), sync_generated_dynamic_for_in_continue_yield_break
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_continue_yield_break.get("debug_locals", [])), sync_generated_dynamic_for_in_continue_yield_break
-    async_generated_dynamic_for_in_continue_yield_break = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInContinueYieldBreak")
-    )
-    assert async_generated_dynamic_for_in_continue_yield_break.get("async_kind") == "async_star", async_generated_dynamic_for_in_continue_yield_break
-    assert async_generated_dynamic_for_in_continue_yield_break["code"].count(0x64) == 2, async_generated_dynamic_for_in_continue_yield_break
-    assert async_generated_dynamic_for_in_continue_yield_break["code"].count(0x31) >= 3, async_generated_dynamic_for_in_continue_yield_break
-    assert 0x30 in async_generated_dynamic_for_in_continue_yield_break["code"], async_generated_dynamic_for_in_continue_yield_break
-    assert 0x42 in async_generated_dynamic_for_in_continue_yield_break["code"], async_generated_dynamic_for_in_continue_yield_break
-    assert 0x51 in async_generated_dynamic_for_in_continue_yield_break["code"], async_generated_dynamic_for_in_continue_yield_break
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_continue_yield_break.get("debug_locals", [])), async_generated_dynamic_for_in_continue_yield_break
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_continue_yield_break.get("debug_locals", [])), async_generated_dynamic_for_in_continue_yield_break
-    sync_generated_dynamic_for_in_nested = next(
-        item for item in module["functions"] if item["name"].endswith("::syncGeneratedDynamicForInNested")
-    )
-    assert sync_generated_dynamic_for_in_nested.get("async_kind") == "sync_star", sync_generated_dynamic_for_in_nested
-    assert sync_generated_dynamic_for_in_nested["code"].count(0x64) == 1, sync_generated_dynamic_for_in_nested
-    assert sync_generated_dynamic_for_in_nested["code"].count(0x51) >= 2, sync_generated_dynamic_for_in_nested
-    assert sync_generated_dynamic_for_in_nested["code"].count(0x31) >= 2, sync_generated_dynamic_for_in_nested
-    assert 0x42 in sync_generated_dynamic_for_in_nested["code"], sync_generated_dynamic_for_in_nested
-    assert any(entry.get("name") == "prefix" for entry in sync_generated_dynamic_for_in_nested.get("debug_locals", [])), sync_generated_dynamic_for_in_nested
-    assert any(entry.get("name") == "value" for entry in sync_generated_dynamic_for_in_nested.get("debug_locals", [])), sync_generated_dynamic_for_in_nested
-    assert any(entry.get("name") == "suffix" for entry in sync_generated_dynamic_for_in_nested.get("debug_locals", [])), sync_generated_dynamic_for_in_nested
-    async_generated_dynamic_for_in_nested = next(
-        item for item in module["functions"] if item["name"].endswith("::asyncGeneratedDynamicForInNested")
-    )
-    assert async_generated_dynamic_for_in_nested.get("async_kind") == "async_star", async_generated_dynamic_for_in_nested
-    assert async_generated_dynamic_for_in_nested["code"].count(0x64) == 1, async_generated_dynamic_for_in_nested
-    assert async_generated_dynamic_for_in_nested["code"].count(0x51) >= 2, async_generated_dynamic_for_in_nested
-    assert async_generated_dynamic_for_in_nested["code"].count(0x31) >= 2, async_generated_dynamic_for_in_nested
-    assert 0x42 in async_generated_dynamic_for_in_nested["code"], async_generated_dynamic_for_in_nested
-    assert any(entry.get("name") == "prefix" for entry in async_generated_dynamic_for_in_nested.get("debug_locals", [])), async_generated_dynamic_for_in_nested
-    assert any(entry.get("name") == "value" for entry in async_generated_dynamic_for_in_nested.get("debug_locals", [])), async_generated_dynamic_for_in_nested
-    assert any(entry.get("name") == "suffix" for entry in async_generated_dynamic_for_in_nested.get("debug_locals", [])), async_generated_dynamic_for_in_nested
+    assert_dynamic_for_in(module)
     assert_stream_generators(module)
     double_count = sum(
         1

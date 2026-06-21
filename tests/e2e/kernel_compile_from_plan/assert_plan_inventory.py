@@ -24,10 +24,86 @@ for function in patch["functions"]:
     else:
         plan["interpret"].append(entry)
 
-if len(plan["interpret"]) != 169:
-    raise SystemExit(f"expected 169 interpreted functions, got {len(plan['interpret'])}")
+if len(plan["interpret"]) != 248:
+    raise SystemExit(f"expected 248 interpreted functions, got {len(plan['interpret'])}")
 if len(plan["reject"]) != 2:
     raise SystemExit(f"expected two rejected functions, got {plan['reject']}")
+
+patch_by_member = {f.get("member_name"): f for f in patch["functions"]}
+
+sync_local_mutation = patch_by_member.get("syncLocalMutation", {}).get("bytecode_source", {})
+sync_local_mutation_let = sync_local_mutation.get("body", {}).get("let", {})
+sync_local_mutation_locals = sync_local_mutation_let.get("locals", [])
+sync_local_mutation_tail = sync_local_mutation_let.get("body", {}).get("seq", [])
+sync_local_mutation_set = sync_local_mutation_tail[0].get("set_local", {}) if sync_local_mutation_tail else {}
+sync_local_mutation_concat = sync_local_mutation_set.get("value", {}).get("concat", [])
+if (
+    sync_local_mutation.get("return_type") != "String"
+    or sync_local_mutation.get("params") != ["name"]
+    or len(sync_local_mutation_locals) != 1
+    or sync_local_mutation_locals[0].get("id") != 0
+    or sync_local_mutation_locals[0].get("name") != "out"
+    or sync_local_mutation_locals[0].get("value", {}).get("string") != "patched-local"
+    or len(sync_local_mutation_tail) != 2
+    or sync_local_mutation_set.get("id") != 0
+    or sync_local_mutation_concat != [{"let_local": 0}, {"string": "-"}, {"arg": "name"}]
+    or sync_local_mutation_tail[1].get("let_local") != 0
+):
+    raise SystemExit(f"expected syncLocalMutation set_local source, got {sync_local_mutation}")
+
+async_local_mutation = patch_by_member.get("asyncLocalMutation", {}).get("bytecode_source", {})
+async_local_mutation_arg = async_local_mutation.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_local_mutation_let = async_local_mutation_arg.get("let", {})
+async_local_mutation_locals = async_local_mutation_let.get("locals", [])
+async_local_mutation_tail = async_local_mutation_let.get("body", {}).get("seq", [])
+async_local_mutation_set = async_local_mutation_tail[0].get("set_local", {}) if async_local_mutation_tail else {}
+async_local_mutation_concat = async_local_mutation_set.get("value", {}).get("concat", [])
+if (
+    async_local_mutation.get("async_future") is not True
+    or async_local_mutation.get("body", {}).get("new_object", {}).get("type_args") != ["String"]
+    or len(async_local_mutation_locals) != 1
+    or async_local_mutation_locals[0].get("id") != 0
+    or async_local_mutation_locals[0].get("name") != "out"
+    or async_local_mutation_locals[0].get("value", {}).get("string") != "patched-async-local"
+    or len(async_local_mutation_tail) != 2
+    or async_local_mutation_set.get("id") != 0
+    or async_local_mutation_concat != [{"let_local": 0}, {"string": "-"}, {"arg": "name"}]
+    or async_local_mutation_tail[1].get("let_local") != 0
+):
+    raise SystemExit(f"expected asyncLocalMutation async set_local source, got {async_local_mutation}")
+
+async_await_local_mutation = patch_by_member.get("asyncAwaitThenLocalMutation", {}).get("bytecode_source", {})
+async_await_local_mutation_arg = async_await_local_mutation.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_local_mutation_let = async_await_local_mutation_arg.get("let", {})
+async_await_local_mutation_locals = async_await_local_mutation_let.get("locals", [])
+async_await_local_mutation_tail = async_await_local_mutation_let.get("body", {}).get("seq", [])
+async_await_local_mutation_set = (
+    async_await_local_mutation_tail[0].get("set_local", {})
+    if async_await_local_mutation_tail
+    else {}
+)
+async_await_local_mutation_concat = async_await_local_mutation_set.get("value", {}).get("concat", [])
+if (
+    async_await_local_mutation.get("async_future") is not True
+    or async_await_local_mutation.get("body", {}).get("new_object", {}).get("type_args") != ["String"]
+    or len(async_await_local_mutation_locals) != 1
+    or async_await_local_mutation_locals[0].get("id") != 0
+    or async_await_local_mutation_locals[0].get("name") != "out"
+    or async_await_local_mutation_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or len(async_await_local_mutation_tail) != 2
+    or async_await_local_mutation_set.get("id") != 0
+    or async_await_local_mutation_concat != [
+        {"string": "patched-await-local:"},
+        {"let_local": 0},
+        {"string": "-"},
+        {"arg": "name"},
+    ]
+    or async_await_local_mutation_tail[1].get("let_local") != 0
+):
+    raise SystemExit(
+        "expected asyncAwaitThenLocalMutation await+set_local source, "
+        f"got {async_await_local_mutation}"
+    )
 
 escaping = [
     f for f in patch["functions"]
@@ -304,11 +380,112 @@ conditional = extra_functions[0].get("body", {}).get("conditional", {})
 if conditional.get("then", {}).get("let") is None or conditional.get("else", {}).get("let") is None:
     raise SystemExit(f"expected branch-local if/else escaping closure branch lets, got {branch_local_if_else_source}")
 
+use_callback = patch_by_member.get("useCallback")
+if use_callback is None:
+    raise SystemExit("missing inventory entry for useCallback")
+use_callback_source = use_callback.get("bytecode_source")
+if not isinstance(use_callback_source, dict):
+    raise SystemExit(f"useCallback should produce bytecode source: {use_callback}")
+if use_callback.get("unsupported_reasons") != []:
+    raise SystemExit(f"useCallback should now be supported, got {use_callback}")
+use_callback_call = use_callback_source.get("body", {}).get("call_closure", {})
+if (
+    use_callback_call.get("closure", {}).get("arg") != "callback"
+    or use_callback_call.get("args") != []
+):
+    raise SystemExit(f"expected useCallback direct parameter closure call source, got {use_callback_source}")
+
+direct_callback = patch_by_member.get("directCallbackValue")
+if direct_callback is None:
+    raise SystemExit("missing inventory entry for directCallbackValue")
+direct_callback_source = direct_callback.get("bytecode_source")
+if not isinstance(direct_callback_source, dict):
+    raise SystemExit(f"directCallbackValue should produce bytecode source: {direct_callback}")
+direct_callback_concat = direct_callback_source.get("body", {}).get("concat", [])
+direct_callback_call = direct_callback_concat[0].get("call_closure", {}) if direct_callback_concat else {}
+if (
+    direct_callback.get("unsupported_reasons") != []
+    or direct_callback_call.get("closure", {}).get("arg") != "callback"
+    or direct_callback_call.get("args") != []
+    or direct_callback_concat[1].get("string") != " patched-direct"
+):
+    raise SystemExit(f"expected directCallbackValue call_closure concat source, got {direct_callback_source}")
+
+direct_callback_arg = patch_by_member.get("directCallbackArg")
+if direct_callback_arg is None:
+    raise SystemExit("missing inventory entry for directCallbackArg")
+direct_callback_arg_source = direct_callback_arg.get("bytecode_source")
+if not isinstance(direct_callback_arg_source, dict):
+    raise SystemExit(f"directCallbackArg should produce bytecode source: {direct_callback_arg}")
+direct_callback_arg_concat = direct_callback_arg_source.get("body", {}).get("concat", [])
+direct_callback_arg_call = direct_callback_arg_concat[0].get("call_closure", {}) if direct_callback_arg_concat else {}
+if (
+    direct_callback_arg.get("unsupported_reasons") != []
+    or direct_callback_arg_call.get("closure", {}).get("arg") != "callback"
+    or direct_callback_arg_call.get("args") != [{"arg": "value"}]
+    or direct_callback_arg_concat[1].get("string") != " patched-arg"
+):
+    raise SystemExit(f"expected directCallbackArg positional call_closure source, got {direct_callback_arg_source}")
+
+direct_callback_named = patch_by_member.get("directCallbackNamed")
+if direct_callback_named is None:
+    raise SystemExit("missing inventory entry for directCallbackNamed")
+direct_callback_named_source = direct_callback_named.get("bytecode_source")
+if not isinstance(direct_callback_named_source, dict):
+    raise SystemExit(f"directCallbackNamed should produce bytecode source: {direct_callback_named}")
+direct_callback_named_concat = direct_callback_named_source.get("body", {}).get("concat", [])
+direct_callback_named_call = direct_callback_named_concat[0].get("call_closure", {}) if direct_callback_named_concat else {}
+if (
+    direct_callback_named.get("unsupported_reasons") != []
+    or direct_callback_named_call.get("closure", {}).get("arg") != "callback"
+    or direct_callback_named_call.get("args") != []
+    or direct_callback_named_call.get("named_args") != [{"name": "value", "value": {"arg": "value"}}]
+    or direct_callback_named_concat[1].get("string") != " patched-named"
+):
+    raise SystemExit(f"expected directCallbackNamed named call_closure source, got {direct_callback_named_source}")
+
+direct_callback_mixed = patch_by_member.get("directCallbackMixed")
+if direct_callback_mixed is None:
+    raise SystemExit("missing inventory entry for directCallbackMixed")
+direct_callback_mixed_source = direct_callback_mixed.get("bytecode_source")
+if not isinstance(direct_callback_mixed_source, dict):
+    raise SystemExit(f"directCallbackMixed should produce bytecode source: {direct_callback_mixed}")
+direct_callback_mixed_concat = direct_callback_mixed_source.get("body", {}).get("concat", [])
+direct_callback_mixed_call = direct_callback_mixed_concat[0].get("call_closure", {}) if direct_callback_mixed_concat else {}
+if (
+    direct_callback_mixed.get("unsupported_reasons") != []
+    or direct_callback_mixed_call.get("closure", {}).get("arg") != "callback"
+    or direct_callback_mixed_call.get("args") != [{"arg": "value"}]
+    or direct_callback_mixed_call.get("named_args") != [{"name": "suffix", "value": {"arg": "suffix"}}]
+    or direct_callback_mixed_concat[1].get("string") != " patched-mixed"
+):
+    raise SystemExit(f"expected directCallbackMixed mixed call_closure source, got {direct_callback_mixed_source}")
+
+main_function = patch_by_member.get("main")
+if main_function is None:
+    raise SystemExit("missing inventory entry for main")
+main_source = main_function.get("bytecode_source")
+if not isinstance(main_source, dict):
+    raise SystemExit(f"main should produce bytecode source: {main_function}")
+main_seq = main_source.get("body", {}).get("seq", [])
+if (
+    main_function.get("unsupported_reasons") != []
+    or len(main_seq) != 3
+    or not main_seq[0].get("call_static", "").endswith("::mainValue")
+    or not main_seq[1].get("call_static", "").endswith("::helper")
+    or main_seq[2].get("null") is not True
+):
+    raise SystemExit(f"expected main sync expression statement sequence source, got {main_source}")
+
 expected_rejects = {
     "isCallable": "function_type_unsupported",
     "isRecord": "record_type_unsupported",
 }
-patch_by_member = {f.get("member_name"): f for f in patch["functions"]}
+
+expected_unchanged_async_rejects = {
+    "asyncFutureCallbackTypeArg": "async_await_unsupported",
+    "asyncFutureRecordTypeArg": "async_await_unsupported",
+}
 
 def contains_key(value, key):
     if isinstance(value, dict):
@@ -323,6 +500,13 @@ for function in patch["functions"]:
         raise SystemExit(f"internal generator metadata leaked into bytecode_source: {function}")
 
 plan_rejects = {item["function_id"]: item["reject_reason"] for item in plan["reject"]}
+plan_reject_members = {
+    function.get("member_name")
+    for function in patch["functions"]
+    if function.get("function_id") in plan_rejects
+}
+if plan_reject_members != set(expected_rejects):
+    raise SystemExit(f"expected only {set(expected_rejects)} rejects, got {plan_reject_members}: {plan['reject']}")
 for member, reason in expected_rejects.items():
     function = patch_by_member.get(member)
     if function is None:
@@ -333,6 +517,17 @@ for member, reason in expected_rejects.items():
         raise SystemExit(f"expected {member} reason {reason}, got {function}")
     if plan_rejects.get(function["function_id"]) != reason:
         raise SystemExit(f"expected plan reject {member}={reason}, got {plan['reject']}")
+
+for member, reason in expected_unchanged_async_rejects.items():
+    function = patch_by_member.get(member)
+    if function is None:
+        raise SystemExit(f"missing inventory entry for {member}")
+    if function.get("bytecode_source") is not None:
+        raise SystemExit(f"{member} must not produce bytecode source: {function}")
+    if function.get("unsupported_reasons") != [reason]:
+        raise SystemExit(f"expected {member} reason {reason}, got {function}")
+    if function["function_id"] in plan_rejects:
+        raise SystemExit(f"{member} is unchanged and must not enter plan rejects: {plan['reject']}")
 
 async_label = patch_by_member.get("asyncLabel")
 if async_label is None:
@@ -347,6 +542,21 @@ if async_new_object.get("constructor") != "dart:async::class:_Future.value":
     raise SystemExit(f"expected asyncLabel _Future.value source, got {async_source}")
 if async_new_object.get("type_args") != ["String"]:
     raise SystemExit(f"expected asyncLabel Future<String> type arg, got {async_source}")
+async_int_input = patch_by_member.get("asyncIntInput")
+if async_int_input is None:
+    raise SystemExit("missing inventory entry for asyncIntInput")
+async_int_input_source = async_int_input.get("bytecode_source")
+if not isinstance(async_int_input_source, dict):
+    raise SystemExit(f"asyncIntInput should produce bytecode source: {async_int_input}")
+if async_int_input.get("unsupported_reasons") != []:
+    raise SystemExit(f"asyncIntInput should now be supported, got {async_int_input}")
+async_int_input_object = async_int_input_source.get("body", {}).get("new_object", {})
+if (
+    async_int_input_object.get("constructor") != "dart:async::class:_Future.value"
+    or async_int_input_object.get("type_args") != ["int"]
+    or async_int_input_object.get("args", [{}])[0].get("int") != 2
+):
+    raise SystemExit(f"expected asyncIntInput sync Future.value<int> source, got {async_int_input_source}")
 awaited_void = patch_by_member.get("awaitedVoid", {}).get("bytecode_source", {})
 awaited_void_new_object = awaited_void.get("body", {}).get("new_object", {})
 awaited_void_arg = awaited_void_new_object.get("args", [{}])[0]
@@ -459,188 +669,6 @@ if (
     or awaited_cleanup_finally_seq[1].get("null") is not True
 ):
     raise SystemExit(f"expected awaitedFinallyCleanup finalizer await source, got {awaited_finally_cleanup}")
-async_branch_local = patch_by_member.get("asyncBranchLocal", {}).get("bytecode_source", {})
-async_branch_conditional = async_branch_local.get("body", {}).get("new_object", {}).get("args", [{}])[0].get("conditional", {})
-if (
-    async_branch_conditional.get("condition", {}).get("arg") != "enabled"
-    or async_branch_conditional.get("then", {}).get("let", {}).get("locals", [{}])[0].get("name") != "status"
-    or async_branch_conditional.get("else", {}).get("let", {}).get("locals", [{}])[0].get("name") != "status"
-):
-    raise SystemExit(f"expected asyncBranchLocal branch-local conditional source, got {async_branch_local}")
-async_guard_tail = patch_by_member.get("asyncGuardAwaitTail", {}).get("bytecode_source", {})
-async_guard_conditional = async_guard_tail.get("body", {}).get("new_object", {}).get("args", [{}])[0].get("conditional", {})
-async_guard_else_seq = async_guard_conditional.get("else", {}).get("seq", [])
-if (
-    async_guard_conditional.get("condition", {}).get("arg") != "enabled"
-    or async_guard_conditional.get("then", {}).get("string") != "patched-guard-fast"
-    or len(async_guard_else_seq) != 2
-    or async_guard_else_seq[0].get("await", {}).get("arg") != "ready"
-    or async_guard_else_seq[1].get("string") != "patched-guard-tail"
-):
-    raise SystemExit(f"expected asyncGuardAwaitTail guard if + await tail source, got {async_guard_tail}")
-planned_async = patch_by_member.get("plannedAsyncAwait", {}).get("bytecode_source", {})
-planned_arg = planned_async.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-planned_let = planned_arg.get("let", {})
-planned_locals = planned_let.get("locals", [])
-planned_conditional = planned_let.get("body", {}).get("conditional", {})
-if (
-    len(planned_locals) != 1
-    or planned_locals[0].get("value", {}).get("await", {}).get("call_static") is None
-    or planned_conditional.get("condition", {}).get("op") != ">"
-    or planned_conditional.get("then", {}).get("op") != "+"
-):
-    raise SystemExit(f"expected plannedAsyncAwait local await + if-return source, got {planned_async}")
-async_while_local = patch_by_member.get("asyncWhileLocal", {}).get("bytecode_source", {})
-async_while_arg = async_while_local.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_while_outer_let = async_while_arg.get("let", {})
-async_while_locals = async_while_outer_let.get("locals", [])
-async_while_seq = async_while_outer_let.get("body", {}).get("seq", [])
-async_while_loop = async_while_seq[0].get("while_loop", {}) if async_while_seq else {}
-async_while_loop_body = async_while_loop.get("body", {}).get("seq", [])
-if (
-    async_while_local.get("async_future") is not True
-    or len(async_while_locals) != 2
-    or async_while_locals[0].get("name") != "i"
-    or async_while_locals[1].get("name") != "out"
-    or async_while_loop.get("condition", {}).get("op") != ">"
-    or len(async_while_loop_body) != 2
-    or async_while_loop_body[0].get("set_local", {}).get("id") != 1
-    or async_while_loop_body[1].get("seq", [{}])[0].get("set_local", {}).get("id") != 0
-):
-    raise SystemExit(f"expected asyncWhileLocal while_loop + set_local source, got {async_while_local}")
-async_while_break = patch_by_member.get("asyncWhileBreak", {}).get("bytecode_source", {})
-async_while_break_arg = async_while_break.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_while_break_outer_let = async_while_break_arg.get("let", {})
-async_while_break_locals = async_while_break_outer_let.get("locals", [])
-async_while_break_seq = async_while_break_outer_let.get("body", {}).get("seq", [])
-async_while_break_loop = async_while_break_seq[0].get("while_loop", {}) if async_while_break_seq else {}
-async_while_break_body = async_while_break_loop.get("body", {}).get("seq", [])
-async_while_break_before = async_while_break_loop.get("before_break", {}).get("seq", [])
-if (
-    async_while_break.get("async_future") is not True
-    or len(async_while_break_locals) != 2
-    or async_while_break_locals[0].get("name") != "i"
-    or async_while_break_locals[1].get("name") != "out"
-    or not async_while_break_before
-    or async_while_break_before[0].get("set_local", {}).get("id") != 1
-    or async_while_break_loop.get("break_condition", {}).get("op") != "=="
-    or len(async_while_break_body) != 2
-    or async_while_break_body[0].get("set_local", {}).get("id") != 0
-):
-    raise SystemExit(f"expected asyncWhileBreak before_break + break_condition source, got {async_while_break}")
-async_while_continue = patch_by_member.get("asyncWhileContinue", {}).get("bytecode_source", {})
-async_while_continue_arg = async_while_continue.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_while_continue_outer_let = async_while_continue_arg.get("let", {})
-async_while_continue_locals = async_while_continue_outer_let.get("locals", [])
-async_while_continue_seq = async_while_continue_outer_let.get("body", {}).get("seq", [])
-async_while_continue_loop = async_while_continue_seq[0].get("while_loop", {}) if async_while_continue_seq else {}
-async_while_continue_body = async_while_continue_loop.get("body", {}).get("seq", [])
-async_while_continue_before = async_while_continue_loop.get("before_continue", {}).get("seq", [])
-async_while_continue_continue_body = async_while_continue_loop.get("continue_body", {}).get("seq", [])
-if (
-    async_while_continue.get("async_future") is not True
-    or len(async_while_continue_locals) != 2
-    or async_while_continue_locals[0].get("name") != "i"
-    or async_while_continue_locals[1].get("name") != "out"
-    or not async_while_continue_before
-    or async_while_continue_before[0].get("set_local", {}).get("id") != 1
-    or async_while_continue_loop.get("continue_condition", {}).get("op") != "=="
-    or not async_while_continue_continue_body
-    or async_while_continue_continue_body[0].get("set_local", {}).get("id") != 0
-    or len(async_while_continue_body) != 2
-    or async_while_continue_body[0].get("set_local", {}).get("id") != 1
-):
-    raise SystemExit(f"expected asyncWhileContinue before_continue + continue_condition source, got {async_while_continue}")
-async_for_local = patch_by_member.get("asyncForLocal", {}).get("bytecode_source", {})
-async_for_arg = async_for_local.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_for_outer_let = async_for_arg.get("let", {})
-async_for_outer_seq = async_for_outer_let.get("body", {}).get("seq", [])
-async_for_inner_let = async_for_outer_seq[0].get("let", {}) if async_for_outer_seq else {}
-async_for_loop = async_for_inner_let.get("body", {}).get("while_loop", {})
-async_for_loop_body = async_for_loop.get("body", {}).get("seq", [])
-if (
-    async_for_local.get("async_future") is not True
-    or async_for_outer_let.get("locals", [{}])[0].get("name") != "out"
-    or async_for_inner_let.get("locals", [{}])[0].get("name") != "i"
-    or async_for_loop.get("condition", {}).get("op") != ">"
-    or len(async_for_loop_body) != 3
-    or async_for_loop_body[0].get("set_local", {}).get("id") != 0
-    or async_for_loop_body[2].get("set_local", {}).get("id") != 1
-):
-    raise SystemExit(f"expected asyncForLocal for->while_loop + update source, got {async_for_local}")
-async_for_continue = patch_by_member.get("asyncForContinue", {}).get("bytecode_source", {})
-async_for_continue_arg = async_for_continue.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_for_continue_outer_let = async_for_continue_arg.get("let", {})
-async_for_continue_outer_seq = async_for_continue_outer_let.get("body", {}).get("seq", [])
-async_for_continue_inner_let = async_for_continue_outer_seq[0].get("let", {}) if async_for_continue_outer_seq else {}
-async_for_continue_loop = async_for_continue_inner_let.get("body", {}).get("while_loop", {})
-async_for_continue_body = async_for_continue_loop.get("body", {}).get("seq", [])
-async_for_continue_before = async_for_continue_loop.get("before_continue", {}).get("seq", [])
-async_for_continue_continue_body = async_for_continue_loop.get("continue_body", {}).get("seq", [])
-if (
-    async_for_continue.get("async_future") is not True
-    or async_for_continue_outer_let.get("locals", [{}])[0].get("name") != "out"
-    or async_for_continue_inner_let.get("locals", [{}])[0].get("name") != "i"
-    or async_for_continue_loop.get("condition", {}).get("op") != ">"
-    or not async_for_continue_before
-    or async_for_continue_before[0].get("set_local", {}).get("id") != 0
-    or async_for_continue_loop.get("continue_condition", {}).get("op") != "=="
-    or len(async_for_continue_continue_body) != 2
-    or async_for_continue_continue_body[1].get("set_local", {}).get("id") != 1
-    or len(async_for_continue_body) != 3
-    or async_for_continue_body[0].get("set_local", {}).get("id") != 0
-    or async_for_continue_body[2].get("set_local", {}).get("id") != 1
-):
-    raise SystemExit(f"expected asyncForContinue guarded continue + update source, got {async_for_continue}")
-async_for_break = patch_by_member.get("asyncForBreak", {}).get("bytecode_source", {})
-async_for_break_arg = async_for_break.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_for_break_outer_let = async_for_break_arg.get("let", {})
-async_for_break_outer_seq = async_for_break_outer_let.get("body", {}).get("seq", [])
-async_for_break_inner_let = async_for_break_outer_seq[0].get("let", {}) if async_for_break_outer_seq else {}
-async_for_break_loop = async_for_break_inner_let.get("body", {}).get("while_loop", {})
-async_for_break_body = async_for_break_loop.get("body", {}).get("seq", [])
-async_for_break_before = async_for_break_loop.get("before_break", {}).get("seq", [])
-if (
-    async_for_break.get("async_future") is not True
-    or async_for_break_outer_let.get("locals", [{}])[0].get("name") != "out"
-    or async_for_break_inner_let.get("locals", [{}])[0].get("name") != "i"
-    or async_for_break_loop.get("condition", {}).get("op") != ">"
-    or not async_for_break_before
-    or async_for_break_before[0].get("set_local", {}).get("id") != 0
-    or async_for_break_loop.get("break_condition", {}).get("op") != "=="
-    or len(async_for_break_body) != 3
-    or async_for_break_body[0].get("set_local", {}).get("id") != 0
-    or async_for_break_body[2].get("set_local", {}).get("id") != 1
-):
-    raise SystemExit(f"expected asyncForBreak guarded break + update source, got {async_for_break}")
-async_for_continue_break = patch_by_member.get("asyncForContinueBreak", {}).get("bytecode_source", {})
-async_for_continue_break_arg = async_for_continue_break.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_for_continue_break_outer_let = async_for_continue_break_arg.get("let", {})
-async_for_continue_break_outer_seq = async_for_continue_break_outer_let.get("body", {}).get("seq", [])
-async_for_continue_break_inner_let = async_for_continue_break_outer_seq[0].get("let", {}) if async_for_continue_break_outer_seq else {}
-async_for_continue_break_loop = async_for_continue_break_inner_let.get("body", {}).get("while_loop", {})
-async_for_continue_break_body = async_for_continue_break_loop.get("body", {}).get("seq", [])
-async_for_continue_break_before_continue = async_for_continue_break_loop.get("before_continue", {}).get("seq", [])
-async_for_continue_break_continue_body = async_for_continue_break_loop.get("continue_body", {}).get("seq", [])
-async_for_continue_break_before_break = async_for_continue_break_loop.get("before_break", {}).get("seq", [])
-if (
-    async_for_continue_break.get("async_future") is not True
-    or async_for_continue_break_outer_let.get("locals", [{}])[0].get("name") != "out"
-    or async_for_continue_break_inner_let.get("locals", [{}])[0].get("name") != "i"
-    or async_for_continue_break_loop.get("condition", {}).get("op") != ">"
-    or not async_for_continue_break_before_continue
-    or async_for_continue_break_before_continue[0].get("set_local", {}).get("id") != 0
-    or async_for_continue_break_loop.get("continue_condition", {}).get("op") != "=="
-    or len(async_for_continue_break_continue_body) != 2
-    or async_for_continue_break_continue_body[1].get("set_local", {}).get("id") != 1
-    or not async_for_continue_break_before_break
-    or async_for_continue_break_before_break[0].get("set_local", {}).get("id") != 0
-    or async_for_continue_break_loop.get("break_condition", {}).get("op") != "=="
-    or len(async_for_continue_break_body) != 3
-    or async_for_continue_break_body[0].get("set_local", {}).get("id") != 0
-    or async_for_continue_break_body[2].get("set_local", {}).get("id") != 1
-):
-    raise SystemExit(f"expected asyncForContinueBreak guarded continue+break + update source, got {async_for_continue_break}")
 sync_generated = patch_by_member.get("syncGenerated", {}).get("bytecode_source", {})
 if sync_generated.get("async_kind") != "sync_star":
     raise SystemExit(f"expected syncGenerated sync_star source, got {sync_generated}")

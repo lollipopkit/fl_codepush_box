@@ -90,6 +90,8 @@ validate_engine_source() {
   local commit
   commit="$(vendor_commit "$path")"
   if [ -n "$commit" ]; then
+    git -C "$ROOT_DIR/$path" status --short -- DEPS >/dev/null \
+      || die "$path has an unusable git checkout; remove or repair nested .git metadata"
     printf '%-20s %s checkout\n' "$path" "$commit"
   else
     printf '%-20s framework-provided source\n' "$path"
