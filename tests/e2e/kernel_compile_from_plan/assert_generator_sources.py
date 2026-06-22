@@ -73,6 +73,218 @@ if (
     or async_dynamic_yield_star_seq[1].get("yield", {}).get("string") != "patched-stream-yield-star-dynamic-tail"
 ):
     raise SystemExit(f"expected asyncGeneratedYieldStarDynamic Stream.fromIterable yield* source, got {async_generated_yield_star_dynamic}")
+
+def assert_generator_switch_or_source(name, async_kind, expected_constants):
+    source = patch_by_member.get(name, {}).get("bytecode_source", {})
+    source_json = json.dumps(source)
+    if (
+        source.get("async_kind") != async_kind
+        or source_json.count('"conditional"') < 4
+        or source_json.count('"yield"') < 1
+        or '"arg": "tier"' not in source_json
+        or '"string": "gold"' not in source_json
+        or '"string": "vip"' not in source_json
+        or '"string": "trial"' not in source_json
+        or '"string": "guest"' not in source_json
+        or any(f'"string": "{constant}"' not in source_json for constant in expected_constants)
+    ):
+        raise SystemExit(f"expected {name} generator switch-or source, got {source}")
+
+assert_generator_switch_or_source(
+    "syncGeneratedSwitchOrPatternExpr",
+    "sync_star",
+    [
+        "patched-iterable-switch-or-premium",
+        "patched-iterable-switch-or-limited",
+        "patched-iterable-switch-or-other",
+    ],
+)
+assert_generator_switch_or_source(
+    "syncGeneratedSwitchOrPatternStatement",
+    "sync_star",
+    [
+        "patched-iterable-switch-stmt-or-premium",
+        "patched-iterable-switch-stmt-or-limited",
+        "patched-iterable-switch-stmt-or-other",
+    ],
+)
+assert_generator_switch_or_source(
+    "asyncGeneratedSwitchOrPatternExpr",
+    "async_star",
+    [
+        "patched-stream-switch-or-premium",
+        "patched-stream-switch-or-limited",
+        "patched-stream-switch-or-other",
+    ],
+)
+assert_generator_switch_or_source(
+    "asyncGeneratedSwitchOrPatternStatement",
+    "async_star",
+    [
+        "patched-stream-switch-stmt-or-premium",
+        "patched-stream-switch-stmt-or-limited",
+        "patched-stream-switch-stmt-or-other",
+    ],
+)
+
+def assert_generator_loop_switch_or_source(name, async_kind, expected_constants):
+    source = patch_by_member.get(name, {}).get("bytecode_source", {})
+    source_json = json.dumps(source)
+    if (
+        source.get("async_kind") != async_kind
+        or '"while_loop"' not in source_json
+        or source_json.count('"conditional"') < 2
+        or source_json.count('"yield"') < 2
+        or '"int": 0' not in source_json
+        or '"int": 1' not in source_json
+        or '"set_local"' not in source_json
+        or any(f'"string": "{constant}"' not in source_json for constant in expected_constants)
+    ):
+        raise SystemExit(f"expected {name} generator loop switch-or source, got {source}")
+
+def assert_generator_await_for_switch_or_source(name, expected_constants, args, min_move_next):
+    source = patch_by_member.get(name, {}).get("bytecode_source", {})
+    source_json = json.dumps(source)
+    if (
+        source.get("async_kind") != "async_star"
+        or source_json.count('"method": "moveNext"') < min_move_next
+        or source_json.count('"method": "cancel"') < min_move_next
+        or source_json.count('"conditional"') < 2
+        or source_json.count('"yield"') < 2
+        or '"string": "gold"' not in source_json
+        or '"string": "vip"' not in source_json
+        or any(f'"arg": "{arg}"' not in source_json for arg in args)
+        or any(f'"string": "{constant}"' not in source_json for constant in expected_constants)
+    ):
+        raise SystemExit(f"expected {name} generator await-for switch-or source, got {source}")
+
+assert_generator_loop_switch_or_source(
+    "syncGeneratedWhileSwitchOrPatternStatement",
+    "sync_star",
+    [
+        "patched-iterable-while-switch-or-premium-",
+        "patched-iterable-while-switch-or-other-",
+    ],
+)
+assert_generator_loop_switch_or_source(
+    "syncGeneratedForSwitchOrPatternStatement",
+    "sync_star",
+    [
+        "patched-iterable-for-switch-or-premium-",
+        "patched-iterable-for-switch-or-other-",
+    ],
+)
+assert_generator_loop_switch_or_source(
+    "asyncGeneratedWhileSwitchOrPatternStatement",
+    "async_star",
+    [
+        "patched-stream-while-switch-or-premium-",
+        "patched-stream-while-switch-or-other-",
+    ],
+)
+assert_generator_loop_switch_or_source(
+    "asyncGeneratedForSwitchOrPatternStatement",
+    "async_star",
+    [
+        "patched-stream-for-switch-or-premium-",
+        "patched-stream-for-switch-or-other-",
+    ],
+)
+assert_generator_await_for_switch_or_source(
+    "asyncGeneratedAwaitForSwitchOrPatternStatement",
+    [
+        "patched-stream-await-for-switch-or-premium-",
+        "patched-stream-await-for-switch-or-other-",
+    ],
+    ["extra"],
+    1,
+)
+assert_generator_await_for_switch_or_source(
+    "asyncGeneratedNestedAwaitForSwitchOrPatternStatement",
+    [
+        "patched-stream-nested-await-for-switch-or-premium-",
+        "patched-stream-nested-await-for-switch-or-other-",
+    ],
+    ["outer", "inner"],
+    2,
+)
+
+def assert_generator_await_for_switch_or_error_cleanup_source(
+    name,
+    expected_constants,
+    args,
+    min_move_next,
+    has_catch,
+    guard_constants=(),
+):
+    source = patch_by_member.get(name, {}).get("bytecode_source", {})
+    source_json = json.dumps(source)
+    if (
+        source.get("async_kind") != "async_star"
+        or source_json.count('"method": "moveNext"') < min_move_next
+        or source_json.count('"method": "cancel"') < min_move_next
+        or '"try_finally"' not in source_json
+        or (has_catch and '"try_catch"' not in source_json)
+        or source_json.count('"conditional"') < 2
+        or source_json.count('"yield"') < 3
+        or '"string": "gold"' not in source_json
+        or '"string": "vip"' not in source_json
+        or any(f'"arg": "{arg}"' not in source_json for arg in args)
+        or any(f'"string": "{constant}"' not in source_json for constant in expected_constants)
+        or any(f'"string": "{constant}"' not in source_json for constant in guard_constants)
+    ):
+        raise SystemExit(
+            f"expected {name} generator await-for switch-or error/cleanup source, got {source}"
+        )
+
+assert_generator_await_for_switch_or_error_cleanup_source(
+    "asyncGeneratedAwaitForSwitchOrPatternCatchFinally",
+    [
+        "patched-stream-await-for-switch-or-catch-premium-",
+        "patched-stream-await-for-switch-or-catch-other-",
+        "patched-stream-await-for-switch-or-caught-",
+        "patched-stream-await-for-switch-or-cleanup",
+    ],
+    ["extra"],
+    1,
+    True,
+)
+assert_generator_await_for_switch_or_error_cleanup_source(
+    "asyncGeneratedAwaitForSwitchOrPatternBreakContinueFinally",
+    [
+        "patched-stream-await-for-switch-or-break-continue-premium-",
+        "patched-stream-await-for-switch-or-break-continue-other-",
+        "patched-stream-await-for-switch-or-break-continue-cleanup",
+    ],
+    ["extra"],
+    1,
+    False,
+    ["skip", "stop"],
+)
+assert_generator_await_for_switch_or_error_cleanup_source(
+    "asyncGeneratedNestedAwaitForSwitchOrPatternCatchFinally",
+    [
+        "patched-stream-nested-await-for-switch-or-catch-premium-",
+        "patched-stream-nested-await-for-switch-or-catch-other-",
+        "patched-stream-nested-await-for-switch-or-caught-",
+        "patched-stream-nested-await-for-switch-or-cleanup",
+    ],
+    ["outer", "inner"],
+    2,
+    True,
+)
+assert_generator_await_for_switch_or_error_cleanup_source(
+    "asyncGeneratedNestedAwaitForSwitchOrPatternBreakContinueFinally",
+    [
+        "patched-stream-nested-await-for-switch-or-break-continue-premium-",
+        "patched-stream-nested-await-for-switch-or-break-continue-other-",
+        "patched-stream-nested-await-for-switch-or-break-continue-cleanup",
+    ],
+    ["outer", "inner"],
+    2,
+    False,
+    ["skip", "stop"],
+)
 async_generated_yield_star_stream = patch_by_member.get("asyncGeneratedYieldStarStream", {}).get("bytecode_source", {})
 async_yield_star_stream_let = async_generated_yield_star_stream.get("body", {}).get("let", {})
 async_yield_star_stream_locals = async_yield_star_stream_let.get("locals", [])

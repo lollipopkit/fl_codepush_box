@@ -29,8 +29,8 @@ for function in patch["functions"]:
     else:
         plan["interpret"].append(entry)
 
-if len(plan["interpret"]) != 463:
-    raise SystemExit(f"expected 463 interpreted functions, got {len(plan['interpret'])}")
+if len(plan["interpret"]) != 508:
+    raise SystemExit(f"expected 508 interpreted functions, got {len(plan['interpret'])}")
 if len(plan["reject"]) != 2:
     raise SystemExit(f"expected two rejected functions, got {plan['reject']}")
 

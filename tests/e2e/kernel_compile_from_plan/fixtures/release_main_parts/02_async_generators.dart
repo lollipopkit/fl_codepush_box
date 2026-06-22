@@ -584,3 +584,64 @@ Stream<String> asyncGeneratedAwaitForNestedStreamBreakContinueFinally(Stream<Str
 Stream<String> asyncGeneratedAwaitForTripleNestedStreamFinally(Stream<String> outer, Stream<String> middle, Stream<String> inner) async* {
   yield 'base-stream-await-for-triple-nested-stream-finally';
 }
+
+Stream<String> asyncGeneratedSwitchOrPatternExpr(String tier) async* {
+  yield tier == 'gold'
+      ? 'base-stream-switch-or-premium'
+      : 'base-stream-switch-or-other';
+}
+
+Stream<String> asyncGeneratedSwitchOrPatternStatement(String tier) async* {
+  if (tier == 'gold' || tier == 'vip') {
+    yield 'base-stream-switch-stmt-or-premium';
+  } else {
+    yield 'base-stream-switch-stmt-or-other';
+  }
+}
+
+Stream<String> asyncGeneratedWhileSwitchOrPatternStatement() async* {
+  yield 'base-stream-while-switch-or';
+}
+
+Stream<String> asyncGeneratedForSwitchOrPatternStatement() async* {
+  yield 'base-stream-for-switch-or';
+}
+
+Stream<String> asyncGeneratedAwaitForSwitchOrPatternStatement(
+  Stream<String> extra,
+) async* {
+  yield 'base-stream-await-for-switch-or';
+}
+
+Stream<String> asyncGeneratedNestedAwaitForSwitchOrPatternStatement(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  yield 'base-stream-nested-await-for-switch-or';
+}
+
+Stream<String> asyncGeneratedAwaitForSwitchOrPatternCatchFinally(
+  Stream<String> extra,
+) async* {
+  yield 'base-stream-await-for-switch-or-catch-finally';
+}
+
+Stream<String> asyncGeneratedAwaitForSwitchOrPatternBreakContinueFinally(
+  Stream<String> extra,
+) async* {
+  yield 'base-stream-await-for-switch-or-break-continue-finally';
+}
+
+Stream<String> asyncGeneratedNestedAwaitForSwitchOrPatternCatchFinally(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  yield 'base-stream-nested-await-for-switch-or-catch-finally';
+}
+
+Stream<String> asyncGeneratedNestedAwaitForSwitchOrPatternBreakContinueFinally(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  yield 'base-stream-nested-await-for-switch-or-break-continue-finally';
+}

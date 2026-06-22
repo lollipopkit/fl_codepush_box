@@ -73,6 +73,16 @@ Map<String, Object?>? _generatorBodyExpr(
   if (body is LabeledStatement) {
     return _generatorLabeledExpr(body, params, libraryUri, asyncKind, locals);
   }
+  if (body is SwitchStatement) {
+    return _generatorSwitchStatementExpr(
+      body,
+      null,
+      params,
+      libraryUri,
+      asyncKind,
+      locals,
+    );
+  }
   if (body is EmptyStatement) return {'null': true};
   if (body is Block) {
     return _generatorBlockExpr(body, params, libraryUri, asyncKind, locals);
@@ -384,7 +394,25 @@ Map<String, Object?>? _generatorLabeledExpr(
       breakLabel: statement,
     );
   }
+  if (body is SwitchStatement) {
+    return _generatorSwitchStatementExpr(
+      body,
+      statement,
+      params,
+      libraryUri,
+      asyncKind,
+      locals,
+    );
+  }
   if (body is Block) {
+    final loweredSwitch = _generatorLoweredSwitchStatementExpr(
+      statement,
+      params,
+      libraryUri,
+      asyncKind,
+      locals,
+    );
+    if (loweredSwitch != null) return loweredSwitch;
     final loweredAsyncForIn = _generatorLoweredAsyncForInFromIterableExpr(
       body,
       params,
@@ -413,6 +441,137 @@ Map<String, Object?>? _generatorLabeledExpr(
     );
   }
   return null;
+}
+
+Map<String, Object?>? _generatorSwitchStatementExpr(
+  SwitchStatement statement,
+  LabeledStatement? breakLabel,
+  Set<String> params,
+  String libraryUri,
+  String asyncKind,
+  Map<VariableDeclaration, int> locals,
+) {
+  if (!statement.hasDefault || statement.cases.length < 2) return null;
+  final scrutinee = _expr(statement.expression, params, libraryUri, locals);
+  if (scrutinee == null) return null;
+
+  final branches = <_FcbSwitchExpressionBranch>[];
+  Map<String, Object?>? otherwise;
+  for (final switchCase in statement.cases) {
+    final body = _generatorSwitchCaseBodyExpr(
+      switchCase.body,
+      breakLabel,
+      switchCase.isDefault,
+      params,
+      libraryUri,
+      asyncKind,
+      locals,
+    );
+    if (body == null) return null;
+    if (switchCase.isDefault) {
+      if (otherwise != null || switchCase != statement.cases.last) return null;
+      otherwise = body;
+      continue;
+    }
+    if (otherwise != null) return null;
+    if (!_addSwitchCaseBranches(
+      branches,
+      switchCase,
+      body,
+      params,
+      libraryUri,
+      locals,
+      const {},
+    )) {
+      return null;
+    }
+  }
+  if (otherwise == null || branches.isEmpty) return null;
+  return _switchBranchesToConditional(scrutinee, branches, otherwise);
+}
+
+Map<String, Object?>? _generatorLoweredSwitchStatementExpr(
+  LabeledStatement statement,
+  Set<String> params,
+  String libraryUri,
+  String asyncKind,
+  Map<VariableDeclaration, int> locals,
+) {
+  final parsed = _loweredSwitchStatementParts(
+    statement,
+    params,
+    libraryUri,
+    locals,
+    const {},
+  );
+  if (parsed == null) return null;
+
+  final branches = <_FcbSwitchExpressionBranch>[];
+  Map<String, Object?>? otherwise;
+  for (final statement in parsed.statements) {
+    final ifStatement = _loweredSwitchIfStatement(statement);
+    final isDefault = ifStatement == null;
+    final caseBody = isDefault
+        ? _unwrapSwitchCaseBody(statement)
+        : _unwrapSwitchCaseBody(ifStatement.then);
+    final body = _generatorSwitchCaseBodyExpr(
+      caseBody,
+      parsed.label,
+      isDefault,
+      params,
+      libraryUri,
+      asyncKind,
+      locals,
+    );
+    if (body == null) return null;
+    if (isDefault) {
+      if (otherwise != null || statement != parsed.statements.last) {
+        return null;
+      }
+      otherwise = body;
+      continue;
+    }
+    if (otherwise != null) return null;
+    final constants = _loweredSwitchCaseConstants(
+      ifStatement.condition,
+      parsed.scrutineeVariable,
+      parsed.constants,
+      params,
+      libraryUri,
+      locals,
+      const {},
+    );
+    if (constants == null || constants.isEmpty) return null;
+    for (final constant in constants) {
+      branches.add(_FcbSwitchExpressionBranch(constant, body));
+    }
+  }
+  if (otherwise == null || branches.isEmpty) return null;
+  return _switchBranchesToConditional(parsed.scrutinee, branches, otherwise);
+}
+
+Map<String, Object?>? _generatorSwitchCaseBodyExpr(
+  Statement body,
+  LabeledStatement? breakLabel,
+  bool isDefault,
+  Set<String> params,
+  String libraryUri,
+  String asyncKind,
+  Map<VariableDeclaration, int> locals,
+) {
+  final statements = body is Block ? body.statements : [body];
+  if (statements.isEmpty) return null;
+  final last = statements.last;
+  final hasBreak = last is BreakStatement && last.target == breakLabel;
+  if (!hasBreak && !isDefault && breakLabel != null) return null;
+  final bodyStatements = hasBreak
+      ? statements.take(statements.length - 1).toList(growable: false)
+      : statements;
+  if (bodyStatements.isEmpty) return null;
+  final caseBody = bodyStatements.length == 1
+      ? bodyStatements.single
+      : Block(bodyStatements);
+  return _generatorBodyExpr(caseBody, params, libraryUri, asyncKind, locals);
 }
 
 Map<String, Object?>? _generatorLoweredStaticForInExpr(

@@ -37,7 +37,32 @@ Map<String, Object?>? _switchExpressionExpr(
       continue;
     }
     if (otherwise != null) return null;
-    if (pattern is! ConstantPattern) return null;
+    final constants = _switchPatternConstants(
+      pattern,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    if (constants == null || constants.isEmpty) return null;
+    for (final constant in constants) {
+      branches.add(_FcbSwitchExpressionBranch(constant, body));
+    }
+  }
+  if (otherwise == null || branches.isEmpty) return null;
+
+  var result = otherwise;
+  return _switchBranchesToConditional(scrutinee, branches, result);
+}
+
+List<Map<String, Object?>>? _switchPatternConstants(
+  Pattern pattern,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
+) {
+  if (pattern is ConstantPattern) {
     final constant = _expr(
       pattern.expression,
       params,
@@ -46,12 +71,27 @@ Map<String, Object?>? _switchExpressionExpr(
       closures,
     );
     if (constant == null) return null;
-    branches.add(_FcbSwitchExpressionBranch(constant, body));
+    return [constant];
   }
-  if (otherwise == null || branches.isEmpty) return null;
-
-  var result = otherwise;
-  return _switchBranchesToConditional(scrutinee, branches, result);
+  if (pattern is OrPattern) {
+    final left = _switchPatternConstants(
+      pattern.left,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    final right = _switchPatternConstants(
+      pattern.right,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    if (left == null || right == null) return null;
+    return [...left, ...right];
+  }
+  return null;
 }
 
 class _FcbSwitchExpressionBranch {
@@ -145,7 +185,7 @@ Map<String, Object?>? _loweredSwitchBlockExpressionExpr(
       continue;
     }
     if (otherwise != null) return null;
-    final constant = _loweredSwitchCaseConstant(
+    final caseConstants = _loweredSwitchCaseConstants(
       condition,
       scrutineeVariable,
       constants,
@@ -154,8 +194,10 @@ Map<String, Object?>? _loweredSwitchBlockExpressionExpr(
       locals,
       closures,
     );
-    if (constant == null) return null;
-    branches.add(_FcbSwitchExpressionBranch(constant, caseBody));
+    if (caseConstants == null || caseConstants.isEmpty) return null;
+    for (final constant in caseConstants) {
+      branches.add(_FcbSwitchExpressionBranch(constant, caseBody));
+    }
   }
   if (otherwise == null || branches.isEmpty) return null;
 
@@ -213,7 +255,7 @@ Map<String, Object?>? _loweredSwitchAssignedValue(
   return _expr(set.value, params, libraryUri, locals, closures);
 }
 
-Map<String, Object?>? _loweredSwitchCaseConstant(
+List<Map<String, Object?>>? _loweredSwitchCaseConstants(
   Expression condition,
   VariableDeclaration scrutineeVariable,
   Map<VariableDeclaration, Map<String, Object?>> constants,
@@ -222,11 +264,34 @@ Map<String, Object?>? _loweredSwitchCaseConstant(
   Map<VariableDeclaration, int> locals,
   Map<VariableDeclaration, FunctionExpression> closures,
 ) {
+  if (condition is LogicalExpression &&
+      condition.operatorEnum == LogicalExpressionOperator.OR) {
+    final left = _loweredSwitchCaseConstants(
+      condition.left,
+      scrutineeVariable,
+      constants,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    final right = _loweredSwitchCaseConstants(
+      condition.right,
+      scrutineeVariable,
+      constants,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    if (left == null || right == null) return null;
+    return [...left, ...right];
+  }
   if (condition is! EqualsCall) return null;
   final left = condition.left;
   final right = condition.right;
   if (_isSwitchScrutineeGet(left, scrutineeVariable)) {
-    return _switchConstantExpr(
+    final constant = _switchConstantExpr(
       right,
       constants,
       params,
@@ -234,9 +299,10 @@ Map<String, Object?>? _loweredSwitchCaseConstant(
       locals,
       closures,
     );
+    return constant == null ? null : [constant];
   }
   if (_isSwitchScrutineeGet(right, scrutineeVariable)) {
-    return _switchConstantExpr(
+    final constant = _switchConstantExpr(
       left,
       constants,
       params,
@@ -244,6 +310,7 @@ Map<String, Object?>? _loweredSwitchCaseConstant(
       locals,
       closures,
     );
+    return constant == null ? null : [constant];
   }
   return null;
 }

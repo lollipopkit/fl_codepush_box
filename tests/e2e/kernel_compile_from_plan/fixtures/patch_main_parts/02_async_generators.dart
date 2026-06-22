@@ -902,3 +902,157 @@ Stream<String> asyncGeneratedAwaitForTripleNestedStreamFinally(Stream<String> ou
     yield 'patched-stream-await-for-triple-nested-cleanup';
   }
 }
+
+Stream<String> asyncGeneratedSwitchOrPatternExpr(String tier) async* {
+  yield switch (tier) {
+    'gold' || 'vip' => 'patched-stream-switch-or-premium',
+    'trial' || 'guest' => 'patched-stream-switch-or-limited',
+    _ => 'patched-stream-switch-or-other',
+  };
+}
+
+Stream<String> asyncGeneratedSwitchOrPatternStatement(String tier) async* {
+  switch (tier) {
+    case 'gold' || 'vip':
+      yield 'patched-stream-switch-stmt-or-premium';
+    case 'trial' || 'guest':
+      yield 'patched-stream-switch-stmt-or-limited';
+    default:
+      yield 'patched-stream-switch-stmt-or-other';
+  }
+}
+
+Stream<String> asyncGeneratedWhileSwitchOrPatternStatement() async* {
+  var i = 0;
+  while (3 > i) {
+    switch (i) {
+      case 0 || 1:
+        yield 'patched-stream-while-switch-or-premium-$i';
+      default:
+        yield 'patched-stream-while-switch-or-other-$i';
+    }
+    i = i + 1;
+  }
+}
+
+Stream<String> asyncGeneratedForSwitchOrPatternStatement() async* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    switch (i) {
+      case 0 || 1:
+        yield 'patched-stream-for-switch-or-premium-$i';
+      default:
+        yield 'patched-stream-for-switch-or-other-$i';
+    }
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForSwitchOrPatternStatement(
+  Stream<String> extra,
+) async* {
+  await for (final tier in extra) {
+    switch (tier) {
+      case 'gold' || 'vip':
+        yield 'patched-stream-await-for-switch-or-premium-$tier';
+      default:
+        yield 'patched-stream-await-for-switch-or-other-$tier';
+    }
+  }
+}
+
+Stream<String> asyncGeneratedNestedAwaitForSwitchOrPatternStatement(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  await for (final left in outer) {
+    await for (final tier in inner) {
+      switch (tier) {
+        case 'gold' || 'vip':
+          yield 'patched-stream-nested-await-for-switch-or-premium-$left-$tier';
+        default:
+          yield 'patched-stream-nested-await-for-switch-or-other-$left-$tier';
+      }
+    }
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForSwitchOrPatternCatchFinally(
+  Stream<String> extra,
+) async* {
+  try {
+    await for (final tier in extra) {
+      switch (tier) {
+        case 'gold' || 'vip':
+          yield 'patched-stream-await-for-switch-or-catch-premium-$tier';
+        default:
+          yield 'patched-stream-await-for-switch-or-catch-other-$tier';
+      }
+    }
+  } catch (e) {
+    yield 'patched-stream-await-for-switch-or-caught-$e';
+  } finally {
+    yield 'patched-stream-await-for-switch-or-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForSwitchOrPatternBreakContinueFinally(
+  Stream<String> extra,
+) async* {
+  try {
+    await for (final tier in extra) {
+      if (tier == 'skip') continue;
+      switch (tier) {
+        case 'gold' || 'vip':
+          yield 'patched-stream-await-for-switch-or-break-continue-premium-$tier';
+        default:
+          yield 'patched-stream-await-for-switch-or-break-continue-other-$tier';
+      }
+      if (tier == 'stop') break;
+    }
+  } finally {
+    yield 'patched-stream-await-for-switch-or-break-continue-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedNestedAwaitForSwitchOrPatternCatchFinally(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  try {
+    await for (final left in outer) {
+      await for (final tier in inner) {
+        switch (tier) {
+          case 'gold' || 'vip':
+            yield 'patched-stream-nested-await-for-switch-or-catch-premium-$left-$tier';
+          default:
+            yield 'patched-stream-nested-await-for-switch-or-catch-other-$left-$tier';
+        }
+      }
+    }
+  } catch (e) {
+    yield 'patched-stream-nested-await-for-switch-or-caught-$e';
+  } finally {
+    yield 'patched-stream-nested-await-for-switch-or-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedNestedAwaitForSwitchOrPatternBreakContinueFinally(
+  Stream<String> outer,
+  Stream<String> inner,
+) async* {
+  try {
+    await for (final left in outer) {
+      if (left == 'skip') continue;
+      await for (final tier in inner) {
+        switch (tier) {
+          case 'gold' || 'vip':
+            yield 'patched-stream-nested-await-for-switch-or-break-continue-premium-$left-$tier';
+          default:
+            yield 'patched-stream-nested-await-for-switch-or-break-continue-other-$left-$tier';
+        }
+        if (tier == 'stop') break;
+      }
+    }
+  } finally {
+    yield 'patched-stream-nested-await-for-switch-or-break-continue-cleanup';
+  }
+}

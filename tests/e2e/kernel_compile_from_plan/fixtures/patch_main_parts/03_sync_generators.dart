@@ -354,3 +354,46 @@ Iterable<String> syncGeneratedYieldStarDynamic(List<String> extra) sync* {
   yield* extra;
   yield 'patched-yield-star-dynamic-tail';
 }
+
+Iterable<String> syncGeneratedSwitchOrPatternExpr(String tier) sync* {
+  yield switch (tier) {
+    'gold' || 'vip' => 'patched-iterable-switch-or-premium',
+    'trial' || 'guest' => 'patched-iterable-switch-or-limited',
+    _ => 'patched-iterable-switch-or-other',
+  };
+}
+
+Iterable<String> syncGeneratedSwitchOrPatternStatement(String tier) sync* {
+  switch (tier) {
+    case 'gold' || 'vip':
+      yield 'patched-iterable-switch-stmt-or-premium';
+    case 'trial' || 'guest':
+      yield 'patched-iterable-switch-stmt-or-limited';
+    default:
+      yield 'patched-iterable-switch-stmt-or-other';
+  }
+}
+
+Iterable<String> syncGeneratedWhileSwitchOrPatternStatement() sync* {
+  var i = 0;
+  while (3 > i) {
+    switch (i) {
+      case 0 || 1:
+        yield 'patched-iterable-while-switch-or-premium-$i';
+      default:
+        yield 'patched-iterable-while-switch-or-other-$i';
+    }
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedForSwitchOrPatternStatement() sync* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    switch (i) {
+      case 0 || 1:
+        yield 'patched-iterable-for-switch-or-premium-$i';
+      default:
+        yield 'patched-iterable-for-switch-or-other-$i';
+    }
+  }
+}

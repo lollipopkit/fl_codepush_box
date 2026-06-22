@@ -2,11 +2,12 @@ import json
 import sys
 
 from assert_module_async_generators import assert_async_generators
+from assert_module_collection_switch import assert_collection_switch
 from assert_module_core_calls import assert_core_calls
 
 module = json.load(open(sys.argv[1]))
 assert module["version"] == 3, module
-assert len(module["functions"]) == 478, module
+assert len(module["functions"]) == 523, module
 function = next(
     item for item in module["functions"] if item["name"].endswith("::mainValue")
 )
@@ -117,6 +118,20 @@ assert any(
     constant.get("type") == "String" and constant.get("value") == "patched-switch-gold"
     for constant in sync_switch_label["constants"]
 ), sync_switch_label
+sync_switch_multi_value = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchMultiValueLabel")
+)
+assert sync_switch_multi_value["async_kind"] == "sync", sync_switch_multi_value
+assert sync_switch_multi_value["param_count"] == 1, sync_switch_multi_value
+assert sync_switch_multi_value["code"].count(0x21) >= 4, sync_switch_multi_value
+assert 0x31 in sync_switch_multi_value["code"], sync_switch_multi_value
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-switch-premium"
+    for constant in sync_switch_multi_value["constants"]
+), sync_switch_multi_value
 async_switch_label = next(
     item for item in module["functions"] if item["name"].endswith("::asyncSwitchLabel")
 )
@@ -128,6 +143,19 @@ assert any(
     constant.get("type") == "String" and constant.get("value") == "patched-async-switch-gold"
     for constant in async_switch_label["constants"]
 ), async_switch_label
+async_switch_multi_value = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchMultiValueLabel")
+)
+assert async_switch_multi_value["async_kind"] == "async_future", async_switch_multi_value
+assert async_switch_multi_value["param_count"] == 1, async_switch_multi_value
+assert async_switch_multi_value["code"].count(0x21) >= 4, async_switch_multi_value
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-async-switch-premium"
+    for constant in async_switch_multi_value["constants"]
+), async_switch_multi_value
 await_switch_label = next(
     item
     for item in module["functions"]
@@ -141,12 +169,34 @@ assert any(
     constant.get("type") == "String" and constant.get("value") == "patched-await-switch-gold"
     for constant in await_switch_label["constants"]
 ), await_switch_label
+await_switch_multi_value = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchMultiValueLabel")
+)
+assert await_switch_multi_value["async_kind"] == "async_future", await_switch_multi_value
+assert await_switch_multi_value["param_count"] == 1, await_switch_multi_value
+assert 0x62 in await_switch_multi_value["code"], await_switch_multi_value
+assert await_switch_multi_value["code"].count(0x21) >= 4, await_switch_multi_value
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-await-switch-premium"
+    for constant in await_switch_multi_value["constants"]
+), await_switch_multi_value
 switch_score = next(
     item for item in module["functions"] if item["name"].endswith("::syncSwitchScore")
 )
 assert switch_score["return_convention"] == "unboxed_int64", switch_score
 assert switch_score["param_count"] == 1, switch_score
 assert 0x21 in switch_score["code"], switch_score
+switch_multi_score = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchMultiValueScore")
+)
+assert switch_multi_score["return_convention"] == "unboxed_int64", switch_multi_score
+assert switch_multi_score["param_count"] == 1, switch_multi_score
+assert switch_multi_score["code"].count(0x21) >= 4, switch_multi_score
 sync_switch_statement = next(
     item
     for item in module["functions"]
@@ -343,7 +393,64 @@ assert await_switch_await_case["async_kind"] == "async_future", await_switch_awa
 assert await_switch_await_case["code"].count(0x62) >= 4, await_switch_await_case
 assert 0x21 in await_switch_await_case["code"], await_switch_await_case
 assert 0x60 in await_switch_await_case["code"], await_switch_await_case
+multi_case = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementMultiCaseLabel")
+)
+assert multi_case["async_kind"] == "sync", multi_case
+assert multi_case["code"].count(0x21) >= 3, multi_case
+multi_assigned = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementMultiCaseAssignedLabel")
+)
+assert multi_assigned["async_kind"] == "async_future", multi_assigned
+assert multi_assigned["code"].count(0x21) >= 3, multi_assigned
+assert 0x04 in multi_assigned["code"], multi_assigned
+multi_await_case = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementMultiCaseAwaitCaseLabel")
+)
+assert multi_await_case["async_kind"] == "async_future", multi_await_case
+assert multi_await_case["code"].count(0x21) >= 3, multi_await_case
+assert multi_await_case["code"].count(0x62) >= 3, multi_await_case
+assert 0x60 in multi_await_case["code"], multi_await_case
+or_pattern = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementOrPatternLabel")
+)
+assert or_pattern["async_kind"] == "sync", or_pattern
+assert or_pattern["code"].count(0x21) >= 4, or_pattern
+or_pattern_assigned = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementOrPatternAssignedLabel")
+)
+assert or_pattern_assigned["async_kind"] == "async_future", or_pattern_assigned
+assert or_pattern_assigned["code"].count(0x21) >= 4, or_pattern_assigned
+assert 0x04 in or_pattern_assigned["code"], or_pattern_assigned
+or_pattern_await_case = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementOrPatternAwaitCaseLabel")
+)
+assert or_pattern_await_case["async_kind"] == "async_future", or_pattern_await_case
+assert or_pattern_await_case["code"].count(0x21) >= 4, or_pattern_await_case
+assert or_pattern_await_case["code"].count(0x62) >= 5, or_pattern_await_case
+assert 0x60 in or_pattern_await_case["code"], or_pattern_await_case
+await_or_pattern = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchStatementOrPatternLabel")
+)
+assert await_or_pattern["async_kind"] == "async_future", await_or_pattern
+assert await_or_pattern["code"].count(0x21) >= 4, await_or_pattern
+assert 0x62 in await_or_pattern["code"], await_or_pattern
 
 assert_async_generators(module)
+assert_collection_switch(module)
 assert_core_calls(module)
 print("kernel compile-from-plan drill passed")

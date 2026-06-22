@@ -23,6 +23,16 @@ def nested_switch(expr):
     return first, second, second.get("else", {})
 
 
+def contains(value, predicate):
+    if predicate(value):
+        return True
+    if isinstance(value, dict):
+        return any(contains(item, predicate) for item in value.values())
+    if isinstance(value, list):
+        return any(contains(item, predicate) for item in value)
+    return False
+
+
 sync_source = source_for("syncSwitchStatementLabel")
 first, second, fallback = nested_switch(sync_source.get("body", {}))
 if (
@@ -467,3 +477,161 @@ assert_await_case_branch(
     "patched-await-switch-stmt-await-case-other-",
     local_id=1,
 )
+
+
+def has_case_value(source, value):
+    return contains(
+        source,
+        lambda item: isinstance(item, dict)
+        and item.get("condition", {}).get("right", {}).get("string") == value,
+    )
+
+
+multi_source = source_for("syncSwitchStatementMultiCaseLabel")
+if (
+    not has_case_value(multi_source, "gold")
+    or not has_case_value(multi_source, "vip")
+    or not contains(
+        multi_source,
+        lambda item: isinstance(item, dict)
+        and item.get("then", {}).get("string") == "patched-switch-stmt-multi-premium",
+    )
+):
+    raise SystemExit(f"expected syncSwitchStatementMultiCaseLabel multi-label source, got {multi_source}")
+
+multi_assigned_source = source_for("asyncSwitchStatementMultiCaseAssignedLabel")
+multi_assigned_value = multi_assigned_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+if (
+    multi_assigned_source.get("async_future") is not True
+    or not has_case_value(multi_assigned_value, "gold")
+    or not has_case_value(multi_assigned_value, "vip")
+    or not contains(
+        multi_assigned_value,
+        lambda item: isinstance(item, dict)
+        and item.get("set_local", {}).get("value", {}).get("string")
+        == "patched-async-switch-stmt-multi-premium",
+    )
+):
+    raise SystemExit(
+        "expected asyncSwitchStatementMultiCaseAssignedLabel multi-label assignment source, "
+        f"got {multi_assigned_source}"
+    )
+
+multi_await_case_source = source_for("asyncSwitchStatementMultiCaseAwaitCaseLabel")
+multi_await_case_value = multi_await_case_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+if (
+    multi_await_case_source.get("async_future") is not True
+    or not has_case_value(multi_await_case_value, "gold")
+    or not has_case_value(multi_await_case_value, "vip")
+    or not contains(
+        multi_await_case_value,
+        lambda item: isinstance(item, dict)
+        and item.get("locals", [{}])[0].get("value", {}).get("await", {}).get("arg") == "ready",
+    )
+    or not contains(
+        multi_await_case_value,
+        lambda item: isinstance(item, dict)
+        and item.get("throw", {}).get("concat", [{}])[0].get("string")
+        == "patched-async-switch-stmt-multi-await-blocked-",
+    )
+):
+    raise SystemExit(
+        "expected asyncSwitchStatementMultiCaseAwaitCaseLabel multi-label await case source, "
+        f"got {multi_await_case_source}"
+    )
+
+or_pattern_source = source_for("syncSwitchStatementOrPatternLabel")
+if (
+    not has_case_value(or_pattern_source, "gold")
+    or not has_case_value(or_pattern_source, "vip")
+    or not has_case_value(or_pattern_source, "trial")
+    or not has_case_value(or_pattern_source, "guest")
+    or not contains(
+        or_pattern_source,
+        lambda item: isinstance(item, dict)
+        and item.get("then", {}).get("string") == "patched-switch-stmt-or-premium",
+    )
+    or not contains(
+        or_pattern_source,
+        lambda item: isinstance(item, dict)
+        and item.get("then", {}).get("string") == "patched-switch-stmt-or-limited",
+    )
+):
+    raise SystemExit(
+        f"expected syncSwitchStatementOrPatternLabel OR-pattern source, got {or_pattern_source}"
+    )
+
+or_assigned_source = source_for("asyncSwitchStatementOrPatternAssignedLabel")
+or_assigned_value = or_assigned_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+if (
+    or_assigned_source.get("async_future") is not True
+    or not has_case_value(or_assigned_value, "gold")
+    or not has_case_value(or_assigned_value, "vip")
+    or not has_case_value(or_assigned_value, "trial")
+    or not has_case_value(or_assigned_value, "guest")
+    or not contains(
+        or_assigned_value,
+        lambda item: isinstance(item, dict)
+        and item.get("set_local", {}).get("value", {}).get("string")
+        == "patched-async-switch-stmt-or-premium",
+    )
+    or not contains(
+        or_assigned_value,
+        lambda item: isinstance(item, dict)
+        and item.get("set_local", {}).get("value", {}).get("string")
+        == "patched-async-switch-stmt-or-limited",
+    )
+):
+    raise SystemExit(
+        "expected asyncSwitchStatementOrPatternAssignedLabel OR-pattern assignment source, "
+        f"got {or_assigned_source}"
+    )
+
+or_await_case_source = source_for("asyncSwitchStatementOrPatternAwaitCaseLabel")
+or_await_case_value = or_await_case_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+if (
+    or_await_case_source.get("async_future") is not True
+    or not has_case_value(or_await_case_value, "gold")
+    or not has_case_value(or_await_case_value, "vip")
+    or not has_case_value(or_await_case_value, "blocked")
+    or not has_case_value(or_await_case_value, "denied")
+    or not contains(
+        or_await_case_value,
+        lambda item: isinstance(item, dict)
+        and item.get("locals", [{}])[0].get("value", {}).get("await", {}).get("arg") == "ready",
+    )
+    or not contains(
+        or_await_case_value,
+        lambda item: isinstance(item, dict)
+        and item.get("throw", {}).get("concat", [{}])[0].get("string")
+        == "patched-async-switch-stmt-or-await-blocked-",
+    )
+):
+    raise SystemExit(
+        "expected asyncSwitchStatementOrPatternAwaitCaseLabel OR-pattern await case source, "
+        f"got {or_await_case_source}"
+    )
+
+await_or_pattern_source = source_for("asyncAwaitThenSwitchStatementOrPatternLabel")
+await_or_pattern_value = await_or_pattern_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+await_or_pattern_let = await_or_pattern_value.get("let", {})
+await_or_pattern_local = await_or_pattern_let.get("locals", [{}])[0]
+await_or_pattern_body = await_or_pattern_let.get("body", {})
+if (
+    await_or_pattern_source.get("async_future") is not True
+    or await_or_pattern_local.get("name") != "tier"
+    or await_or_pattern_local.get("value", {}).get("await", {}).get("arg") != "ready"
+    or not has_case_value(await_or_pattern_body, "gold")
+    or not has_case_value(await_or_pattern_body, "vip")
+    or not has_case_value(await_or_pattern_body, "trial")
+    or not has_case_value(await_or_pattern_body, "guest")
+    or not contains(
+        await_or_pattern_body,
+        lambda item: isinstance(item, dict)
+        and item.get("then", {}).get("string") == "patched-await-switch-stmt-or-premium",
+    )
+):
+    raise SystemExit(
+        "expected asyncAwaitThenSwitchStatementOrPatternLabel await OR-pattern source, "
+        f"got {await_or_pattern_source}"
+    )

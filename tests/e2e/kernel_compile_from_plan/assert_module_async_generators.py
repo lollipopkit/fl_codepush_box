@@ -3,6 +3,105 @@ from assert_module_dynamic_for_in import assert_dynamic_for_in
 from assert_module_generator_for_in import assert_generator_for_in
 from assert_module_stream_generators import assert_stream_generators
 
+def assert_generator_switch_or_function(module, name, async_kind, expected_constant, expected_yields):
+    function = next(
+        item for item in module["functions"] if item["name"].endswith(f"::{name}")
+    )
+    assert function.get("async_kind") == async_kind, function
+    assert function.get("param_count") == 1, function
+    assert 0x31 in function["code"], function
+    assert function["code"].count(0x64) == expected_yields, function
+    assert {"slot": 0, "name": "tier"} in function.get("debug_locals", []), function
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == expected_constant
+        for constant in function["constants"]
+    ), function
+
+def assert_generator_loop_switch_or_function(module, name, async_kind, expected_constant):
+    function = next(
+        item for item in module["functions"] if item["name"].endswith(f"::{name}")
+    )
+    assert function.get("async_kind") == async_kind, function
+    assert function.get("param_count") == 0, function
+    assert function["code"].count(0x31) >= 3, function
+    assert function["code"].count(0x64) >= 3, function
+    assert function["code"].count(0x04) >= 4, function
+    assert function["code"].count(0x30) >= 3, function
+    assert any(entry.get("name") == "i" for entry in function.get("debug_locals", [])), function
+    assert any(
+        constant.get("type") == "String" and constant.get("value") == expected_constant
+        for constant in function["constants"]
+    ), function
+
+def assert_generator_await_for_switch_or_function(
+    module,
+    name,
+    param_count,
+    expected_constant,
+    min_awaits,
+    min_finally,
+):
+    function = next(
+        item for item in module["functions"] if item["name"].endswith(f"::{name}")
+    )
+    assert function.get("async_kind") == "async_star", function
+    assert function.get("param_count") == param_count, function
+    assert function["code"].count(0x31) >= 3, function
+    assert function["code"].count(0x64) >= 3, function
+    assert function["code"].count(0x62) >= min_awaits, function
+    assert function["code"].count(0x65) >= min_finally, function
+    assert function["code"].count(0x66) >= min_finally, function
+    assert any(entry.get("name") == "tier" for entry in function.get("debug_locals", [])), function
+    for expected in [
+        "dart:async::class:_StreamIterator.",
+        "moveNext",
+        "cancel",
+        "gold",
+        "vip",
+        expected_constant,
+    ]:
+        assert any(
+            constant.get("type") == "String" and constant.get("value") == expected
+            for constant in function["constants"]
+        ), function
+
+def assert_generator_await_for_switch_or_error_cleanup_function(
+    module,
+    name,
+    param_count,
+    expected_constant,
+    min_awaits,
+    min_try_finally,
+    has_catch,
+    guard_constants=(),
+):
+    function = next(
+        item for item in module["functions"] if item["name"].endswith(f"::{name}")
+    )
+    assert function.get("async_kind") == "async_star", function
+    assert function.get("param_count") == param_count, function
+    assert function["code"].count(0x31) >= 3, function
+    assert function["code"].count(0x64) >= 4, function
+    assert function["code"].count(0x62) >= min_awaits, function
+    assert function["code"].count(0x65) >= min_try_finally, function
+    assert function["code"].count(0x66) >= min_try_finally, function
+    if has_catch:
+        assert 0x61 in function["code"], function
+    assert any(entry.get("name") == "tier" for entry in function.get("debug_locals", [])), function
+    for expected in [
+        "dart:async::class:_StreamIterator.",
+        "moveNext",
+        "cancel",
+        "gold",
+        "vip",
+        expected_constant,
+        *guard_constants,
+    ]:
+        assert any(
+            constant.get("type") == "String" and constant.get("value") == expected
+            for constant in function["constants"]
+        ), function
+
 def assert_async_generators(module):
     function = next(
         item for item in module["functions"] if item["name"].endswith("::mainValue")
@@ -417,6 +516,112 @@ def assert_async_generators(module):
     assert async_generated_for_loop_break["code"].count(0x30) >= 2, async_generated_for_loop_break
     assert async_generated_for_loop_break["code"].count(0x31) >= 2, async_generated_for_loop_break
     assert any(entry.get("name") == "i" for entry in async_generated_for_loop_break.get("debug_locals", [])), async_generated_for_loop_break
+    assert_generator_switch_or_function(
+        module,
+        "syncGeneratedSwitchOrPatternExpr",
+        "sync_star",
+        "patched-iterable-switch-or-premium",
+        1,
+    )
+    assert_generator_switch_or_function(
+        module,
+        "syncGeneratedSwitchOrPatternStatement",
+        "sync_star",
+        "patched-iterable-switch-stmt-or-premium",
+        5,
+    )
+    assert_generator_switch_or_function(
+        module,
+        "asyncGeneratedSwitchOrPatternExpr",
+        "async_star",
+        "patched-stream-switch-or-premium",
+        1,
+    )
+    assert_generator_switch_or_function(
+        module,
+        "asyncGeneratedSwitchOrPatternStatement",
+        "async_star",
+        "patched-stream-switch-stmt-or-premium",
+        5,
+    )
+    assert_generator_loop_switch_or_function(
+        module,
+        "syncGeneratedWhileSwitchOrPatternStatement",
+        "sync_star",
+        "patched-iterable-while-switch-or-premium-",
+    )
+    assert_generator_loop_switch_or_function(
+        module,
+        "syncGeneratedForSwitchOrPatternStatement",
+        "sync_star",
+        "patched-iterable-for-switch-or-premium-",
+    )
+    assert_generator_loop_switch_or_function(
+        module,
+        "asyncGeneratedWhileSwitchOrPatternStatement",
+        "async_star",
+        "patched-stream-while-switch-or-premium-",
+    )
+    assert_generator_loop_switch_or_function(
+        module,
+        "asyncGeneratedForSwitchOrPatternStatement",
+        "async_star",
+        "patched-stream-for-switch-or-premium-",
+    )
+    assert_generator_await_for_switch_or_function(
+        module,
+        "asyncGeneratedAwaitForSwitchOrPatternStatement",
+        1,
+        "patched-stream-await-for-switch-or-premium-",
+        2,
+        1,
+    )
+    assert_generator_await_for_switch_or_function(
+        module,
+        "asyncGeneratedNestedAwaitForSwitchOrPatternStatement",
+        2,
+        "patched-stream-nested-await-for-switch-or-premium-",
+        4,
+        2,
+    )
+    assert_generator_await_for_switch_or_error_cleanup_function(
+        module,
+        "asyncGeneratedAwaitForSwitchOrPatternCatchFinally",
+        1,
+        "patched-stream-await-for-switch-or-catch-premium-",
+        2,
+        2,
+        True,
+    )
+    assert_generator_await_for_switch_or_error_cleanup_function(
+        module,
+        "asyncGeneratedAwaitForSwitchOrPatternBreakContinueFinally",
+        1,
+        "patched-stream-await-for-switch-or-break-continue-premium-",
+        2,
+        2,
+        False,
+        ["skip", "stop"],
+    )
+    assert_generator_await_for_switch_or_error_cleanup_function(
+        module,
+        "asyncGeneratedNestedAwaitForSwitchOrPatternCatchFinally",
+        2,
+        "patched-stream-nested-await-for-switch-or-catch-premium-",
+        4,
+        3,
+        True,
+    )
+    assert_generator_await_for_switch_or_error_cleanup_function(
+        module,
+        "asyncGeneratedNestedAwaitForSwitchOrPatternBreakContinueFinally",
+        2,
+        "patched-stream-nested-await-for-switch-or-break-continue-premium-",
+        4,
+        3,
+        False,
+        ["skip", "stop"],
+    )
     assert_generator_for_in(module)
     assert_dynamic_for_in(module)
     assert_stream_generators(module)

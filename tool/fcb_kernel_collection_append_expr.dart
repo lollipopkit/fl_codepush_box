@@ -402,7 +402,25 @@ Map<String, Object?>? _runtimeListForExpr(
   if (!_isCollectionCall(addExpression, variable, 'add', 1)) return null;
   final call = addExpression as InstanceInvocationExpression;
   if (!_isVariableGet(call.arguments.positional.single, parsed.loopVariable)) {
-    return null;
+    final localId = _nextLocalId(locals);
+    final item = _expr(call.arguments.positional.single, params, libraryUri, {
+      ...locals,
+      parsed.loopVariable: localId,
+    }, closures);
+    if (item == null) return null;
+    return {
+      'list_for_in': {
+        'receiver': receiver,
+        'source': parsed.source,
+        'local': {
+          'id': localId,
+          if (parsed.loopVariable.name != null &&
+              parsed.loopVariable.name!.isNotEmpty)
+            'name': parsed.loopVariable.name,
+        },
+        'item': item,
+      },
+    };
   }
   return {
     'list_for_in': {'receiver': receiver, 'source': parsed.source},
@@ -435,7 +453,31 @@ Map<String, Object?>? _runtimeMapForExpr(
   final value = call.arguments.positional[1];
   if (!_isVariableFieldGet(key, parsed.loopVariable, 'key') ||
       !_isVariableFieldGet(value, parsed.loopVariable, 'value')) {
-    return null;
+    final localId = _nextLocalId(locals);
+    final mappedLocals = {...locals, parsed.loopVariable: localId};
+    final compiledKey = _expr(key, params, libraryUri, mappedLocals, closures);
+    final compiledValue = _expr(
+      value,
+      params,
+      libraryUri,
+      mappedLocals,
+      closures,
+    );
+    if (compiledKey == null || compiledValue == null) return null;
+    return {
+      'map_for_in': {
+        'receiver': receiver,
+        'source': parsed.source,
+        'local': {
+          'id': localId,
+          if (parsed.loopVariable.name != null &&
+              parsed.loopVariable.name!.isNotEmpty)
+            'name': parsed.loopVariable.name,
+        },
+        'key': compiledKey,
+        'value': compiledValue,
+      },
+    };
   }
   return {
     'map_for_in': {'receiver': receiver, 'source': parsed.source},

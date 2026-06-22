@@ -113,6 +113,34 @@ def assert_async_loop_switch_sources(patch_by_member):
 
     assert_common("asyncDoWhileSwitchAssignedLabel", "patched-do-while-switch-gold")
 
+    _, while_or_arg = assert_common(
+        "asyncWhileSwitchOrPatternAssignedLabel",
+        "patched-while-switch-or-premium",
+    )
+    if not has_switch_assign(while_or_arg, "patched-while-switch-or-limited"):
+        raise SystemExit(
+            "expected asyncWhileSwitchOrPatternAssignedLabel OR-pattern limited branch, "
+            f"got {while_or_arg}"
+        )
+
+    _, for_update_or_arg = assert_common(
+        "asyncForAwaitUpdateSwitchOrPatternAssignedLabel",
+        "patched-for-await-update-switch-or-premium",
+    )
+    if (
+        not has_switch_assign(for_update_or_arg, "patched-for-await-update-switch-or-limited")
+        or not contains(
+            for_update_or_arg,
+            lambda item: isinstance(item, dict)
+            and item.get("set_local", {}).get("value", {}).get("await", {}).get("arg")
+            == "next",
+        )
+    ):
+        raise SystemExit(
+            "expected asyncForAwaitUpdateSwitchOrPatternAssignedLabel await update "
+            f"+ OR-pattern source, got {for_update_or_arg}"
+        )
+
     _, nested_arg = assert_common(
         "asyncWhileNestedBranchSwitchAssignedLabel",
         "patched-while-nested-switch-gold",
@@ -187,6 +215,32 @@ def assert_async_loop_switch_sources(patch_by_member):
             f"+ try/catch source, got {while_try_catch_arg}"
         )
 
+    _, while_try_catch_or_arg = assert_common(
+        "asyncWhileAwaitConditionTryCatchSwitchOrPatternAssignedLabel",
+        "patched-while-await-condition-try-catch-switch-or-premium",
+    )
+    if (
+        not has_node(while_try_catch_or_arg, "try_catch")
+        or not has_switch_assign(
+            while_try_catch_or_arg,
+            "patched-while-await-condition-try-catch-switch-or-limited",
+        )
+        or not has_string(
+            while_try_catch_or_arg,
+            "patched-while-await-condition-try-catch-switch-or-other-",
+        )
+        or not contains(
+            while_try_catch_or_arg,
+            lambda item: isinstance(item, dict)
+            and item.get("while_loop", {}).get("condition", {}).get("await", {}).get("arg")
+            == "keepGoing",
+        )
+    ):
+        raise SystemExit(
+            "expected asyncWhileAwaitConditionTryCatchSwitchOrPatternAssignedLabel "
+            f"await condition + try/catch + OR-pattern source, got {while_try_catch_or_arg}"
+        )
+
     _, do_try_finally_arg = assert_common(
         "asyncDoWhileTryFinallySwitchAssignedLabel",
         "patched-do-while-try-finally-switch-gold",
@@ -200,4 +254,26 @@ def assert_async_loop_switch_sources(patch_by_member):
         raise SystemExit(
             "expected asyncDoWhileTryFinallySwitchAssignedLabel try/finally source, "
             f"got {do_try_finally_arg}"
+        )
+
+    _, do_try_finally_or_arg = assert_common(
+        "asyncDoWhileTryFinallySwitchOrPatternAssignedLabel",
+        "patched-do-while-try-finally-switch-or-premium",
+    )
+    if (
+        not has_node(do_try_finally_or_arg, "try_finally")
+        or not has_switch_assign(
+            do_try_finally_or_arg,
+            "patched-do-while-try-finally-switch-or-limited",
+        )
+        or not contains(
+            do_try_finally_or_arg,
+            lambda item: isinstance(item, dict)
+            and item.get("locals", [{}])[-1].get("value", {}).get("await", {}).get("arg")
+            == "cleanup",
+        )
+    ):
+        raise SystemExit(
+            "expected asyncDoWhileTryFinallySwitchOrPatternAssignedLabel try/finally "
+            f"+ OR-pattern source, got {do_try_finally_or_arg}"
         )

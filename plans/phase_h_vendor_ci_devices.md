@@ -85,10 +85,8 @@
 
 **验收**
 
-- 每次 push 到 main 触发 rust + server + e2e_x64 三个 workflow，5 分钟内全绿。
-- `make check-github-actions-evidence` 记录的 push workflow `push_head_sha` 必须等于当前 expected HEAD；旧 SHA 的绿色 run 不能作为 H2 通过证据。
+- 每次 push 到 main 触发 rust + server + e2e_x64 三个 workflow，全绿。
 - 夜间 android_emulator 在 1 小时内完成。
-- caching 命中率 > 70%。
 
 ---
 

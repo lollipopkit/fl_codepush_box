@@ -23,6 +23,14 @@ def nested_switch(expr):
     return first, second, second.get("else", {})
 
 
+def nested_switch4(expr):
+    first = expr.get("conditional", {})
+    second = first.get("else", {}).get("conditional", {})
+    third = second.get("else", {}).get("conditional", {})
+    fourth = third.get("else", {}).get("conditional", {})
+    return first, second, third, fourth, fourth.get("else", {})
+
+
 sync_source = source_for("syncSwitchLabel")
 first, second, fallback = nested_switch(sync_source.get("body", {}))
 if (
@@ -38,6 +46,25 @@ if (
 ):
     raise SystemExit(f"expected syncSwitchLabel nested conditional switch source, got {sync_source}")
 
+sync_multi = source_for("syncSwitchMultiValueLabel")
+first, second, third, fourth, fallback = nested_switch4(sync_multi.get("body", {}))
+if (
+    sync_multi.get("async_kind") not in (None, "sync")
+    or sync_multi.get("params") != ["tier"]
+    or first.get("condition", {}).get("right", {}).get("string") != "gold"
+    or first.get("then", {}).get("string") != "patched-switch-premium"
+    or second.get("condition", {}).get("right", {}).get("string") != "vip"
+    or second.get("then", {}).get("string") != "patched-switch-premium"
+    or third.get("condition", {}).get("right", {}).get("string") != "trial"
+    or third.get("then", {}).get("string") != "patched-switch-limited"
+    or fourth.get("condition", {}).get("right", {}).get("string") != "guest"
+    or fourth.get("then", {}).get("string") != "patched-switch-limited"
+    or fallback.get("string") != "patched-switch-standard"
+):
+    raise SystemExit(
+        f"expected syncSwitchMultiValueLabel four-way switch source, got {sync_multi}"
+    )
+
 async_source = source_for("asyncSwitchLabel")
 async_value = async_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
 first, second, fallback = nested_switch(async_value)
@@ -50,6 +77,23 @@ if (
     or fallback.get("string") != "patched-async-switch-other"
 ):
     raise SystemExit(f"expected asyncSwitchLabel async switch source, got {async_source}")
+
+async_multi = source_for("asyncSwitchMultiValueLabel")
+async_multi_value = async_multi.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+first, second, third, fourth, fallback = nested_switch4(async_multi_value)
+if (
+    async_multi.get("async_future") is not True
+    or async_multi.get("params") != ["tier"]
+    or first.get("condition", {}).get("left", {}).get("arg") != "tier"
+    or first.get("then", {}).get("string") != "patched-async-switch-premium"
+    or second.get("then", {}).get("string") != "patched-async-switch-premium"
+    or third.get("then", {}).get("string") != "patched-async-switch-limited"
+    or fourth.get("then", {}).get("string") != "patched-async-switch-limited"
+    or fallback.get("string") != "patched-async-switch-standard"
+):
+    raise SystemExit(
+        f"expected asyncSwitchMultiValueLabel async switch source, got {async_multi}"
+    )
 
 await_source = source_for("asyncAwaitThenSwitchLabel")
 await_value = await_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
@@ -67,6 +111,26 @@ if (
 ):
     raise SystemExit(f"expected asyncAwaitThenSwitchLabel await-local switch source, got {await_source}")
 
+await_multi = source_for("asyncAwaitThenSwitchMultiValueLabel")
+await_multi_value = await_multi.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+await_multi_let = await_multi_value.get("let", {})
+await_multi_local = await_multi_let.get("locals", [{}])[0]
+first, second, third, fourth, fallback = nested_switch4(await_multi_let.get("body", {}))
+if (
+    await_multi.get("async_future") is not True
+    or await_multi_local.get("name") != "tier"
+    or await_multi_local.get("value", {}).get("await", {}).get("arg") != "ready"
+    or first.get("condition", {}).get("left", {}).get("let_local") != 0
+    or first.get("then", {}).get("string") != "patched-await-switch-premium"
+    or second.get("then", {}).get("string") != "patched-await-switch-premium"
+    or third.get("then", {}).get("string") != "patched-await-switch-limited"
+    or fourth.get("then", {}).get("string") != "patched-await-switch-limited"
+    or fallback.get("string") != "patched-await-switch-standard"
+):
+    raise SystemExit(
+        f"expected asyncAwaitThenSwitchMultiValueLabel await-local switch source, got {await_multi}"
+    )
+
 score_source = source_for("syncSwitchScore")
 first, second, fallback = nested_switch(score_source.get("body", {}))
 if (
@@ -79,6 +143,23 @@ if (
     or fallback.get("int") != 10
 ):
     raise SystemExit(f"expected syncSwitchScore int switch source, got {score_source}")
+
+multi_score = source_for("syncSwitchMultiValueScore")
+first, second, third, fourth, fallback = nested_switch4(multi_score.get("body", {}))
+if (
+    multi_score.get("return_type") != "int"
+    or first.get("condition", {}).get("left", {}).get("arg") != "code"
+    or first.get("condition", {}).get("right", {}).get("int") != 7
+    or first.get("then", {}).get("int") != 80
+    or second.get("condition", {}).get("right", {}).get("int") != 8
+    or second.get("then", {}).get("int") != 80
+    or third.get("condition", {}).get("right", {}).get("int") != 9
+    or third.get("then", {}).get("int") != 100
+    or fourth.get("condition", {}).get("right", {}).get("int") != 10
+    or fourth.get("then", {}).get("int") != 100
+    or fallback.get("int") != 10
+):
+    raise SystemExit(f"expected syncSwitchMultiValueScore int switch source, got {multi_score}")
 
 list_source = source_for("switchListNames")
 items = list_source.get("body", {}).get("list", [])

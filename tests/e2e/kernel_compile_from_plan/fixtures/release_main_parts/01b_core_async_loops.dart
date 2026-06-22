@@ -624,6 +624,37 @@ Future<String> asyncForMultiUpdate(int limit) async {
   return out;
 }
 
+Future<String> asyncForMultiUpdateBranchLocal(
+  int limit,
+  Future<String> ready,
+  bool premium,
+) async {
+  return 'base-for-multi-update-branch';
+}
+
+Future<String> asyncForAwaitConditionMultiUpdateBranchLocal(
+  Future<bool> keepGoing,
+  Future<String> ready,
+  bool premium,
+) async {
+  return 'base-for-await-condition-multi-update-branch';
+}
+
+Future<String> asyncForMultiUpdateTryFinallyAwaitGuard(
+  int limit,
+  Future<bool> skip,
+  Future<String> cleanup,
+) async {
+  return 'base-for-multi-update-try-finally';
+}
+
+Future<String> asyncForAwaitConditionMultiUpdateTryCatchAwaitGuard(
+  Future<bool> keepGoing,
+  Future<bool> fail,
+) async {
+  return 'base-for-await-condition-multi-update-try-catch';
+}
+
 Future<String> asyncWhileSwitchAssignedLabel(int limit, String tier) async {
   var i = 0;
   var out = 'base-while-switch-assigned';
@@ -727,6 +758,39 @@ Future<String> asyncDoWhileSwitchAssignedLabel(int limit, String tier) async {
   return out;
 }
 
+Future<String> asyncWhileSwitchOrPatternAssignedLabel(
+  int limit,
+  String tier,
+) async {
+  var i = 0;
+  var out = 'base-while-switch-or-assigned';
+  while (limit > i) {
+    var label = 'base-while-switch-or-head';
+    if (tier == 'gold' || tier == 'vip') {
+      label = 'base-while-switch-or-premium';
+    }
+    out = '$out-$label-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncForAwaitUpdateSwitchOrPatternAssignedLabel(
+  int limit,
+  String tier,
+  Future<int> next,
+) async {
+  var out = 'base-for-await-update-switch-or-assigned';
+  for (var i = 0; limit > i; i = await next) {
+    var label = 'base-for-await-update-switch-or-head';
+    if (tier == 'gold' || tier == 'vip') {
+      label = 'base-for-await-update-switch-or-premium';
+    }
+    out = '$out-$label-$i';
+  }
+  return out;
+}
+
 Future<String> asyncWhileNestedBranchSwitchAssignedLabel(
   int limit,
   String tier,
@@ -815,6 +879,29 @@ Future<String> asyncWhileAwaitConditionTryCatchSwitchAssignedLabel(
   return out;
 }
 
+Future<String> asyncWhileAwaitConditionTryCatchSwitchOrPatternAssignedLabel(
+  Future<bool> keepGoing,
+  String tier,
+) async {
+  var i = 0;
+  var out = 'base-while-await-condition-try-catch-switch-or-assigned';
+  while (await keepGoing) {
+    try {
+      var label = 'base-while-await-condition-try-catch-switch-or-head';
+      if (tier == 'gold' || tier == 'vip') {
+        label = 'base-while-await-condition-try-catch-switch-or-premium';
+      } else {
+        throw 'base-while-await-condition-try-catch-switch-or-other-$i';
+      }
+      out = '$out-$label-$i';
+    } catch (e) {
+      out = '$out-caught-$e';
+    }
+    i = i + 1;
+  }
+  return out;
+}
+
 Future<String> asyncDoWhileTryFinallySwitchAssignedLabel(
   int limit,
   String tier,
@@ -827,6 +914,29 @@ Future<String> asyncDoWhileTryFinallySwitchAssignedLabel(
       var label = 'base-do-while-try-finally-switch-head';
       if (tier == 'gold') {
         label = 'base-do-while-try-finally-switch-gold';
+      }
+      out = '$out-$label-$i';
+    } finally {
+      final marker = await cleanup;
+      out = '$out-finally-$marker';
+    }
+    i = i + 1;
+  } while (limit > i);
+  return out;
+}
+
+Future<String> asyncDoWhileTryFinallySwitchOrPatternAssignedLabel(
+  int limit,
+  String tier,
+  Future<String> cleanup,
+) async {
+  var i = 0;
+  var out = 'base-do-while-try-finally-switch-or-assigned';
+  do {
+    try {
+      var label = 'base-do-while-try-finally-switch-or-head';
+      if (tier == 'gold' || tier == 'vip') {
+        label = 'base-do-while-try-finally-switch-or-premium';
       }
       out = '$out-$label-$i';
     } finally {

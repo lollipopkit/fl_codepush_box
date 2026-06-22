@@ -354,3 +354,25 @@ Iterable<String> syncGeneratedYieldStarDynamic(List<String> extra) sync* {
   yield* extra;
   yield 'base-yield-star-dynamic-tail';
 }
+
+Iterable<String> syncGeneratedSwitchOrPatternExpr(String tier) sync* {
+  yield tier == 'gold'
+      ? 'base-iterable-switch-or-premium'
+      : 'base-iterable-switch-or-other';
+}
+
+Iterable<String> syncGeneratedSwitchOrPatternStatement(String tier) sync* {
+  if (tier == 'gold' || tier == 'vip') {
+    yield 'base-iterable-switch-stmt-or-premium';
+  } else {
+    yield 'base-iterable-switch-stmt-or-other';
+  }
+}
+
+Iterable<String> syncGeneratedWhileSwitchOrPatternStatement() sync* {
+  yield 'base-iterable-while-switch-or';
+}
+
+Iterable<String> syncGeneratedForSwitchOrPatternStatement() sync* {
+  yield 'base-iterable-for-switch-or';
+}

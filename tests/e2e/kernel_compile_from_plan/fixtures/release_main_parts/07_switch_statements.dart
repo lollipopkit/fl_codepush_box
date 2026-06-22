@@ -227,3 +227,78 @@ Future<String> asyncAwaitThenSwitchStatementAwaitCaseLabel(
   final label = await labelReady;
   return 'base-await-switch-stmt-await-case-other-$label';
 }
+
+String syncSwitchStatementMultiCaseLabel(String tier) {
+  if (tier == 'gold' || tier == 'vip') {
+    return 'base-switch-stmt-multi-premium';
+  }
+  if (tier == 'silver') {
+    return 'base-switch-stmt-multi-silver';
+  }
+  return 'base-switch-stmt-multi-other';
+}
+
+String syncSwitchStatementOrPatternLabel(String tier) {
+  if (tier == 'gold' || tier == 'vip') {
+    return 'base-switch-stmt-or-premium';
+  }
+  return 'base-switch-stmt-or-other';
+}
+
+Future<String> asyncSwitchStatementMultiCaseAssignedLabel(String tier) async {
+  var label = 'base-async-switch-stmt-multi-head';
+  if (tier == 'gold' || tier == 'vip') {
+    label = 'base-async-switch-stmt-multi-premium';
+  }
+  return 'base-async-switch-stmt-multi-$label';
+}
+
+Future<String> asyncSwitchStatementOrPatternAssignedLabel(String tier) async {
+  var label = 'base-async-switch-stmt-or-head';
+  if (tier == 'gold' || tier == 'vip') {
+    label = 'base-async-switch-stmt-or-premium';
+  }
+  return 'base-async-switch-stmt-or-$label';
+}
+
+Future<String> asyncSwitchStatementMultiCaseAwaitCaseLabel(
+  String tier,
+  Future<String> ready,
+) async {
+  if (tier == 'gold' || tier == 'vip') {
+    final label = await ready;
+    return 'base-async-switch-stmt-multi-await-premium-$label';
+  }
+  if (tier == 'blocked') {
+    final label = await ready;
+    throw 'base-async-switch-stmt-multi-await-blocked-$label';
+  }
+  final label = await ready;
+  return 'base-async-switch-stmt-multi-await-other-$label';
+}
+
+Future<String> asyncSwitchStatementOrPatternAwaitCaseLabel(
+  String tier,
+  Future<String> ready,
+) async {
+  if (tier == 'gold' || tier == 'vip') {
+    final label = await ready;
+    return 'base-async-switch-stmt-or-await-premium-$label';
+  }
+  if (tier == 'blocked' || tier == 'denied') {
+    final label = await ready;
+    throw 'base-async-switch-stmt-or-await-blocked-$label';
+  }
+  final label = await ready;
+  return 'base-async-switch-stmt-or-await-other-$label';
+}
+
+Future<String> asyncAwaitThenSwitchStatementOrPatternLabel(
+  Future<String> ready,
+) async {
+  final tier = await ready;
+  if (tier == 'gold' || tier == 'vip') {
+    return 'base-await-switch-stmt-or-premium';
+  }
+  return 'base-await-switch-stmt-or-other';
+}

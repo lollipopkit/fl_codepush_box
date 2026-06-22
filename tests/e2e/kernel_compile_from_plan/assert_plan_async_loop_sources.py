@@ -1,3 +1,5 @@
+import json
+
 def assert_async_loop_sources(patch_by_member):
     def assert_try_loop_source(name, loop_kind, has_catch, condition_arg=None, update_arg=None):
         source = patch_by_member.get(name, {}).get("bytecode_source", {})
@@ -1249,3 +1251,49 @@ def assert_async_loop_sources(patch_by_member):
         or async_for_multi_update_body[3].get("set_local", {}).get("id") != 2
     ):
         raise SystemExit(f"expected asyncForMultiUpdate multi-update source, got {async_for_multi_update}")
+
+    def assert_multi_update_combo_source(name, constants, awaits=(), has_catch=False, has_finally=False):
+        source = patch_by_member.get(name, {}).get("bytecode_source", {})
+        source_json = json.dumps(source)
+        if (
+            source.get("async_future") is not True
+            or '"while_loop"' not in source_json
+            or '"name": "i"' not in source_json
+            or '"name": "j"' not in source_json
+            or source_json.count('"set_local"') < 4
+            or any(f'"await": {{"arg": "{arg}"}}' not in source_json for arg in awaits)
+            or (has_catch and '"try_catch"' not in source_json)
+            or (has_finally and '"try_finally"' not in source_json)
+            or any(f'"string": "{constant}"' not in source_json for constant in constants)
+        ):
+            raise SystemExit(f"expected {name} multi-update combo source, got {source}")
+
+    assert_multi_update_combo_source(
+        "asyncForMultiUpdateBranchLocal",
+        ["patched-for-multi-update-pro", "patched-for-multi-update-tail"],
+        awaits=["ready"],
+    )
+    assert_multi_update_combo_source(
+        "asyncForAwaitConditionMultiUpdateBranchLocal",
+        [
+            "patched-for-await-condition-multi-update-pro",
+            "patched-for-await-condition-multi-update-tail",
+        ],
+        awaits=["keepGoing", "ready"],
+    )
+    assert_multi_update_combo_source(
+        "asyncForMultiUpdateTryFinallyAwaitGuard",
+        ["patched-for-multi-update-try-finally", "-finally-"],
+        awaits=["skip", "cleanup"],
+        has_finally=True,
+    )
+    assert_multi_update_combo_source(
+        "asyncForAwaitConditionMultiUpdateTryCatchAwaitGuard",
+        [
+            "patched-for-await-condition-multi-update-try-catch",
+            "patched-for-await-condition-multi-update-error-",
+            "-caught-",
+        ],
+        awaits=["keepGoing", "fail"],
+        has_catch=True,
+    )

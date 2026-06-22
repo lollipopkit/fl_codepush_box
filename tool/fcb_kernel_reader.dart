@@ -510,15 +510,15 @@ Map<String, Object?>? _expr(
       target = expression.target;
     } catch (error) {
       final text = error.toString();
-      if (text.contains('_GrowableList') || text.contains('_List')) {
-        final items = <Map<String, Object?>>[];
-        for (final arg in expression.arguments.positional) {
-          final compiledArg = _expr(arg, params, libraryUri, locals, closures);
-          if (compiledArg == null) return null;
-          items.add(compiledArg);
-        }
-        return {'list': items};
-      }
+      final loweredList = _loweredDartListLiteralExpr(
+        expression,
+        params,
+        libraryUri,
+        locals,
+        closures,
+        fallbackText: text,
+      );
+      if (loweredList != null) return loweredList;
       final originalCall = _unboundDartStaticInvocationExpr(
         expression,
         params,
@@ -537,6 +537,16 @@ Map<String, Object?>? _expr(
     }
     if (expression.arguments.named.isNotEmpty) return null;
     final targetName = _staticTargetName(target);
+    final loweredList = _loweredDartListLiteralExpr(
+      expression,
+      params,
+      libraryUri,
+      locals,
+      closures,
+      target: target,
+      compiledArgs: args,
+    );
+    if (loweredList != null) return loweredList;
     if (target.enclosingLibrary.importUri.scheme == 'dart') {
       return {'call_original': targetName, 'args': args};
     }
@@ -843,6 +853,44 @@ Map<String, Object?>? _expr(
     }
   }
   return null;
+}
+
+Map<String, Object?>? _loweredDartListLiteralExpr(
+  StaticInvocation expression,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures, {
+  Procedure? target,
+  List<Map<String, Object?>>? compiledArgs,
+  String? fallbackText,
+}) {
+  if (expression.arguments.named.isNotEmpty) return null;
+  if (target != null) {
+    final library = target.enclosingLibrary.importUri.toString();
+    final klass = target.enclosingClass?.name;
+    final method = target.name.text;
+    if (library != 'dart:core' ||
+        klass != '_GrowableList' ||
+        !method.startsWith('_literal')) {
+      return null;
+    }
+  } else {
+    final text = fallbackText ?? _nodeText(expression);
+    if (!text.contains('_GrowableList') && !text.contains('_List')) {
+      return null;
+    }
+  }
+
+  final items = compiledArgs ?? <Map<String, Object?>>[];
+  if (compiledArgs == null) {
+    for (final arg in expression.arguments.positional) {
+      final compiledArg = _expr(arg, params, libraryUri, locals, closures);
+      if (compiledArg == null) return null;
+      items.add(compiledArg);
+    }
+  }
+  return {'list': items};
 }
 
 Map<String, Object?>? _inlineClosureInvocation(

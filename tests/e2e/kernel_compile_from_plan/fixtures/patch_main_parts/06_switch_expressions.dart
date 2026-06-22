@@ -6,11 +6,27 @@ String syncSwitchLabel(String tier) {
   };
 }
 
+String syncSwitchMultiValueLabel(String tier) {
+  return switch (tier) {
+    'gold' || 'vip' => 'patched-switch-premium',
+    'trial' || 'guest' => 'patched-switch-limited',
+    _ => 'patched-switch-standard',
+  };
+}
+
 Future<String> asyncSwitchLabel(String tier) async {
   return switch (tier) {
     'gold' => 'patched-async-switch-gold',
     'silver' => 'patched-async-switch-silver',
     _ => 'patched-async-switch-other',
+  };
+}
+
+Future<String> asyncSwitchMultiValueLabel(String tier) async {
+  return switch (tier) {
+    'gold' || 'vip' => 'patched-async-switch-premium',
+    'trial' || 'guest' => 'patched-async-switch-limited',
+    _ => 'patched-async-switch-standard',
   };
 }
 
@@ -23,10 +39,27 @@ Future<String> asyncAwaitThenSwitchLabel(Future<String> ready) async {
   };
 }
 
+Future<String> asyncAwaitThenSwitchMultiValueLabel(Future<String> ready) async {
+  final tier = await ready;
+  return switch (tier) {
+    'gold' || 'vip' => 'patched-await-switch-premium',
+    'trial' || 'guest' => 'patched-await-switch-limited',
+    _ => 'patched-await-switch-standard',
+  };
+}
+
 int syncSwitchScore(int code) {
   return switch (code) {
     7 => 70,
     9 => 90,
+    _ => 10,
+  };
+}
+
+int syncSwitchMultiValueScore(int code) {
+  return switch (code) {
+    7 || 8 => 80,
+    9 || 10 => 100,
     _ => 10,
   };
 }

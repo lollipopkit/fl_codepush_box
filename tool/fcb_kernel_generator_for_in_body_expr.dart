@@ -46,8 +46,7 @@ Map<String, Object?>? _loweredForInBodyExpr(
       asyncKind,
       scopedLocals,
     );
-    if (continueBody == null) return null;
-    return {'_uses_continue': true, ...continueBody};
+    if (continueBody != null) return {'_uses_continue': true, ...continueBody};
   }
   return _generatorBodyExpr(
     tailBody,

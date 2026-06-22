@@ -348,3 +348,106 @@ Future<String> asyncAwaitThenSwitchStatementAwaitCaseLabel(
       return 'patched-await-switch-stmt-await-case-other-$label';
   }
 }
+
+String syncSwitchStatementMultiCaseLabel(String tier) {
+  switch (tier) {
+    case 'gold':
+    case 'vip':
+      return 'patched-switch-stmt-multi-premium';
+    case 'silver':
+      return 'patched-switch-stmt-multi-silver';
+    default:
+      return 'patched-switch-stmt-multi-other';
+  }
+}
+
+String syncSwitchStatementOrPatternLabel(String tier) {
+  switch (tier) {
+    case 'gold' || 'vip':
+      return 'patched-switch-stmt-or-premium';
+    case 'trial' || 'guest':
+      return 'patched-switch-stmt-or-limited';
+    default:
+      return 'patched-switch-stmt-or-other';
+  }
+}
+
+Future<String> asyncSwitchStatementMultiCaseAssignedLabel(String tier) async {
+  var label = 'patched-async-switch-stmt-multi-head';
+  switch (tier) {
+    case 'gold':
+    case 'vip':
+      label = 'patched-async-switch-stmt-multi-premium';
+      break;
+    case 'silver':
+      label = 'patched-async-switch-stmt-multi-silver';
+      break;
+    default:
+      label = 'patched-async-switch-stmt-multi-other';
+  }
+  return 'patched-async-switch-stmt-multi-$label';
+}
+
+Future<String> asyncSwitchStatementOrPatternAssignedLabel(String tier) async {
+  var label = 'patched-async-switch-stmt-or-head';
+  switch (tier) {
+    case 'gold' || 'vip':
+      label = 'patched-async-switch-stmt-or-premium';
+      break;
+    case 'trial' || 'guest':
+      label = 'patched-async-switch-stmt-or-limited';
+      break;
+    default:
+      label = 'patched-async-switch-stmt-or-other';
+  }
+  return 'patched-async-switch-stmt-or-$label';
+}
+
+Future<String> asyncSwitchStatementMultiCaseAwaitCaseLabel(
+  String tier,
+  Future<String> ready,
+) async {
+  switch (tier) {
+    case 'gold':
+    case 'vip':
+      final label = await ready;
+      return 'patched-async-switch-stmt-multi-await-premium-$label';
+    case 'blocked':
+      final label = await ready;
+      throw 'patched-async-switch-stmt-multi-await-blocked-$label';
+    default:
+      final label = await ready;
+      return 'patched-async-switch-stmt-multi-await-other-$label';
+  }
+}
+
+Future<String> asyncSwitchStatementOrPatternAwaitCaseLabel(
+  String tier,
+  Future<String> ready,
+) async {
+  switch (tier) {
+    case 'gold' || 'vip':
+      final label = await ready;
+      return 'patched-async-switch-stmt-or-await-premium-$label';
+    case 'blocked' || 'denied':
+      final label = await ready;
+      throw 'patched-async-switch-stmt-or-await-blocked-$label';
+    default:
+      final label = await ready;
+      return 'patched-async-switch-stmt-or-await-other-$label';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementOrPatternLabel(
+  Future<String> ready,
+) async {
+  final tier = await ready;
+  switch (tier) {
+    case 'gold' || 'vip':
+      return 'patched-await-switch-stmt-or-premium';
+    case 'trial' || 'guest':
+      return 'patched-await-switch-stmt-or-limited';
+    default:
+      return 'patched-await-switch-stmt-or-other';
+  }
+}

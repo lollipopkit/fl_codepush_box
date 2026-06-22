@@ -238,6 +238,18 @@ def assert_async_loop_module(module):
         ["patched-do-while-switch-assigned", "patched-do-while-switch-gold"],
     )
     assert_loop_switch_module(
+        "asyncWhileSwitchOrPatternAssignedLabel",
+        ["patched-while-switch-or-assigned", "patched-while-switch-or-premium"],
+    )
+    assert_loop_switch_module(
+        "asyncForAwaitUpdateSwitchOrPatternAssignedLabel",
+        [
+            "patched-for-await-update-switch-or-assigned",
+            "patched-for-await-update-switch-or-premium",
+        ],
+        min_awaits=1,
+    )
+    assert_loop_switch_module(
         "asyncWhileNestedBranchSwitchAssignedLabel",
         ["patched-while-nested-switch-assigned", "patched-while-nested-switch-gold"],
     )
@@ -262,10 +274,26 @@ def assert_async_loop_module(module):
         min_awaits=1,
     )
     assert_loop_switch_module(
+        "asyncWhileAwaitConditionTryCatchSwitchOrPatternAssignedLabel",
+        [
+            "patched-while-await-condition-try-catch-switch-or-assigned",
+            "patched-while-await-condition-try-catch-switch-or-premium",
+        ],
+        min_awaits=1,
+    )
+    assert_loop_switch_module(
         "asyncDoWhileTryFinallySwitchAssignedLabel",
         [
             "patched-do-while-try-finally-switch-assigned",
             "patched-do-while-try-finally-switch-gold",
+        ],
+        min_awaits=1,
+    )
+    assert_loop_switch_module(
+        "asyncDoWhileTryFinallySwitchOrPatternAssignedLabel",
+        [
+            "patched-do-while-try-finally-switch-or-assigned",
+            "patched-do-while-try-finally-switch-or-premium",
         ],
         min_awaits=1,
     )
@@ -967,3 +995,73 @@ def assert_async_loop_module(module):
         constant.get("type") == "String" and constant.get("value") == "patched-for-multi-update"
         for constant in async_for_multi_update["constants"]
     ), async_for_multi_update
+
+    def assert_multi_update_combo_module(
+        name,
+        params,
+        debug_names,
+        constants,
+        min_awaits,
+        has_catch=False,
+        has_finally=False,
+    ):
+        function = next(
+            item for item in module["functions"] if item["name"].endswith(f"::{name}")
+        )
+        assert function.get("async_kind") == "async_future", function
+        assert function.get("param_count") == params, function
+        assert function["code"].count(0x04) >= 10, function
+        assert function["code"].count(0x30) >= 3, function
+        assert function["code"].count(0x62) >= min_awaits, function
+        assert 0x63 in function["code"], function
+        if has_catch:
+            assert 0x61 in function["code"], function
+        if has_finally:
+            assert 0x65 in function["code"] and 0x66 in function["code"], function
+        actual_debug_names = {
+            entry.get("name") for entry in function.get("debug_locals", [])
+        }
+        assert set(debug_names).issubset(actual_debug_names), function
+        for value in constants:
+            assert any(
+                constant.get("type") == "String" and constant.get("value") == value
+                for constant in function["constants"]
+            ), function
+
+    assert_multi_update_combo_module(
+        "asyncForMultiUpdateBranchLocal",
+        3,
+        ["limit", "ready", "premium", "out", "i", "j", "state", "tier"],
+        ["patched-for-multi-update-branch", "patched-for-multi-update-pro"],
+        1,
+    )
+    assert_multi_update_combo_module(
+        "asyncForAwaitConditionMultiUpdateBranchLocal",
+        3,
+        ["keepGoing", "ready", "premium", "out", "i", "j", "state", "tier"],
+        [
+            "patched-for-await-condition-multi-update-branch",
+            "patched-for-await-condition-multi-update-pro",
+        ],
+        2,
+    )
+    assert_multi_update_combo_module(
+        "asyncForMultiUpdateTryFinallyAwaitGuard",
+        3,
+        ["limit", "skip", "cleanup", "out", "i", "j", "marker"],
+        ["patched-for-multi-update-try-finally", "-finally-"],
+        2,
+        has_finally=True,
+    )
+    assert_multi_update_combo_module(
+        "asyncForAwaitConditionMultiUpdateTryCatchAwaitGuard",
+        2,
+        ["keepGoing", "fail", "out", "i", "j"],
+        [
+            "patched-for-await-condition-multi-update-try-catch",
+            "patched-for-await-condition-multi-update-error-",
+            "-caught-",
+        ],
+        3,
+        has_catch=True,
+    )

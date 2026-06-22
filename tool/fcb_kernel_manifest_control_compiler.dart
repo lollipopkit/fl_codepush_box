@@ -4,12 +4,27 @@ extension _RestrictedBytecodeControlCompiler on _RestrictedBytecodeCompiler {
   void compileListForIn(Map<String, Object?> spec) {
     final receiver = spec['receiver'];
     final source = spec['source'];
+    final local = spec['local'];
+    final item = spec['item'];
     if (receiver is! Map || source is! Map) {
       stderr.writeln('list_for_in expression requires receiver and source');
       exit(2);
     }
+    Map<String, Object?>? localSpec;
+    if (local != null || item != null) {
+      if (local is! Map || item is! Map) {
+        stderr.writeln('mapped list_for_in requires local and item');
+        exit(2);
+      }
+      localSpec = local.cast<String, Object?>();
+      if (localSpec['id'] is! int) {
+        stderr.writeln('mapped list_for_in local requires id');
+        exit(2);
+      }
+    }
     final resultLocal = allocateLocal();
     final iteratorLocal = allocateLocal();
+    final itemLocal = item == null ? null : allocateLocal();
     compileExpr(receiver.cast<String, Object?>());
     op(_opStoreLocal);
     u8(resultLocal);
@@ -23,11 +38,30 @@ extension _RestrictedBytecodeControlCompiler on _RestrictedBytecodeCompiler {
     callDynamic('moveNext', 0);
     op(_opJumpIfFalse);
     final endPatch = reserveU16();
-    op(_opLoadLocal);
-    u8(resultLocal);
-    op(_opLoadLocal);
-    u8(iteratorLocal);
-    callDynamic('get:current', 0);
+    if (itemLocal == null || localSpec == null) {
+      op(_opLoadLocal);
+      u8(resultLocal);
+      op(_opLoadLocal);
+      u8(iteratorLocal);
+      callDynamic('get:current', 0);
+    } else {
+      op(_opLoadLocal);
+      u8(iteratorLocal);
+      callDynamic('get:current', 0);
+      op(_opStoreLocal);
+      u8(itemLocal);
+      op(_opLoadLocal);
+      u8(resultLocal);
+      final localId = localSpec['id'] as int;
+      final previous = scopedLocals[localId];
+      scopedLocals[localId] = itemLocal;
+      compileExpr((item as Map).cast<String, Object?>());
+      if (previous == null) {
+        scopedLocals.remove(localId);
+      } else {
+        scopedLocals[localId] = previous;
+      }
+    }
     callDynamic('add', 1);
     op(_opJump);
     u16(loopStart);
@@ -39,9 +73,24 @@ extension _RestrictedBytecodeControlCompiler on _RestrictedBytecodeCompiler {
   void compileMapForIn(Map<String, Object?> spec) {
     final receiver = spec['receiver'];
     final source = spec['source'];
+    final local = spec['local'];
+    final key = spec['key'];
+    final value = spec['value'];
     if (receiver is! Map || source is! Map) {
       stderr.writeln('map_for_in expression requires receiver and source');
       exit(2);
+    }
+    Map<String, Object?>? localSpec;
+    if (local != null || key != null || value != null) {
+      if (local is! Map || key is! Map || value is! Map) {
+        stderr.writeln('mapped map_for_in requires local, key, and value');
+        exit(2);
+      }
+      localSpec = local.cast<String, Object?>();
+      if (localSpec['id'] is! int) {
+        stderr.writeln('mapped map_for_in local requires id');
+        exit(2);
+      }
     }
     final resultLocal = allocateLocal();
     final iteratorLocal = allocateLocal();
@@ -66,12 +115,25 @@ extension _RestrictedBytecodeControlCompiler on _RestrictedBytecodeCompiler {
     u8(entryLocal);
     op(_opLoadLocal);
     u8(resultLocal);
-    op(_opLoadLocal);
-    u8(entryLocal);
-    callDynamic('get:key', 0);
-    op(_opLoadLocal);
-    u8(entryLocal);
-    callDynamic('get:value', 0);
+    if (localSpec == null) {
+      op(_opLoadLocal);
+      u8(entryLocal);
+      callDynamic('get:key', 0);
+      op(_opLoadLocal);
+      u8(entryLocal);
+      callDynamic('get:value', 0);
+    } else {
+      final localId = localSpec['id'] as int;
+      final previous = scopedLocals[localId];
+      scopedLocals[localId] = entryLocal;
+      compileExpr((key as Map).cast<String, Object?>());
+      compileExpr((value as Map).cast<String, Object?>());
+      if (previous == null) {
+        scopedLocals.remove(localId);
+      } else {
+        scopedLocals[localId] = previous;
+      }
+    }
     callDynamic('[]=', 2);
     op(_opJump);
     u16(loopStart);
