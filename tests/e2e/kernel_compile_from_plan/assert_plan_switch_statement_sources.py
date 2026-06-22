@@ -239,7 +239,11 @@ def assert_sequence_branch(branch, label, prefix, throws=False, local_id=0):
     branch_let = branch.get("let", {})
     branch_local = branch_let.get("locals", [{}])[0]
     branch_body = branch_let.get("body", {})
-    value = branch_body.get("throw", {}) if throws else branch_body
+    value = branch_body
+    if throws:
+        value = branch_body.get("throw", {})
+        if not value:
+            value = branch_body.get("seq", [{}])[0].get("throw", {})
     if (
         branch_local.get("name") != "label"
         or branch_local.get("value", {}).get("string") != label
@@ -387,4 +391,79 @@ assert_side_effect_source(
     "asyncAwaitThenSwitchStatementSideEffectTail",
     "patched-await-switch-stmt-side",
     await_local=True,
+)
+
+
+def assert_await_case_branch(branch, await_arg, prefix, local_id=0, throws=False):
+    branch_let = branch.get("let", {})
+    branch_local = branch_let.get("locals", [{}])[0]
+    branch_body = branch_let.get("body", {})
+    value = branch_body.get("seq", [{}])[0].get("throw", {}) if throws else branch_body
+    if (
+        branch_local.get("name") != "label"
+        or branch_local.get("value", {}).get("await", {}).get("arg") != await_arg
+        or value.get("concat", [{}, {}])[0].get("string") != prefix
+        or value.get("concat", [{}, {}])[1].get("let_local") != local_id
+    ):
+        raise SystemExit(
+            f"expected await case branch await_arg={await_arg} prefix={prefix}, got {branch}"
+        )
+
+
+await_case_source = source_for("asyncSwitchStatementAwaitCaseLabel")
+await_case_value = await_case_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+first, second, fallback = nested_switch(await_case_value)
+if await_case_source.get("async_future") is not True:
+    raise SystemExit(f"expected asyncSwitchStatementAwaitCaseLabel async source, got {await_case_source}")
+assert_await_case_branch(
+    first.get("then", {}),
+    "ready",
+    "patched-async-switch-stmt-await-case-gold-",
+)
+assert_await_case_branch(
+    second.get("then", {}),
+    "ready",
+    "patched-async-switch-stmt-await-case-blocked-",
+    throws=True,
+)
+assert_await_case_branch(
+    fallback,
+    "ready",
+    "patched-async-switch-stmt-await-case-other-",
+)
+
+await_switch_await_case_source = source_for("asyncAwaitThenSwitchStatementAwaitCaseLabel")
+await_switch_await_case_value = (
+    await_switch_await_case_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+)
+await_switch_await_case_let = await_switch_await_case_value.get("let", {})
+await_switch_await_case_local = await_switch_await_case_let.get("locals", [{}])[0]
+first, second, fallback = nested_switch(await_switch_await_case_let.get("body", {}))
+if (
+    await_switch_await_case_source.get("async_future") is not True
+    or await_switch_await_case_local.get("name") != "tier"
+    or await_switch_await_case_local.get("value", {}).get("await", {}).get("arg") != "tierReady"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenSwitchStatementAwaitCaseLabel outer await source, "
+        f"got {await_switch_await_case_source}"
+    )
+assert_await_case_branch(
+    first.get("then", {}),
+    "labelReady",
+    "patched-await-switch-stmt-await-case-gold-",
+    local_id=1,
+)
+assert_await_case_branch(
+    second.get("then", {}),
+    "labelReady",
+    "patched-await-switch-stmt-await-case-blocked-",
+    local_id=1,
+    throws=True,
+)
+assert_await_case_branch(
+    fallback,
+    "labelReady",
+    "patched-await-switch-stmt-await-case-other-",
+    local_id=1,
 )

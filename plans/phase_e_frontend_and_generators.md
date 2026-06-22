@@ -87,6 +87,7 @@ async pending `await` local 作为 list/map collection literal `if/else` conditi
 和 CFE 降级后的 `BlockExpression + LabeledStatement + if/break` 形状;guarded switch 继续
 fail-closed)、受限 switch statement lowering(CFE `SwitchStatement` 常量 case + default,
 case body 直接 `return` / `throw`,case body 局部变量 + `return`/`throw` 序列,
+async case body 内 pending `await` + `return`/`throw`,
 case 内多条 side-effect 后 `break` 并继续 shared tail return,或给同一 local 赋值后 `break` 并继续 tail return;
 assignment switch 也支持分支直接 `throw`;guarded switch statement 继续 fail-closed;已覆盖 `while` / pending-await condition `while` / `for` /
 pending-await update `for` 的 loop body switch assignment,以及返回 List/Map 的 `for`
@@ -144,7 +145,7 @@ nested `await for` + break/continue/finally 的正常、cancel、outer error、i
 路径,以及三层 nested stream lowering/runtime normal/cancel/outer-error/middle-error/inner-error 路径;
 新 deep-nested filter 也已纳入 `scripts/test_vendor_vm_runtime.sh` release VM gate;summary 写
 `target/fcb/kernel-compile-from-plan/summary.txt`,当前 interpreted/module/binary 计数为
-461/476/476;`make check-phase-e-host-evidence` 会检查该 summary
+463/478/478;`make check-phase-e-host-evidence` 会检查该 summary
 与 VM summary 及其底层 SDK delta audit / 全量 release+debug VM filter 日志);
 VM filter 列表已抽到 `scripts/fcb_vm_test_filters.sh`,由
 `scripts/test_vendor_vm_runtime.sh` 与 `scripts/check_phase_e_host_evidence.sh` 共同 source;
@@ -202,7 +203,7 @@ dynamic/runtime label 断言继续拆到 `assert_module_collection_dynamic_label
 
 **前端代码组织**:`fcb_kernel_reader.dart`(954,switch expression lowering 拆到
 `fcb_kernel_switch_expr.dart`(277),switch statement lowering 拆到
-`fcb_kernel_switch_statement_expr.dart`(420),collection literal / collection-for lowering
+`fcb_kernel_switch_statement_expr.dart`(474),collection literal / collection-for lowering
 拆到 `fcb_kernel_collection_expr.dart`(574),collection append/runtime-for helper 拆到
 `fcb_kernel_collection_append_expr.dart`(443))、`fcb_kernel_manifest.dart`(359,reader bundle
 拆到 `fcb_kernel_reader_bundle.dart`(43),IR→bytecode 编译器拆到
@@ -265,7 +266,7 @@ delta,FCB helper 集中在 `fcb_async_patch.dart`;已验收的 5 个 FCB VM hook
 ## 已闭合的 P4/设备证据(2026-06-22)
 
 - `tests/e2e/test_kernel_compile_from_plan.sh`:通过。`target/fcb/kernel-compile-from-plan/summary.txt`
-  记录 interpreted 461、reject 2、unchanged 13、module/binary function 476,并运行
+  记录 interpreted 463、reject 2、unchanged 13、module/binary function 478,并运行
   `FcbPatchRuntimeAsyncStarSourceModuleStreamListen` 与
   `FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor`。
 - `make test-android-arm64-acceptance`:通过。Android primary arm64-v8a emulator 覆盖 nopatch、

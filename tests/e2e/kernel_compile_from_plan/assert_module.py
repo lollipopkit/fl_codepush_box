@@ -6,7 +6,7 @@ from assert_module_core_calls import assert_core_calls
 
 module = json.load(open(sys.argv[1]))
 assert module["version"] == 3, module
-assert len(module["functions"]) == 476, module
+assert len(module["functions"]) == 478, module
 function = next(
     item for item in module["functions"] if item["name"].endswith("::mainValue")
 )
@@ -325,6 +325,24 @@ assert await_switch_side_effect["async_kind"] == "async_future", await_switch_si
 assert 0x62 in await_switch_side_effect["code"], await_switch_side_effect
 assert 0x21 in await_switch_side_effect["code"], await_switch_side_effect
 assert await_switch_side_effect["code"].count(0x04) >= 4, await_switch_side_effect
+async_switch_await_case = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementAwaitCaseLabel")
+)
+assert async_switch_await_case["async_kind"] == "async_future", async_switch_await_case
+assert async_switch_await_case["code"].count(0x62) >= 3, async_switch_await_case
+assert 0x21 in async_switch_await_case["code"], async_switch_await_case
+assert 0x60 in async_switch_await_case["code"], async_switch_await_case
+await_switch_await_case = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchStatementAwaitCaseLabel")
+)
+assert await_switch_await_case["async_kind"] == "async_future", await_switch_await_case
+assert await_switch_await_case["code"].count(0x62) >= 4, await_switch_await_case
+assert 0x21 in await_switch_await_case["code"], await_switch_await_case
+assert 0x60 in await_switch_await_case["code"], await_switch_await_case
 
 assert_async_generators(module)
 assert_core_calls(module)

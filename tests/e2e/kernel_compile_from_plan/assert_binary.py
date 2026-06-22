@@ -6,7 +6,7 @@ assert data[:4] == b"FCBM", data[:4]
 version = struct.unpack(">I", data[4:8])[0]
 function_count = struct.unpack(">H", data[8:10])[0]
 assert version == 3, version
-assert function_count == 476, function_count
+assert function_count == 478, function_count
 assert b"\x50" in data, data
 assert b"\x40" in data, data
 assert b"\x41" in data, data
@@ -247,6 +247,10 @@ assert b"asyncSwitchStatementSideEffectTail" in data, data
 assert b"patched-async-switch-stmt-side-suffix-gold" in data, data
 assert b"asyncAwaitThenSwitchStatementSideEffectTail" in data, data
 assert b"patched-await-switch-stmt-side-suffix-gold" in data, data
+assert b"asyncSwitchStatementAwaitCaseLabel" in data, data
+assert b"patched-async-switch-stmt-await-case-blocked-" in data, data
+assert b"asyncAwaitThenSwitchStatementAwaitCaseLabel" in data, data
+assert b"patched-await-switch-stmt-await-case-blocked-" in data, data
 assert b"switchStatementAssignedListNames" in data, data
 assert b"patched-switch-stmt-assigned-list-gold" in data, data
 assert b"switchStatementAssignedMapLabels" in data, data
