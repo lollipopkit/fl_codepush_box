@@ -153,11 +153,25 @@ Map<String, Object?>? _tailStatementsSourceExpr(
         closures,
       );
     }
+    final switchReturn = _switchReturnStatementExpr(
+      only,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    if (switchReturn != null) return switchReturn;
     return _ifReturnBodySourceExpr(only, params, libraryUri, locals, closures);
   }
   final first = statements.first;
   if (first is VariableDeclaration && first.initializer != null) {
-    final value = _expr(first.initializer!, params, libraryUri, locals, closures);
+    final value = _expr(
+      first.initializer!,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
     if (value == null) return null;
     final id = _nextLocalId(locals);
     final bodyExpr = _tailStatementsSourceExpr(
@@ -180,6 +194,27 @@ Map<String, Object?>? _tailStatementsSourceExpr(
         ],
         'body': bodyExpr,
       },
+    };
+  }
+  final switchAssign = _switchAssignStatementExpr(
+    first,
+    params,
+    libraryUri,
+    locals,
+    closures,
+    (expression) => _expr(expression, params, libraryUri, locals, closures),
+  );
+  if (switchAssign != null) {
+    final tail = _tailStatementsSourceExpr(
+      statements.skip(1).toList(growable: false),
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+    if (tail == null) return null;
+    return {
+      'seq': [switchAssign, tail],
     };
   }
   final ifReturn = statements.length == 2

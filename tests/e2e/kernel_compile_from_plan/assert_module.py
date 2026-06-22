@@ -6,7 +6,7 @@ from assert_module_core_calls import assert_core_calls
 
 module = json.load(open(sys.argv[1]))
 assert module["version"] == 3, module
-assert len(module["functions"]) == 419, module
+assert len(module["functions"]) == 476, module
 function = next(
     item for item in module["functions"] if item["name"].endswith("::mainValue")
 )
@@ -106,6 +106,225 @@ assert any(
     constant.get("type") == "String" and constant.get("value") == "-await-patched"
     for constant in async_await_update_config_label["constants"]
 ), async_await_update_config_label
+sync_switch_label = next(
+    item for item in module["functions"] if item["name"].endswith("::syncSwitchLabel")
+)
+assert sync_switch_label["async_kind"] == "sync", sync_switch_label
+assert sync_switch_label["param_count"] == 1, sync_switch_label
+assert 0x21 in sync_switch_label["code"], sync_switch_label
+assert 0x31 in sync_switch_label["code"], sync_switch_label
+assert any(
+    constant.get("type") == "String" and constant.get("value") == "patched-switch-gold"
+    for constant in sync_switch_label["constants"]
+), sync_switch_label
+async_switch_label = next(
+    item for item in module["functions"] if item["name"].endswith("::asyncSwitchLabel")
+)
+assert async_switch_label["async_kind"] == "async_future", async_switch_label
+assert async_switch_label["param_count"] == 1, async_switch_label
+assert 0x21 in async_switch_label["code"], async_switch_label
+assert 0x31 in async_switch_label["code"], async_switch_label
+assert any(
+    constant.get("type") == "String" and constant.get("value") == "patched-async-switch-gold"
+    for constant in async_switch_label["constants"]
+), async_switch_label
+await_switch_label = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchLabel")
+)
+assert await_switch_label["async_kind"] == "async_future", await_switch_label
+assert await_switch_label["param_count"] == 1, await_switch_label
+assert 0x62 in await_switch_label["code"], await_switch_label
+assert 0x21 in await_switch_label["code"], await_switch_label
+assert any(
+    constant.get("type") == "String" and constant.get("value") == "patched-await-switch-gold"
+    for constant in await_switch_label["constants"]
+), await_switch_label
+switch_score = next(
+    item for item in module["functions"] if item["name"].endswith("::syncSwitchScore")
+)
+assert switch_score["return_convention"] == "unboxed_int64", switch_score
+assert switch_score["param_count"] == 1, switch_score
+assert 0x21 in switch_score["code"], switch_score
+sync_switch_statement = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementLabel")
+)
+assert sync_switch_statement["async_kind"] == "sync", sync_switch_statement
+assert sync_switch_statement["param_count"] == 1, sync_switch_statement
+assert 0x21 in sync_switch_statement["code"], sync_switch_statement
+assert 0x31 in sync_switch_statement["code"], sync_switch_statement
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-switch-stmt-gold"
+    for constant in sync_switch_statement["constants"]
+), sync_switch_statement
+async_switch_statement = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementLabel")
+)
+assert async_switch_statement["async_kind"] == "async_future", async_switch_statement
+assert async_switch_statement["param_count"] == 1, async_switch_statement
+assert 0x21 in async_switch_statement["code"], async_switch_statement
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-async-switch-stmt-gold"
+    for constant in async_switch_statement["constants"]
+), async_switch_statement
+await_switch_statement = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchStatementLabel")
+)
+assert await_switch_statement["async_kind"] == "async_future", await_switch_statement
+assert await_switch_statement["param_count"] == 1, await_switch_statement
+assert 0x62 in await_switch_statement["code"], await_switch_statement
+assert 0x21 in await_switch_statement["code"], await_switch_statement
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-await-switch-stmt-gold"
+    for constant in await_switch_statement["constants"]
+), await_switch_statement
+switch_statement_score = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementScore")
+)
+assert switch_statement_score["return_convention"] == "unboxed_int64", switch_statement_score
+assert switch_statement_score["param_count"] == 1, switch_statement_score
+assert 0x21 in switch_statement_score["code"], switch_statement_score
+assigned_switch_statement = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementAssignedLabel")
+)
+assert assigned_switch_statement["async_kind"] == "sync", assigned_switch_statement
+assert assigned_switch_statement["param_count"] == 1, assigned_switch_statement
+assert 0x04 in assigned_switch_statement["code"], assigned_switch_statement
+assert 0x21 in assigned_switch_statement["code"], assigned_switch_statement
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-switch-stmt-assigned-gold"
+    for constant in assigned_switch_statement["constants"]
+), assigned_switch_statement
+async_assigned_switch_statement = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementAssignedLabel")
+)
+assert async_assigned_switch_statement["async_kind"] == "async_future", async_assigned_switch_statement
+assert 0x04 in async_assigned_switch_statement["code"], async_assigned_switch_statement
+assert 0x21 in async_assigned_switch_statement["code"], async_assigned_switch_statement
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-async-switch-stmt-assigned-gold"
+    for constant in async_assigned_switch_statement["constants"]
+), async_assigned_switch_statement
+await_assigned_switch_statement = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchStatementAssignedLabel")
+)
+assert await_assigned_switch_statement["async_kind"] == "async_future", await_assigned_switch_statement
+assert 0x62 in await_assigned_switch_statement["code"], await_assigned_switch_statement
+assert 0x04 in await_assigned_switch_statement["code"], await_assigned_switch_statement
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-await-switch-stmt-assigned-gold"
+    for constant in await_assigned_switch_statement["constants"]
+), await_assigned_switch_statement
+assigned_switch_score = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementAssignedScore")
+)
+assert assigned_switch_score["return_convention"] == "unboxed_int64", assigned_switch_score
+assert 0x04 in assigned_switch_score["code"], assigned_switch_score
+assert 0x21 in assigned_switch_score["code"], assigned_switch_score
+switch_throw = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementThrowLabel")
+)
+assert switch_throw["async_kind"] == "sync", switch_throw
+assert 0x21 in switch_throw["code"], switch_throw
+assert 0x60 in switch_throw["code"], switch_throw
+assert any(
+    constant.get("type") == "String"
+    and constant.get("value") == "patched-switch-stmt-throw-blocked"
+    for constant in switch_throw["constants"]
+), switch_throw
+async_switch_throw = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementThrowLabel")
+)
+assert async_switch_throw["async_kind"] == "async_future", async_switch_throw
+assert 0x21 in async_switch_throw["code"], async_switch_throw
+assert 0x60 in async_switch_throw["code"], async_switch_throw
+await_switch_throw = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchStatementThrowLabel")
+)
+assert await_switch_throw["async_kind"] == "async_future", await_switch_throw
+assert 0x62 in await_switch_throw["code"], await_switch_throw
+assert 0x21 in await_switch_throw["code"], await_switch_throw
+assert 0x60 in await_switch_throw["code"], await_switch_throw
+switch_sequence = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementSequenceLabel")
+)
+assert switch_sequence["async_kind"] == "sync", switch_sequence
+assert 0x21 in switch_sequence["code"], switch_sequence
+assert 0x60 in switch_sequence["code"], switch_sequence
+assert 0x03 in switch_sequence["code"], switch_sequence
+async_switch_sequence = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementSequenceLabel")
+)
+assert async_switch_sequence["async_kind"] == "async_future", async_switch_sequence
+assert 0x21 in async_switch_sequence["code"], async_switch_sequence
+assert 0x60 in async_switch_sequence["code"], async_switch_sequence
+await_switch_sequence = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchStatementSequenceLabel")
+)
+assert await_switch_sequence["async_kind"] == "async_future", await_switch_sequence
+assert 0x62 in await_switch_sequence["code"], await_switch_sequence
+assert 0x21 in await_switch_sequence["code"], await_switch_sequence
+assert 0x60 in await_switch_sequence["code"], await_switch_sequence
+switch_side_effect = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::syncSwitchStatementSideEffectTail")
+)
+assert switch_side_effect["async_kind"] == "sync", switch_side_effect
+assert 0x21 in switch_side_effect["code"], switch_side_effect
+assert switch_side_effect["code"].count(0x04) >= 4, switch_side_effect
+async_switch_side_effect = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncSwitchStatementSideEffectTail")
+)
+assert async_switch_side_effect["async_kind"] == "async_future", async_switch_side_effect
+assert 0x21 in async_switch_side_effect["code"], async_switch_side_effect
+assert async_switch_side_effect["code"].count(0x04) >= 4, async_switch_side_effect
+await_switch_side_effect = next(
+    item
+    for item in module["functions"]
+    if item["name"].endswith("::asyncAwaitThenSwitchStatementSideEffectTail")
+)
+assert await_switch_side_effect["async_kind"] == "async_future", await_switch_side_effect
+assert 0x62 in await_switch_side_effect["code"], await_switch_side_effect
+assert 0x21 in await_switch_side_effect["code"], await_switch_side_effect
+assert await_switch_side_effect["code"].count(0x04) >= 4, await_switch_side_effect
 
 assert_async_generators(module)
 assert_core_calls(module)

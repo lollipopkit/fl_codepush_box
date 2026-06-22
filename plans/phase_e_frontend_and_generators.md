@@ -83,6 +83,15 @@ ternary conditional string、
 async collection literal static spread/for/if list/map → `MakeList(0x40)` / `MakeMap(0x41)` +
 conditional IR、async pending `await` 后 static list/map `MakeList(0x40)` / `MakeMap(0x41)`、
 async pending `await` local 作为 list/map collection literal `if/else` condition、
+受限 switch expression lowering(常量 case + `_` default,同时支持源码保留 `SwitchExpression`
+和 CFE 降级后的 `BlockExpression + LabeledStatement + if/break` 形状;guarded switch 继续
+fail-closed)、受限 switch statement lowering(CFE `SwitchStatement` 常量 case + default,
+case body 直接 `return` / `throw`,case body 局部变量 + `return`/`throw` 序列,
+case 内多条 side-effect 后 `break` 并继续 shared tail return,或给同一 local 赋值后 `break` 并继续 tail return;
+assignment switch 也支持分支直接 `throw`;guarded switch statement 继续 fail-closed;已覆盖 `while` / pending-await condition `while` / `for` /
+pending-await update `for` 的 loop body switch assignment,以及返回 List/Map 的 `for`
+loop body switch assignment,并覆盖 `do-while`、nested branch-local、try/catch、
+try/finally、pending-await condition + try/catch、pending-await update + try/finally 组合)、
 async collection literal `if (await future)` direct condition(含后续 list/map dynamic spread append
 与 runtime `for-in` append,dynamic spread ⇄ runtime `for-in` 双向链式 lowering,
 dynamic spread/runtime `for-in` 后静态 tail / 静态 spread literal append,
@@ -109,7 +118,11 @@ collection-for list/map → `list_for_in` / `map_for_in`(含 `Future<Map<String,
 语句序列(含 await guard 分支、throw、finally 内 await local;已覆盖 `while` / `do-while`
 pending await condition + body `try/catch`/`try/finally` + pending await guard/finalizer,
 以及 `for` pending await condition + pending await update + body
-`try/catch`/`try/finally`)。
+`try/catch`/`try/finally`;direct `if (await ready)` collection chain 与
+await-then collection chain 已覆盖 list/map 的 dynamic spread、runtime for-in、static tail/spread,
+并补到 try/catch、try/finally、try/catch+finally 组合,含 static spread/tail 深链和
+dynamic/runtime/dynamic、runtime/dynamic/runtime、runtime/runtime/dynamic 三段 append 链,
+以及 catch/finally 内 pending await recovery/cleanup)。
 
 **P2/P3 已覆盖**:多 `yield`、guarded `if` yield、静态/动态 `for-in` yield body(含多层
 dynamic `for-in` + 内层 `continue`/`break` + 外层 `break`)、`yield*`
@@ -131,7 +144,7 @@ nested `await for` + break/continue/finally 的正常、cancel、outer error、i
 路径,以及三层 nested stream lowering/runtime normal/cancel/outer-error/middle-error/inner-error 路径;
 新 deep-nested filter 也已纳入 `scripts/test_vendor_vm_runtime.sh` release VM gate;summary 写
 `target/fcb/kernel-compile-from-plan/summary.txt`,当前 interpreted/module/binary 计数为
-392/407/407;`make check-phase-e-host-evidence` 会检查该 summary
+461/476/476;`make check-phase-e-host-evidence` 会检查该 summary
 与 VM summary 及其底层 SDK delta audit / 全量 release+debug VM filter 日志);
 VM filter 列表已抽到 `scripts/fcb_vm_test_filters.sh`,由
 `scripts/test_vendor_vm_runtime.sh` 与 `scripts/check_phase_e_host_evidence.sh` 共同 source;
@@ -141,7 +154,7 @@ release/patch Dart fixture 已拆到
 `tests/e2e/kernel_compile_from_plan/fixtures/{release_main_parts,patch_main_parts}/*.dart`,
 其中 core async loop/control-flow 另拆到 `01b_core_async_loops.dart`,把
 `01_core_async.dart` 控制在 release 1151 行 / patch 1155 行,`01b_core_async_loops.dart`
-当前 release/patch 均 625 行;
+当前 release 845 行 / patch 925 行;
 其中 direct `if (await ready)` collection chain 另拆到
 `04_direct_await_collection_chains.dart`,避免 `03_sync_generators.dart` 继续膨胀;
 其中 collection literal / labels / type-test helper 另拆到 `03b_collection_literals.dart`,
@@ -187,10 +200,12 @@ dynamic/runtime label 断言继续拆到 `assert_module_collection_dynamic_label
 同时覆盖 unchanged `Future<Function>` / `Future<Record>` type arg 不产出 `bytecode_source`,
 防止 reader/audit 覆盖漂移时用错误 reject 抵消计数,并避免单个断言文件继续膨胀。
 
-**前端代码组织**:`fcb_kernel_reader.dart`(939,collection literal / collection-for lowering
+**前端代码组织**:`fcb_kernel_reader.dart`(954,switch expression lowering 拆到
+`fcb_kernel_switch_expr.dart`(277),switch statement lowering 拆到
+`fcb_kernel_switch_statement_expr.dart`(420),collection literal / collection-for lowering
 拆到 `fcb_kernel_collection_expr.dart`(574),collection append/runtime-for helper 拆到
 `fcb_kernel_collection_append_expr.dart`(443))、`fcb_kernel_manifest.dart`(359,reader bundle
-拆到 `fcb_kernel_reader_bundle.dart`(40),IR→bytecode 编译器拆到
+拆到 `fcb_kernel_reader_bundle.dart`(43),IR→bytecode 编译器拆到
 `fcb_kernel_manifest_compiler.dart`(737),control-flow/collection/generator helpers 拆到
 `fcb_kernel_manifest_control_compiler.dart`(413))、generator lowering 拆为
 `fcb_kernel_generator_{expr,for_expr,loop_expr,stream_expr}.dart`(do-while lowering 已归入
@@ -250,7 +265,7 @@ delta,FCB helper 集中在 `fcb_async_patch.dart`;已验收的 5 个 FCB VM hook
 ## 已闭合的 P4/设备证据(2026-06-22)
 
 - `tests/e2e/test_kernel_compile_from_plan.sh`:通过。`target/fcb/kernel-compile-from-plan/summary.txt`
-  记录 interpreted 392、reject 2、unchanged 11、module/binary function 407,并运行
+  记录 interpreted 461、reject 2、unchanged 13、module/binary function 476,并运行
   `FcbPatchRuntimeAsyncStarSourceModuleStreamListen` 与
   `FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor`。
 - `make test-android-arm64-acceptance`:通过。Android primary arm64-v8a emulator 覆盖 nopatch、

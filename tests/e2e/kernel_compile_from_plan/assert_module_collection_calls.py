@@ -1,6 +1,30 @@
 from assert_module_collection_label_calls import assert_collection_label_calls
 
 def assert_collection_calls(module):
+    def assert_collection_try_module(name, opcodes, constants, param_count=3):
+        function = next(item for item in module["functions"] if item["name"].endswith(f"::{name}"))
+        assert function["async_kind"] == "async_future", function
+        assert function["param_count"] == param_count, function
+        for opcode in opcodes:
+            assert opcode in function["code"], function
+        for value in constants:
+            assert any(
+                constant.get("type") == "String" and constant.get("value") == value
+                for constant in function["constants"]
+            ), function
+
+    def assert_collection_try_await_module(name, opcodes, constants, param_count):
+        function = next(item for item in module["functions"] if item["name"].endswith(f"::{name}"))
+        assert function["async_kind"] == "async_future", function
+        assert function["param_count"] == param_count, function
+        for opcode in opcodes:
+            assert opcode in function["code"], function
+        for value in constants:
+            assert any(
+                constant.get("type") == "String" and constant.get("value") == value
+                for constant in function["constants"]
+            ), function
+
     names = next(item for item in module["functions"] if item["name"].endswith("::names"))
     assert names["param_count"] == 2, names
     assert 0x40 in names["code"], names
@@ -737,3 +761,249 @@ def assert_collection_calls(module):
             for constant in async_await_condition_runtime_static_spread_names["constants"]
         ), async_await_condition_runtime_static_spread_names
     assert_collection_label_calls(module)
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchDynamicRuntimeNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-list-head",
+            "patched-await-condition-try-catch-list-caught-",
+            "addAll",
+            "moveNext",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitThenTryFinallyDynamicRuntimeNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-then-try-finally-list-head",
+            "patched-await-then-try-finally-list-cleanup",
+            "addAll",
+            "moveNext",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchFinallyRuntimeDynamicNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-finally-list-head",
+            "patched-await-condition-try-catch-finally-list-cleanup",
+            "addAll",
+            "moveNext",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchDynamicRuntimeLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-map",
+            "patched-await-condition-try-catch-map-caught-",
+            "get:entries",
+            "[]=",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitThenTryFinallyDynamicRuntimeLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-then-try-finally-map",
+            "patched-await-then-try-finally-map-cleanup",
+            "get:entries",
+            "[]=",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchFinallyRuntimeDynamicLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-finally-map",
+            "patched-await-condition-try-catch-finally-map-cleanup",
+            "get:entries",
+            "[]=",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchDynamicRuntimeStaticSpreadNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-list-static-head",
+            "patched-await-condition-try-catch-list-static-tail-a",
+            "patched-await-condition-try-catch-list-static-caught-",
+            "addAll",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitThenTryFinallyRuntimeDynamicStaticSpreadNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-then-try-finally-list-static-head",
+            "patched-await-then-try-finally-list-static-tail-a",
+            "patched-await-then-try-finally-list-static-cleanup",
+            "addAll",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchFinallyDynamicRuntimeTailNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-finally-list-tail-head",
+            "patched-await-condition-try-catch-finally-list-tail-tail",
+            "patched-await-condition-try-catch-finally-list-tail-cleanup",
+            "moveNext",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchDynamicRuntimeStaticSpreadLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-map-static",
+            "patched-await-condition-try-catch-map-static-tail-a",
+            "patched-await-condition-try-catch-map-static-caught-",
+            "get:entries",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitThenTryFinallyRuntimeDynamicStaticSpreadLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-then-try-finally-map-static",
+            "patched-await-then-try-finally-map-static-tail-a",
+            "patched-await-then-try-finally-map-static-cleanup",
+            "[]=",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchFinallyDynamicRuntimeTailLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-finally-map-tail",
+            "patched-await-condition-try-catch-finally-map-tail-tail",
+            "patched-await-condition-try-catch-finally-map-tail-cleanup",
+            "get:entries",
+        ],
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchRuntimeDynamicRuntimeNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-list-rdr-head",
+            "patched-await-condition-try-catch-list-rdr-caught-",
+            "addAll",
+            "moveNext",
+        ],
+        4,
+    )
+    assert_collection_try_module(
+        "asyncAwaitThenTryFinallyDynamicRuntimeDynamicNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-then-try-finally-list-drd-head",
+            "patched-await-then-try-finally-list-drd-cleanup",
+            "addAll",
+            "moveNext",
+        ],
+        4,
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchFinallyRuntimeRuntimeDynamicNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-finally-list-rrd-head",
+            "patched-await-condition-try-catch-finally-list-rrd-cleanup",
+            "addAll",
+            "moveNext",
+        ],
+        4,
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchRuntimeDynamicRuntimeLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-map-rdr",
+            "patched-await-condition-try-catch-map-rdr-caught-",
+            "get:entries",
+            "[]=",
+        ],
+        4,
+    )
+    assert_collection_try_module(
+        "asyncAwaitThenTryFinallyDynamicRuntimeDynamicLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-then-try-finally-map-drd",
+            "patched-await-then-try-finally-map-drd-cleanup",
+            "get:entries",
+            "[]=",
+        ],
+        4,
+    )
+    assert_collection_try_module(
+        "asyncAwaitConditionTryCatchFinallyRuntimeRuntimeDynamicLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-await-condition-try-catch-finally-map-rrd",
+            "patched-await-condition-try-catch-finally-map-rrd-cleanup",
+            "get:entries",
+            "[]=",
+        ],
+        4,
+    )
+    assert_collection_try_await_module(
+        "asyncCollectionTryCatchAwaitRecoveryNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-collection-try-catch-await-list-head",
+            "patched-collection-try-catch-await-list-caught-",
+            "addAll",
+        ],
+        3,
+    )
+    assert_collection_try_await_module(
+        "asyncCollectionTryFinallyAwaitCleanupNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-collection-try-finally-await-list-head",
+            "patched-collection-try-finally-await-list-cleanup-",
+            "moveNext",
+        ],
+        3,
+    )
+    assert_collection_try_await_module(
+        "asyncCollectionTryCatchFinallyAwaitRecoveryNames",
+        [0x62, 0x40, 0x51, 0x55, 0x63],
+        [
+            "patched-collection-try-catch-finally-await-list-head",
+            "patched-collection-try-catch-finally-await-list-caught-",
+            "patched-collection-try-catch-finally-await-list-cleanup-",
+        ],
+        4,
+    )
+    assert_collection_try_await_module(
+        "asyncCollectionTryCatchAwaitRecoveryLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-collection-try-catch-await-map",
+            "patched-collection-try-catch-await-map-caught-",
+            "addAll",
+        ],
+        3,
+    )
+    assert_collection_try_await_module(
+        "asyncCollectionTryFinallyAwaitCleanupLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-collection-try-finally-await-map",
+            "patched-collection-try-finally-await-map-cleanup-",
+            "get:entries",
+        ],
+        3,
+    )
+    assert_collection_try_await_module(
+        "asyncCollectionTryCatchFinallyAwaitRecoveryLabels",
+        [0x62, 0x41, 0x51, 0x55, 0x63],
+        [
+            "patched-collection-try-catch-finally-await-map",
+            "patched-collection-try-catch-finally-await-map-caught-",
+            "patched-collection-try-catch-finally-await-map-cleanup-",
+        ],
+        4,
+    )

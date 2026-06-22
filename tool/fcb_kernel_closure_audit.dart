@@ -69,6 +69,14 @@ class _EscapingCapturingClosureVisitor extends RecursiveVisitor {
   }
 
   @override
+  void visitEqualsCall(EqualsCall node) {
+    if (reason != null) return;
+    node.left.accept(this);
+    if (reason != null) return;
+    node.right.accept(this);
+  }
+
+  @override
   void visitStaticInvocation(StaticInvocation node) {
     if (reason != null) return;
     _visitInvocationArguments(node.arguments);
@@ -199,6 +207,12 @@ class _ClosureCaptureVisitor extends RecursiveVisitor {
   void visitInstanceInvocation(InstanceInvocation node) {
     node.receiver.accept(this);
     _visitArguments(node.arguments);
+  }
+
+  @override
+  void visitEqualsCall(EqualsCall node) {
+    node.left.accept(this);
+    node.right.accept(this);
   }
 
   @override

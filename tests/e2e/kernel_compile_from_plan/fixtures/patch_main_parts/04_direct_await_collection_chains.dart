@@ -382,6 +382,152 @@ Future<List<String>> asyncAwaitConditionTryCatchFinallyRuntimeDynamicNames(
   }
 }
 
+Future<List<String>> asyncAwaitConditionTryCatchDynamicRuntimeStaticSpreadNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  try {
+    return [
+      'patched-await-condition-try-catch-list-static-head',
+      if (await ready)
+        'patched-await-condition-try-catch-list-static-live'
+      else
+        'patched-await-condition-try-catch-list-static-off',
+      ...extra,
+      for (final item in tail) item,
+      ...[
+        'patched-await-condition-try-catch-list-static-tail-a',
+        'patched-await-condition-try-catch-list-static-tail-b',
+      ],
+    ];
+  } catch (e) {
+    return ['patched-await-condition-try-catch-list-static-caught-$e'];
+  }
+}
+
+Future<List<String>> asyncAwaitThenTryFinallyRuntimeDynamicStaticSpreadNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  final enabled = await ready;
+  try {
+    return [
+      'patched-await-then-try-finally-list-static-head',
+      if (enabled)
+        'patched-await-then-try-finally-list-static-live'
+      else
+        'patched-await-then-try-finally-list-static-off',
+      for (final item in extra) item,
+      ...tail,
+      ...[
+        'patched-await-then-try-finally-list-static-tail-a',
+        'patched-await-then-try-finally-list-static-tail-b',
+      ],
+    ];
+  } finally {
+    tail.add('patched-await-then-try-finally-list-static-cleanup');
+  }
+}
+
+Future<List<String>> asyncAwaitConditionTryCatchFinallyDynamicRuntimeTailNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  try {
+    try {
+      return [
+        'patched-await-condition-try-catch-finally-list-tail-head',
+        if (await ready)
+          'patched-await-condition-try-catch-finally-list-tail-live'
+        else
+          'patched-await-condition-try-catch-finally-list-tail-off',
+        ...extra,
+        for (final item in tail) item,
+        'patched-await-condition-try-catch-finally-list-tail-tail',
+      ];
+    } catch (e) {
+      return ['patched-await-condition-try-catch-finally-list-tail-caught-$e'];
+    }
+  } finally {
+    extra.add('patched-await-condition-try-catch-finally-list-tail-cleanup');
+  }
+}
+
+Future<List<String>> asyncAwaitConditionTryCatchRuntimeDynamicRuntimeNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> middle,
+  List<String> tail,
+) async {
+  try {
+    return [
+      'patched-await-condition-try-catch-list-rdr-head',
+      if (await ready)
+        'patched-await-condition-try-catch-list-rdr-live'
+      else
+        'patched-await-condition-try-catch-list-rdr-off',
+      for (final item in extra) item,
+      ...middle,
+      for (final item in tail) item,
+    ];
+  } catch (e) {
+    return ['patched-await-condition-try-catch-list-rdr-caught-$e'];
+  }
+}
+
+Future<List<String>> asyncAwaitThenTryFinallyDynamicRuntimeDynamicNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> middle,
+  List<String> tail,
+) async {
+  final enabled = await ready;
+  try {
+    return [
+      'patched-await-then-try-finally-list-drd-head',
+      if (enabled)
+        'patched-await-then-try-finally-list-drd-live'
+      else
+        'patched-await-then-try-finally-list-drd-off',
+      ...extra,
+      for (final item in middle) item,
+      ...tail,
+    ];
+  } finally {
+    middle.add('patched-await-then-try-finally-list-drd-cleanup');
+  }
+}
+
+Future<List<String>>
+asyncAwaitConditionTryCatchFinallyRuntimeRuntimeDynamicNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> middle,
+  List<String> tail,
+) async {
+  try {
+    try {
+      return [
+        'patched-await-condition-try-catch-finally-list-rrd-head',
+        if (await ready)
+          'patched-await-condition-try-catch-finally-list-rrd-live'
+        else
+          'patched-await-condition-try-catch-finally-list-rrd-off',
+        for (final item in extra) item,
+        for (final item in middle) item,
+        ...tail,
+      ];
+    } catch (e) {
+      return ['patched-await-condition-try-catch-finally-list-rrd-caught-$e'];
+    }
+  } finally {
+    tail.add('patched-await-condition-try-catch-finally-list-rrd-cleanup');
+  }
+}
+
 Future<Map<String, String>> asyncAwaitConditionLabels(
   Future<bool> ready,
 ) async {
@@ -755,5 +901,162 @@ asyncAwaitConditionTryCatchFinallyRuntimeDynamicLabels(
     }
   } finally {
     tail['cleanup'] = 'patched-await-condition-try-catch-finally-map-cleanup';
+  }
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchDynamicRuntimeStaticSpreadLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  try {
+    return {
+      'mode': 'patched-await-condition-try-catch-map-static',
+      if (await ready)
+        'state': 'patched-await-condition-try-catch-map-static-live'
+      else
+        'state': 'patched-await-condition-try-catch-map-static-off',
+      ...extra,
+      for (final entry in tail.entries) entry.key: entry.value,
+      ...{
+        'tailA': 'patched-await-condition-try-catch-map-static-tail-a',
+        'tailB': 'patched-await-condition-try-catch-map-static-tail-b',
+      },
+    };
+  } catch (e) {
+    return {'caught': 'patched-await-condition-try-catch-map-static-caught-$e'};
+  }
+}
+
+Future<Map<String, String>>
+asyncAwaitThenTryFinallyRuntimeDynamicStaticSpreadLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  final enabled = await ready;
+  try {
+    return {
+      'mode': 'patched-await-then-try-finally-map-static',
+      if (enabled)
+        'state': 'patched-await-then-try-finally-map-static-live'
+      else
+        'state': 'patched-await-then-try-finally-map-static-off',
+      for (final entry in extra.entries) entry.key: entry.value,
+      ...tail,
+      ...{
+        'tailA': 'patched-await-then-try-finally-map-static-tail-a',
+        'tailB': 'patched-await-then-try-finally-map-static-tail-b',
+      },
+    };
+  } finally {
+    tail['cleanup'] = 'patched-await-then-try-finally-map-static-cleanup';
+  }
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchFinallyDynamicRuntimeTailLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  try {
+    try {
+      return {
+        'mode': 'patched-await-condition-try-catch-finally-map-tail',
+        if (await ready)
+          'state': 'patched-await-condition-try-catch-finally-map-tail-live'
+        else
+          'state': 'patched-await-condition-try-catch-finally-map-tail-off',
+        ...extra,
+        for (final entry in tail.entries) entry.key: entry.value,
+        'tail': 'patched-await-condition-try-catch-finally-map-tail-tail',
+      };
+    } catch (e) {
+      return {
+        'caught':
+            'patched-await-condition-try-catch-finally-map-tail-caught-$e',
+      };
+    }
+  } finally {
+    extra['cleanup'] =
+        'patched-await-condition-try-catch-finally-map-tail-cleanup';
+  }
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchRuntimeDynamicRuntimeLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> middle,
+  Map<String, String> tail,
+) async {
+  try {
+    return {
+      'mode': 'patched-await-condition-try-catch-map-rdr',
+      if (await ready)
+        'state': 'patched-await-condition-try-catch-map-rdr-live'
+      else
+        'state': 'patched-await-condition-try-catch-map-rdr-off',
+      for (final entry in extra.entries) entry.key: entry.value,
+      ...middle,
+      for (final entry in tail.entries) entry.key: entry.value,
+    };
+  } catch (e) {
+    return {'caught': 'patched-await-condition-try-catch-map-rdr-caught-$e'};
+  }
+}
+
+Future<Map<String, String>> asyncAwaitThenTryFinallyDynamicRuntimeDynamicLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> middle,
+  Map<String, String> tail,
+) async {
+  final enabled = await ready;
+  try {
+    return {
+      'mode': 'patched-await-then-try-finally-map-drd',
+      if (enabled)
+        'state': 'patched-await-then-try-finally-map-drd-live'
+      else
+        'state': 'patched-await-then-try-finally-map-drd-off',
+      ...extra,
+      for (final entry in middle.entries) entry.key: entry.value,
+      ...tail,
+    };
+  } finally {
+    middle['cleanup'] = 'patched-await-then-try-finally-map-drd-cleanup';
+  }
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchFinallyRuntimeRuntimeDynamicLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> middle,
+  Map<String, String> tail,
+) async {
+  try {
+    try {
+      return {
+        'mode': 'patched-await-condition-try-catch-finally-map-rrd',
+        if (await ready)
+          'state': 'patched-await-condition-try-catch-finally-map-rrd-live'
+        else
+          'state': 'patched-await-condition-try-catch-finally-map-rrd-off',
+        for (final entry in extra.entries) entry.key: entry.value,
+        for (final entry in middle.entries) entry.key: entry.value,
+        ...tail,
+      };
+    } catch (e) {
+      return {
+        'caught': 'patched-await-condition-try-catch-finally-map-rrd-caught-$e',
+      };
+    }
+  } finally {
+    tail['cleanup'] =
+        'patched-await-condition-try-catch-finally-map-rrd-cleanup';
   }
 }

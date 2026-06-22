@@ -348,6 +348,25 @@ Map<String, Object?>? _asyncTailStatementsSourceExpr(
     if (branch != null) return branch;
   }
 
+  final switchAssign = _asyncSwitchAssignStatementExpr(
+    first,
+    paramsSet,
+    libraryUri,
+    locals,
+  );
+  if (switchAssign != null) {
+    final tail = _asyncTailStatementsSourceExpr(
+      rest,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (tail == null) return null;
+    return {
+      'seq': [switchAssign, tail],
+    };
+  }
+
   if (first is TryFinally) {
     final bodyExpr = _asyncTailStatementsSourceExpr(
       _asyncStatementsFromBody(first.body),
@@ -497,6 +516,13 @@ Map<String, Object?>? _asyncTailStatementsSourceExpr(
   }
 
   if (statements.length == 1) {
+    final switchReturn = _asyncSwitchReturnStatementExpr(
+      first,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (switchReturn != null) return switchReturn;
     if (first is ReturnStatement && first.expression == null) {
       return {'null': true};
     }

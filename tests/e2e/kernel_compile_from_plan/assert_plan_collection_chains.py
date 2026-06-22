@@ -2,6 +2,8 @@ import json
 import sys
 
 from assert_plan_collection_await_then_chains import assert_await_then_collection_chains
+from assert_plan_collection_try_await_sources import assert_collection_try_await_sources
+from assert_plan_collection_try_sources import assert_collection_try_sources
 from assert_plan_collection_reverse_chains import assert_direct_reverse_collection_chains
 from assert_plan_collection_static_tail_chains import assert_direct_static_tail_chains
 
@@ -461,3 +463,5 @@ if (
 assert_direct_reverse_collection_chains(source_for)
 assert_direct_static_tail_chains(source_for)
 assert_await_then_collection_chains(source_for)
+assert_collection_try_sources(source_for)
+assert_collection_try_await_sources(source_for)

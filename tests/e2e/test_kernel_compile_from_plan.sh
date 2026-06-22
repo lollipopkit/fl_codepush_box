@@ -86,6 +86,10 @@ python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_core_calls.py"
   "$WORKDIR/patch_inventory.json"
 python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_collection_chains.py" \
   "$WORKDIR/patch_inventory.json"
+python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_switch_expr_sources.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_switch_statement_sources.py" \
+  "$WORKDIR/patch_inventory.json"
 python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_async_control.py" \
   "$WORKDIR/patch_inventory.json"
 python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_generator_sources.py" \

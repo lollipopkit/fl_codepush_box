@@ -4,6 +4,7 @@ import sys
 from assert_plan_async_branch_sources import assert_async_branch_sources
 from assert_plan_async_expression_sources import assert_async_expression_sources
 from assert_plan_async_loop_sources import assert_async_loop_sources
+from assert_plan_async_loop_switch_sources import assert_async_loop_switch_sources
 
 patch = json.load(open(sys.argv[1]))
 patch_by_member = {f.get("member_name"): f for f in patch["functions"]}
@@ -35,3 +36,4 @@ if (
 ):
     raise SystemExit(f"expected plannedAsyncAwait local await + if-return source, got {planned_async}")
 assert_async_loop_sources(patch_by_member)
+assert_async_loop_switch_sources(patch_by_member)

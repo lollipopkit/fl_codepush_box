@@ -92,11 +92,11 @@ for filter in "${DEBUG_VM_TEST_FILTERS[@]}"; do
 done
 
 require_line "$KERNEL_SUMMARY" "kernel_compile_from_plan passed"
-require_line "$KERNEL_SUMMARY" "interpreted_count: 404"
+require_line "$KERNEL_SUMMARY" "interpreted_count: 461"
 require_line "$KERNEL_SUMMARY" "reject_count: 2"
-require_line "$KERNEL_SUMMARY" "unchanged_count: 11"
-require_line "$KERNEL_SUMMARY" "module_function_count: 419"
-require_line "$KERNEL_SUMMARY" "binary_function_count: 419"
+require_line "$KERNEL_SUMMARY" "unchanged_count: 13"
+require_line "$KERNEL_SUMMARY" "module_function_count: 476"
+require_line "$KERNEL_SUMMARY" "binary_function_count: 476"
 require_line "$KERNEL_SUMMARY" "FcbPatchRuntimeAsyncStarSourceModuleStreamListen"
 require_line "$KERNEL_SUMMARY" "FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor"
 require_line "$KERNEL_SUMMARY" "triple_nested_runtime_cases: normal cancel outer-error middle-error inner-error"

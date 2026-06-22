@@ -623,3 +623,297 @@ Future<String> asyncForMultiUpdate(int limit) async {
   }
   return out;
 }
+
+Future<String> asyncWhileSwitchAssignedLabel(int limit, String tier) async {
+  var i = 0;
+  var out = 'patched-while-switch-assigned';
+  while (limit > i) {
+    var label = 'patched-while-switch-head';
+    switch (tier) {
+      case 'gold':
+        label = 'patched-while-switch-gold';
+        break;
+      case 'silver':
+        label = 'patched-while-switch-silver';
+        break;
+      default:
+        label = 'patched-while-switch-other';
+    }
+    out = '$out-$label-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncWhileAwaitConditionSwitchAssignedLabel(
+  Future<bool> keepGoing,
+  String tier,
+) async {
+  var i = 0;
+  var out = 'patched-while-await-condition-switch-assigned';
+  while (await keepGoing) {
+    var label = 'patched-while-await-switch-head';
+    switch (tier) {
+      case 'gold':
+        label = 'patched-while-await-switch-gold';
+        break;
+      case 'silver':
+        label = 'patched-while-await-switch-silver';
+        break;
+      default:
+        label = 'patched-while-await-switch-other';
+    }
+    out = '$out-$label-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncForSwitchAssignedLabel(int limit, String tier) async {
+  var out = 'patched-for-switch-assigned';
+  for (var i = 0; limit > i; i = i + 1) {
+    var label = 'patched-for-switch-head';
+    switch (tier) {
+      case 'gold':
+        label = 'patched-for-switch-gold';
+        break;
+      case 'silver':
+        label = 'patched-for-switch-silver';
+        break;
+      default:
+        label = 'patched-for-switch-other';
+    }
+    out = '$out-$label-$i';
+  }
+  return out;
+}
+
+Future<String> asyncForAwaitUpdateSwitchAssignedLabel(
+  int limit,
+  String tier,
+  Future<int> next,
+) async {
+  var out = 'patched-for-await-update-switch-assigned';
+  for (var i = 0; limit > i; i = await next) {
+    var label = 'patched-for-await-update-switch-head';
+    switch (tier) {
+      case 'gold':
+        label = 'patched-for-await-update-switch-gold';
+        break;
+      case 'silver':
+        label = 'patched-for-await-update-switch-silver';
+        break;
+      default:
+        label = 'patched-for-await-update-switch-other';
+    }
+    out = '$out-$label-$i';
+  }
+  return out;
+}
+
+Future<List<String>> asyncForSwitchAssignedListNames(
+  int limit,
+  String tier,
+) async {
+  var out = 'patched-for-switch-list';
+  for (var i = 0; limit > i; i = i + 1) {
+    var label = 'patched-for-switch-list-head';
+    switch (tier) {
+      case 'gold':
+        label = 'patched-for-switch-list-gold';
+        break;
+      case 'silver':
+        label = 'patched-for-switch-list-silver';
+        break;
+      default:
+        label = 'patched-for-switch-list-other';
+    }
+    out = '$out-$label-$i';
+  }
+  return [out, 'patched-for-switch-list-tail'];
+}
+
+Future<Map<String, String>> asyncForSwitchAssignedMapLabels(
+  int limit,
+  int code,
+) async {
+  var out = 'patched-for-switch-map';
+  for (var i = 0; limit > i; i = i + 1) {
+    var label = 'patched-for-switch-map-head';
+    switch (code) {
+      case 7:
+        label = 'patched-for-switch-map-seven';
+        break;
+      case 9:
+        label = 'patched-for-switch-map-nine';
+        break;
+      default:
+        label = 'patched-for-switch-map-other';
+    }
+    out = '$out-$label-$i';
+  }
+  return {'state': out};
+}
+
+Future<String> asyncDoWhileSwitchAssignedLabel(int limit, String tier) async {
+  var i = 0;
+  var out = 'patched-do-while-switch-assigned';
+  do {
+    var label = 'patched-do-while-switch-head';
+    switch (tier) {
+      case 'gold':
+        label = 'patched-do-while-switch-gold';
+        break;
+      case 'silver':
+        label = 'patched-do-while-switch-silver';
+        break;
+      default:
+        label = 'patched-do-while-switch-other';
+    }
+    out = '$out-$label-$i';
+    i = i + 1;
+  } while (limit > i);
+  return out;
+}
+
+Future<String> asyncWhileNestedBranchSwitchAssignedLabel(
+  int limit,
+  String tier,
+  bool enabled,
+) async {
+  var i = 0;
+  var out = 'patched-while-nested-switch-assigned';
+  while (limit > i) {
+    if (enabled) {
+      var label = 'patched-while-nested-switch-head';
+      switch (tier) {
+        case 'gold':
+          label = 'patched-while-nested-switch-gold';
+          break;
+        case 'silver':
+          label = 'patched-while-nested-switch-silver';
+          break;
+        default:
+          label = 'patched-while-nested-switch-other';
+      }
+      out = '$out-$label-$i';
+    } else {
+      out = '$out-disabled-$i';
+    }
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncForTryCatchSwitchAssignedLabel(
+  int limit,
+  String tier,
+) async {
+  var out = 'patched-for-try-catch-switch-assigned';
+  for (var i = 0; limit > i; i = i + 1) {
+    try {
+      var label = 'patched-for-try-catch-switch-head';
+      switch (tier) {
+        case 'gold':
+          label = 'patched-for-try-catch-switch-gold';
+          break;
+        case 'silver':
+          label = 'patched-for-try-catch-switch-silver';
+          break;
+        default:
+          throw 'patched-for-try-catch-switch-other-$i';
+      }
+      out = '$out-$label-$i';
+    } catch (e) {
+      out = '$out-caught-$e';
+    }
+  }
+  return out;
+}
+
+Future<String> asyncForAwaitUpdateTryFinallySwitchAssignedLabel(
+  int limit,
+  String tier,
+  Future<int> next,
+  Future<String> cleanup,
+) async {
+  var out = 'patched-for-await-update-try-finally-switch-assigned';
+  for (var i = 0; limit > i; i = await next) {
+    try {
+      var label = 'patched-for-await-update-try-finally-switch-head';
+      switch (tier) {
+        case 'gold':
+          label = 'patched-for-await-update-try-finally-switch-gold';
+          break;
+        case 'silver':
+          label = 'patched-for-await-update-try-finally-switch-silver';
+          break;
+        default:
+          label = 'patched-for-await-update-try-finally-switch-other';
+      }
+      out = '$out-$label-$i';
+    } finally {
+      final marker = await cleanup;
+      out = '$out-finally-$marker';
+    }
+  }
+  return out;
+}
+
+Future<String> asyncWhileAwaitConditionTryCatchSwitchAssignedLabel(
+  Future<bool> keepGoing,
+  String tier,
+) async {
+  var i = 0;
+  var out = 'patched-while-await-condition-try-catch-switch-assigned';
+  while (await keepGoing) {
+    try {
+      var label = 'patched-while-await-condition-try-catch-switch-head';
+      switch (tier) {
+        case 'gold':
+          label = 'patched-while-await-condition-try-catch-switch-gold';
+          break;
+        case 'silver':
+          label = 'patched-while-await-condition-try-catch-switch-silver';
+          break;
+        default:
+          throw 'patched-while-await-condition-try-catch-switch-other-$i';
+      }
+      out = '$out-$label-$i';
+    } catch (e) {
+      out = '$out-caught-$e';
+    }
+    i = i + 1;
+  }
+  return out;
+}
+
+Future<String> asyncDoWhileTryFinallySwitchAssignedLabel(
+  int limit,
+  String tier,
+  Future<String> cleanup,
+) async {
+  var i = 0;
+  var out = 'patched-do-while-try-finally-switch-assigned';
+  do {
+    try {
+      var label = 'patched-do-while-try-finally-switch-head';
+      switch (tier) {
+        case 'gold':
+          label = 'patched-do-while-try-finally-switch-gold';
+          break;
+        case 'silver':
+          label = 'patched-do-while-try-finally-switch-silver';
+          break;
+        default:
+          label = 'patched-do-while-try-finally-switch-other';
+      }
+      out = '$out-$label-$i';
+    } finally {
+      final marker = await cleanup;
+      out = '$out-finally-$marker';
+    }
+    i = i + 1;
+  } while (limit > i);
+  return out;
+}

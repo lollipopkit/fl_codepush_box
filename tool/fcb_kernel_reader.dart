@@ -12,6 +12,8 @@ import 'fcb_kernel_type_names.dart';
 import 'fcb_kernel_unsupported_audit.dart';
 
 part 'fcb_kernel_logical_expr.dart';
+part 'fcb_kernel_switch_expr.dart';
+part 'fcb_kernel_switch_statement_expr.dart';
 part 'fcb_kernel_async_expr.dart';
 part 'fcb_kernel_async_for_expr.dart';
 part 'fcb_kernel_async_loop_expr.dart';
@@ -294,6 +296,7 @@ Map<String, Object?>? _bytecodeSource(
       _letBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _tryCatchBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _tryFinallyBodySourceExpr(function.body, paramsSet, libraryUri) ??
+      _switchReturnBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _syncExpressionStatementSequenceExpr(
         function.body,
         paramsSet,
@@ -381,6 +384,15 @@ Map<String, Object?>? _expr(
   }
   if (expression is LogicalExpression) {
     return _logicalExpressionExpr(
+      expression,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
+  }
+  if (expression is SwitchExpression) {
+    return _switchExpressionExpr(
       expression,
       params,
       libraryUri,
@@ -578,13 +590,14 @@ Map<String, Object?>? _expr(
     };
   }
   if (expression is BlockExpression) {
-    return _blockCollectionExpr(
-      expression,
-      params,
-      libraryUri,
-      locals,
-      closures,
-    );
+    return _loweredSwitchBlockExpressionExpr(
+          expression,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        ) ??
+        _blockCollectionExpr(expression, params, libraryUri, locals, closures);
   }
   if (expression is ListLiteral) {
     final items = <Map<String, Object?>>[];

@@ -1,4 +1,22 @@
 def assert_async_loop_module(module):
+    def assert_loop_switch_module(name, constants, min_awaits=0):
+        function = next(
+            item for item in module["functions"] if item["name"].endswith(f"::{name}")
+        )
+        assert function.get("async_kind") == "async_future", function
+        assert 0x31 in function["code"], function
+        assert 0x30 in function["code"], function
+        assert 0x04 in function["code"], function
+        assert 0x21 in function["code"], function
+        assert function["code"].count(0x62) >= min_awaits, function
+        debug_names = {entry.get("name") for entry in function.get("debug_locals", [])}
+        assert {"out", "i", "label"}.issubset(debug_names), function
+        for value in constants:
+            assert any(
+                constant.get("type") == "String" and constant.get("value") == value
+                for constant in function["constants"]
+            ), function
+
     def assert_async_try_loop(name, names, constants, min_awaits, has_catch):
         function = next(
             item for item in module["functions"] if item["name"].endswith(f"::{name}")
@@ -186,6 +204,71 @@ def assert_async_loop_module(module):
             constant.get("type") == "String" and constant.get("value") == value
             for constant in async_while_try_finally["constants"]
         ), async_while_try_finally
+    assert_loop_switch_module(
+        "asyncWhileSwitchAssignedLabel",
+        ["patched-while-switch-assigned", "patched-while-switch-gold"],
+    )
+    assert_loop_switch_module(
+        "asyncWhileAwaitConditionSwitchAssignedLabel",
+        [
+            "patched-while-await-condition-switch-assigned",
+            "patched-while-await-switch-gold",
+        ],
+        min_awaits=1,
+    )
+    assert_loop_switch_module(
+        "asyncForSwitchAssignedLabel",
+        ["patched-for-switch-assigned", "patched-for-switch-gold"],
+    )
+    assert_loop_switch_module(
+        "asyncForAwaitUpdateSwitchAssignedLabel",
+        ["patched-for-await-update-switch-assigned", "patched-for-await-update-switch-gold"],
+        min_awaits=1,
+    )
+    assert_loop_switch_module(
+        "asyncForSwitchAssignedListNames",
+        ["patched-for-switch-list", "patched-for-switch-list-gold"],
+    )
+    assert_loop_switch_module(
+        "asyncForSwitchAssignedMapLabels",
+        ["patched-for-switch-map", "patched-for-switch-map-seven"],
+    )
+    assert_loop_switch_module(
+        "asyncDoWhileSwitchAssignedLabel",
+        ["patched-do-while-switch-assigned", "patched-do-while-switch-gold"],
+    )
+    assert_loop_switch_module(
+        "asyncWhileNestedBranchSwitchAssignedLabel",
+        ["patched-while-nested-switch-assigned", "patched-while-nested-switch-gold"],
+    )
+    assert_loop_switch_module(
+        "asyncForTryCatchSwitchAssignedLabel",
+        ["patched-for-try-catch-switch-assigned", "patched-for-try-catch-switch-gold"],
+    )
+    assert_loop_switch_module(
+        "asyncForAwaitUpdateTryFinallySwitchAssignedLabel",
+        [
+            "patched-for-await-update-try-finally-switch-assigned",
+            "patched-for-await-update-try-finally-switch-gold",
+        ],
+        min_awaits=2,
+    )
+    assert_loop_switch_module(
+        "asyncWhileAwaitConditionTryCatchSwitchAssignedLabel",
+        [
+            "patched-while-await-condition-try-catch-switch-assigned",
+            "patched-while-await-condition-try-catch-switch-gold",
+        ],
+        min_awaits=1,
+    )
+    assert_loop_switch_module(
+        "asyncDoWhileTryFinallySwitchAssignedLabel",
+        [
+            "patched-do-while-try-finally-switch-assigned",
+            "patched-do-while-try-finally-switch-gold",
+        ],
+        min_awaits=1,
+    )
     async_while_nested_branch = next(
         item for item in module["functions"] if item["name"].endswith("::asyncWhileNestedAwaitBranchLocal")
     )

@@ -99,12 +99,7 @@ Future<List<String>> asyncAwaitConditionDynamicDynamicDynamicNames(
   List<String> tail,
 ) async {
   return await ready
-      ? [
-          'base-await-condition-live',
-          ...extra,
-          ...middle,
-          ...tail,
-        ]
+      ? ['base-await-condition-live', ...extra, ...middle, ...tail]
       : extra;
 }
 
@@ -267,7 +262,84 @@ Future<List<String>> asyncAwaitConditionTryCatchFinallyRuntimeDynamicNames(
   List<String> tail,
 ) async {
   return await ready
-      ? ['base-await-condition-try-catch-finally-list', for (final item in extra) item]
+      ? [
+          'base-await-condition-try-catch-finally-list',
+          for (final item in extra) item,
+        ]
+      : tail;
+}
+
+Future<List<String>> asyncAwaitConditionTryCatchDynamicRuntimeStaticSpreadNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  return await ready ? ['base-await-condition-try-catch-list-static'] : tail;
+}
+
+Future<List<String>> asyncAwaitThenTryFinallyRuntimeDynamicStaticSpreadNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  final enabled = await ready;
+  return enabled ? ['base-await-then-try-finally-list-static', ...tail] : extra;
+}
+
+Future<List<String>> asyncAwaitConditionTryCatchFinallyDynamicRuntimeTailNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  return await ready
+      ? [
+          'base-await-condition-try-catch-finally-list-tail',
+          ...extra,
+          for (final item in tail) item,
+        ]
+      : tail;
+}
+
+Future<List<String>> asyncAwaitConditionTryCatchRuntimeDynamicRuntimeNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> middle,
+  List<String> tail,
+) async {
+  return await ready
+      ? ['base-await-condition-try-catch-list-rdr', ...middle]
+      : tail;
+}
+
+Future<List<String>> asyncAwaitThenTryFinallyDynamicRuntimeDynamicNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> middle,
+  List<String> tail,
+) async {
+  final enabled = await ready;
+  return enabled
+      ? [
+          'base-await-then-try-finally-list-drd',
+          for (final item in middle) item,
+        ]
+      : tail;
+}
+
+Future<List<String>>
+asyncAwaitConditionTryCatchFinallyRuntimeRuntimeDynamicNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> middle,
+  List<String> tail,
+) async {
+  return await ready
+      ? [
+          'base-await-condition-try-catch-finally-list-rrd',
+          for (final item in extra) item,
+          for (final item in middle) item,
+          ...tail,
+        ]
       : tail;
 }
 
@@ -381,12 +453,7 @@ Future<Map<String, String>> asyncAwaitConditionDynamicDynamicDynamicLabels(
   Map<String, String> tail,
 ) async {
   return await ready
-      ? {
-          'state': 'base-await-condition-live',
-          ...extra,
-          ...middle,
-          ...tail,
-        }
+      ? {'state': 'base-await-condition-live', ...extra, ...middle, ...tail}
       : extra;
 }
 
@@ -539,7 +606,9 @@ Future<Map<String, String>> asyncAwaitConditionTryCatchDynamicRuntimeLabels(
   Map<String, String> extra,
   Map<String, String> tail,
 ) async {
-  return await ready ? {'state': 'base-await-condition-try-catch-map', ...extra} : tail;
+  return await ready
+      ? {'state': 'base-await-condition-try-catch-map', ...extra}
+      : tail;
 }
 
 Future<Map<String, String>> asyncAwaitThenTryFinallyDynamicRuntimeLabels(
@@ -548,7 +617,9 @@ Future<Map<String, String>> asyncAwaitThenTryFinallyDynamicRuntimeLabels(
   Map<String, String> tail,
 ) async {
   final enabled = await ready;
-  return enabled ? {'state': 'base-await-then-try-finally-map', ...extra} : tail;
+  return enabled
+      ? {'state': 'base-await-then-try-finally-map', ...extra}
+      : tail;
 }
 
 Future<Map<String, String>>
@@ -561,6 +632,88 @@ asyncAwaitConditionTryCatchFinallyRuntimeDynamicLabels(
       ? {
           'state': 'base-await-condition-try-catch-finally-map',
           for (final entry in extra.entries) entry.key: entry.value,
+        }
+      : tail;
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchDynamicRuntimeStaticSpreadLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  return await ready
+      ? {'state': 'base-await-condition-try-catch-map-static', ...extra}
+      : tail;
+}
+
+Future<Map<String, String>>
+asyncAwaitThenTryFinallyRuntimeDynamicStaticSpreadLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  final enabled = await ready;
+  return enabled
+      ? {'state': 'base-await-then-try-finally-map-static', ...tail}
+      : extra;
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchFinallyDynamicRuntimeTailLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  return await ready
+      ? {
+          'state': 'base-await-condition-try-catch-finally-map-tail',
+          ...extra,
+          for (final entry in tail.entries) entry.key: entry.value,
+        }
+      : tail;
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchRuntimeDynamicRuntimeLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> middle,
+  Map<String, String> tail,
+) async {
+  return await ready
+      ? {'state': 'base-await-condition-try-catch-map-rdr', ...middle}
+      : tail;
+}
+
+Future<Map<String, String>> asyncAwaitThenTryFinallyDynamicRuntimeDynamicLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> middle,
+  Map<String, String> tail,
+) async {
+  final enabled = await ready;
+  return enabled
+      ? {
+          'state': 'base-await-then-try-finally-map-drd',
+          for (final entry in middle.entries) entry.key: entry.value,
+        }
+      : tail;
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchFinallyRuntimeRuntimeDynamicLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> middle,
+  Map<String, String> tail,
+) async {
+  return await ready
+      ? {
+          'state': 'base-await-condition-try-catch-finally-map-rrd',
+          for (final entry in extra.entries) entry.key: entry.value,
+          for (final entry in middle.entries) entry.key: entry.value,
+          ...tail,
         }
       : tail;
 }
