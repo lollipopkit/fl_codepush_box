@@ -317,6 +317,71 @@ Future<List<String>> asyncAwaitConditionRuntimeStaticSpreadNames(
   ];
 }
 
+Future<List<String>> asyncAwaitConditionTryCatchDynamicRuntimeNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  try {
+    return [
+      'patched-await-condition-try-catch-list-head',
+      if (await ready)
+        'patched-await-condition-try-catch-list-live'
+      else
+        'patched-await-condition-try-catch-list-off',
+      ...extra,
+      for (final item in tail) item,
+    ];
+  } catch (e) {
+    return ['patched-await-condition-try-catch-list-caught-$e'];
+  }
+}
+
+Future<List<String>> asyncAwaitThenTryFinallyDynamicRuntimeNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  final enabled = await ready;
+  try {
+    return [
+      'patched-await-then-try-finally-list-head',
+      if (enabled)
+        'patched-await-then-try-finally-list-live'
+      else
+        'patched-await-then-try-finally-list-off',
+      ...extra,
+      for (final item in tail) item,
+    ];
+  } finally {
+    extra.add('patched-await-then-try-finally-list-cleanup');
+  }
+}
+
+Future<List<String>> asyncAwaitConditionTryCatchFinallyRuntimeDynamicNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  try {
+    try {
+      return [
+        'patched-await-condition-try-catch-finally-list-head',
+        if (await ready)
+          'patched-await-condition-try-catch-finally-list-live'
+        else
+          'patched-await-condition-try-catch-finally-list-off',
+        for (final item in extra) item,
+        ...tail,
+      ];
+    } catch (e) {
+      return ['patched-await-condition-try-catch-finally-list-caught-$e'];
+    }
+  } finally {
+    tail.add('patched-await-condition-try-catch-finally-list-cleanup');
+  }
+}
+
 Future<Map<String, String>> asyncAwaitConditionLabels(
   Future<bool> ready,
 ) async {
@@ -623,4 +688,72 @@ Future<Map<String, String>> asyncAwaitConditionRuntimeStaticSpreadLabels(
     for (final entry in extra.entries) entry.key: entry.value,
     ...{'tail': 'patched-await-condition-runtime-static-spread-tail'},
   };
+}
+
+Future<Map<String, String>> asyncAwaitConditionTryCatchDynamicRuntimeLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  try {
+    return {
+      'mode': 'patched-await-condition-try-catch-map',
+      if (await ready)
+        'state': 'patched-await-condition-try-catch-map-live'
+      else
+        'state': 'patched-await-condition-try-catch-map-off',
+      ...extra,
+      for (final entry in tail.entries) entry.key: entry.value,
+    };
+  } catch (e) {
+    return {'caught': 'patched-await-condition-try-catch-map-caught-$e'};
+  }
+}
+
+Future<Map<String, String>> asyncAwaitThenTryFinallyDynamicRuntimeLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  final enabled = await ready;
+  try {
+    return {
+      'mode': 'patched-await-then-try-finally-map',
+      if (enabled)
+        'state': 'patched-await-then-try-finally-map-live'
+      else
+        'state': 'patched-await-then-try-finally-map-off',
+      ...extra,
+      for (final entry in tail.entries) entry.key: entry.value,
+    };
+  } finally {
+    extra['cleanup'] = 'patched-await-then-try-finally-map-cleanup';
+  }
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchFinallyRuntimeDynamicLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  try {
+    try {
+      return {
+        'mode': 'patched-await-condition-try-catch-finally-map',
+        if (await ready)
+          'state': 'patched-await-condition-try-catch-finally-map-live'
+        else
+          'state': 'patched-await-condition-try-catch-finally-map-off',
+        for (final entry in extra.entries) entry.key: entry.value,
+        ...tail,
+      };
+    } catch (e) {
+      return {
+        'caught': 'patched-await-condition-try-catch-finally-map-caught-$e',
+      };
+    }
+  } finally {
+    tail['cleanup'] = 'patched-await-condition-try-catch-finally-map-cleanup';
+  }
 }

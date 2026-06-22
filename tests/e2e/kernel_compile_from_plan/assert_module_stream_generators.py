@@ -1,4 +1,39 @@
 def assert_stream_generators(module):
+    def assert_async_star_stream_error_cleanup(name, constants, min_streams, has_finally):
+        function = next(
+            item for item in module["functions"] if item["name"].endswith(f"::{name}")
+        )
+        assert function.get("async_kind") == "async_star", function
+        assert function["code"].count(0x55) >= min_streams, function
+        assert function["code"].count(0x62) >= min_streams, function
+        assert 0x64 in function["code"], function
+        assert 0x61 in function["code"], function
+        assert 0x65 in function["code"], function
+        assert 0x66 in function["code"], function
+        if has_finally:
+            assert function["code"].count(0x65) >= min_streams + 1, function
+            assert function["code"].count(0x66) >= min_streams + 1, function
+        for value in constants:
+            assert any(
+                constant.get("type") == "String" and constant.get("value") == value
+                for constant in function["constants"]
+            ), function
+
+    def assert_async_star_finite_stream_error_cleanup(name, constants):
+        function = next(
+            item for item in module["functions"] if item["name"].endswith(f"::{name}")
+        )
+        assert function.get("async_kind") == "async_star", function
+        assert 0x61 in function["code"], function
+        assert 0x65 in function["code"], function
+        assert 0x66 in function["code"], function
+        assert 0x64 in function["code"], function
+        for value in constants:
+            assert any(
+                constant.get("type") == "String" and constant.get("value") == value
+                for constant in function["constants"]
+            ), function
+
     sync_generated_yield_star = next(
         item for item in module["functions"] if item["name"].endswith("::syncGeneratedYieldStar")
     )
@@ -147,6 +182,99 @@ def assert_stream_generators(module):
         constant.get("type") == "String" and constant.get("value") == "patched-stream-yield-star-two-streams-cleanup"
         for constant in async_generated_yield_star_two_streams["constants"]
     ), async_generated_yield_star_two_streams
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedYieldStarStreamCatch",
+        ["patched-stream-yield-star-stream-caught-"],
+        1,
+        False,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedYieldStarStreamCatchFinally",
+        [
+            "patched-stream-yield-star-stream-catch-finally-caught-",
+            "patched-stream-yield-star-stream-catch-finally-cleanup",
+        ],
+        1,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedYieldStarTwoStreamsCatchFinally",
+        [
+            "patched-stream-yield-star-two-streams-caught-",
+            "patched-stream-yield-star-two-streams-catch-finally-cleanup",
+        ],
+        2,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedYieldStarStreamSandwichCatchFinally",
+        [
+            "patched-stream-yield-star-stream-sandwich-catch-before",
+            "patched-stream-yield-star-stream-sandwich-catch-after",
+            "patched-stream-yield-star-stream-sandwich-caught-",
+            "patched-stream-yield-star-stream-sandwich-catch-cleanup",
+        ],
+        1,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedYieldStarTwoStreamsSandwichCatchFinally",
+        [
+            "patched-stream-yield-star-two-streams-sandwich-before",
+            "patched-stream-yield-star-two-streams-sandwich-middle",
+            "patched-stream-yield-star-two-streams-sandwich-after",
+            "patched-stream-yield-star-two-streams-sandwich-caught-",
+            "patched-stream-yield-star-two-streams-sandwich-cleanup",
+        ],
+        2,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedYieldStarTripleStreamsCatchFinally",
+        [
+            "patched-stream-yield-star-triple-streams-caught-",
+            "patched-stream-yield-star-triple-streams-cleanup",
+        ],
+        3,
+        True,
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedYieldStarDynamicCatchFinally",
+        [
+            "patched-stream-yield-star-dynamic-caught-",
+            "patched-stream-yield-star-dynamic-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedYieldStarFromFutureCatchFinally",
+        [
+            "patched-stream-yield-star-future-catch-",
+            "patched-stream-yield-star-future-caught-",
+            "patched-stream-yield-star-future-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedYieldStarPendingFutureCatchFinally",
+        [
+            "patched-stream-yield-star-pending-caught-",
+            "patched-stream-yield-star-pending-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedYieldStarValueCatchFinally",
+        [
+            "patched-stream-yield-star-value-catch-",
+            "patched-stream-yield-star-value-caught-",
+            "patched-stream-yield-star-value-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedYieldStarEmptyCatchFinally",
+        [
+            "patched-stream-yield-star-empty-caught-",
+            "patched-stream-yield-star-empty-catch-cleanup",
+        ],
+    )
     async_generated_yield_star_value = next(
         item for item in module["functions"] if item["name"].endswith("::asyncGeneratedYieldStarValue")
     )
@@ -393,6 +521,129 @@ def assert_stream_generators(module):
         constant.get("type") == "String" and constant.get("value") == "patched-stream-await-for-stream-continue-break-cleanup"
         for constant in async_generated_await_for_stream_continue_break_finally["constants"]
     ), async_generated_await_for_stream_continue_break_finally
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedAwaitForStreamCatch",
+        [
+            "patched-stream-await-for-stream-caught-body-",
+            "patched-stream-await-for-stream-caught-",
+        ],
+        1,
+        False,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedAwaitForStreamCatchFinally",
+        [
+            "patched-stream-await-for-stream-catch-finally-body-",
+            "patched-stream-await-for-stream-catch-finally-caught-",
+            "patched-stream-await-for-stream-catch-finally-cleanup",
+        ],
+        1,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedAwaitForTwoStreamsCatchFinally",
+        [
+            "patched-stream-await-for-two-streams-left-",
+            "patched-stream-await-for-two-streams-right-",
+            "patched-stream-await-for-two-streams-caught-",
+            "patched-stream-await-for-two-streams-catch-finally-cleanup",
+        ],
+        2,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedAwaitForNestedStreamCatchFinally",
+        [
+            "patched-stream-await-for-nested-stream-catch-",
+            "patched-stream-await-for-nested-stream-caught-",
+            "patched-stream-await-for-nested-stream-catch-cleanup",
+        ],
+        2,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedAwaitForNestedStreamBreakContinueCatchFinally",
+        [
+            "patched-stream-await-for-nested-stream-break-continue-catch-",
+            "patched-stream-await-for-nested-stream-break-continue-caught-",
+            "patched-stream-await-for-nested-stream-break-continue-catch-cleanup",
+            "skip",
+            "stop",
+        ],
+        2,
+        True,
+    )
+    assert_async_star_stream_error_cleanup(
+        "asyncGeneratedAwaitForTripleNestedStreamCatchFinally",
+        [
+            "patched-stream-await-for-triple-nested-catch-",
+            "patched-stream-await-for-triple-nested-caught-",
+            "patched-stream-await-for-triple-nested-catch-cleanup",
+            "skip",
+            "stop-middle",
+        ],
+        3,
+        True,
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedAwaitForFromIterableCatchFinally",
+        [
+            "patched-stream-await-for-iterable-catch-",
+            "patched-stream-await-for-iterable-caught-",
+            "patched-stream-await-for-iterable-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedAwaitForFutureCatchFinally",
+        [
+            "patched-stream-await-for-future-catch-",
+            "patched-stream-await-for-future-catch-item-",
+            "patched-stream-await-for-future-caught-",
+            "patched-stream-await-for-future-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedAwaitForPendingFutureCatchFinally",
+        [
+            "patched-stream-await-for-pending-catch-",
+            "patched-stream-await-for-pending-caught-",
+            "patched-stream-await-for-pending-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedAwaitForValueCatchFinally",
+        [
+            "patched-stream-await-for-value-catch-",
+            "patched-stream-await-for-value-caught-",
+            "patched-stream-await-for-value-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedAwaitForEmptyCatchFinally",
+        [
+            "patched-stream-await-for-empty-catch-",
+            "patched-stream-await-for-empty-caught-",
+            "patched-stream-await-for-empty-catch-cleanup",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedAwaitForFutureBreakCatchFinally",
+        [
+            "patched-stream-await-for-future-break-catch-",
+            "patched-stream-await-for-future-break-caught-",
+            "patched-stream-await-for-future-break-catch-cleanup",
+            "stop",
+        ],
+    )
+    assert_async_star_finite_stream_error_cleanup(
+        "asyncGeneratedAwaitForPendingContinueCatchFinally",
+        [
+            "patched-stream-await-for-pending-continue-catch-",
+            "patched-stream-await-for-pending-continue-caught-",
+            "patched-stream-await-for-pending-continue-catch-cleanup",
+            "skip",
+        ],
+    )
     async_generated_await_for_nested = next(
         item
         for item in module["functions"]

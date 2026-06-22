@@ -117,7 +117,11 @@ dynamic `for-in` + 内层 `continue`/`break` + 外层 `break`)、`yield*`
 及通用 Stream 参数真实 subscription 委派)、`await for`(各有限 stream 源 + 通用 Stream 参数 v1,含
 guarded continue/break、nested、外层 finally cleanup、多源 nested `await for`(外层 `continue`、
 内层 `break`、三层 nested stream lowering、finally cleanup,含正常/cancel/outer error/inner error
-runtime 路径))、async* 内 pending `await` 挂起/恢复(`ResumeAsyncStar`)、cancel 跑 `finally`、
+runtime 路径)、generic Stream `yield*` / `await for` 的 try/catch、try/catch+finally
+error/cleanup 组合(单 Stream、双 Stream、三 Stream、sandwich yield*、nested/triple nested await-for))、
+有限 Stream source(`Stream.fromIterable`、`Stream.fromFuture(Future.value)`、pending `Future`)
+在 `yield*` / `await for` 下的 try/catch+finally error/cleanup 组合、
+async* 内 pending `await` 挂起/恢复(`ResumeAsyncStar`)、cancel 跑 `finally`、
 subscription pause/resume 背压。
 
 **测试锚点**:`tests/e2e/test_kernel_compile_from_plan.sh`(真实 Kernel → binary module →
@@ -127,7 +131,7 @@ nested `await for` + break/continue/finally 的正常、cancel、outer error、i
 路径,以及三层 nested stream lowering/runtime normal/cancel/outer-error/middle-error/inner-error 路径;
 新 deep-nested filter 也已纳入 `scripts/test_vendor_vm_runtime.sh` release VM gate;summary 写
 `target/fcb/kernel-compile-from-plan/summary.txt`,当前 interpreted/module/binary 计数为
-374/389/389;`make check-phase-e-host-evidence` 会检查该 summary
+392/407/407;`make check-phase-e-host-evidence` 会检查该 summary
 与 VM summary 及其底层 SDK delta audit / 全量 release+debug VM filter 日志);
 VM filter 列表已抽到 `scripts/fcb_vm_test_filters.sh`,由
 `scripts/test_vendor_vm_runtime.sh` 与 `scripts/check_phase_e_host_evidence.sh` 共同 source;
@@ -246,7 +250,7 @@ delta,FCB helper 集中在 `fcb_async_patch.dart`;已验收的 5 个 FCB VM hook
 ## 已闭合的 P4/设备证据(2026-06-22)
 
 - `tests/e2e/test_kernel_compile_from_plan.sh`:通过。`target/fcb/kernel-compile-from-plan/summary.txt`
-  记录 interpreted 374、reject 2、unchanged 11、module/binary function 389,并运行
+  记录 interpreted 392、reject 2、unchanged 11、module/binary function 407,并运行
   `FcbPatchRuntimeAsyncStarSourceModuleStreamListen` 与
   `FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor`。
 - `make test-android-arm64-acceptance`:通过。Android primary arm64-v8a emulator 覆盖 nopatch、

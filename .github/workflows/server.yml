@@ -12,6 +12,9 @@ jobs:
       run:
         working-directory: server
     steps:
+      - name: Clean workspace
+        run: sudo rm -rf "$GITHUB_WORKSPACE/.tmp" || true
+
       - name: Checkout
         uses: actions/checkout@v4
 

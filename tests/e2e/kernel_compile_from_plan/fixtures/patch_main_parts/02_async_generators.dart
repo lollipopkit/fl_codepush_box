@@ -438,6 +438,106 @@ Stream<String> asyncGeneratedAwaitForPendingContinue(Future<String> ready) async
   }
 }
 
+Stream<String> asyncGeneratedAwaitForFromIterableCatchFinally(List<String> extra) async* {
+  try {
+    try {
+      await for (final value in Stream.fromIterable(extra)) {
+        yield 'patched-stream-await-for-iterable-catch-$value';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-iterable-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-iterable-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForFutureCatchFinally(String value) async* {
+  try {
+    try {
+      await for (final item in Stream.fromFuture(Future.value('patched-stream-await-for-future-catch-$value'))) {
+        yield 'patched-stream-await-for-future-catch-item-$item';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-future-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-future-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForPendingFutureCatchFinally(Future<String> ready) async* {
+  try {
+    try {
+      await for (final item in Stream.fromFuture(ready)) {
+        yield 'patched-stream-await-for-pending-catch-$item';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-pending-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-pending-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForValueCatchFinally(String value) async* {
+  try {
+    try {
+      await for (final item in Stream.value(value)) {
+        yield 'patched-stream-await-for-value-catch-$item';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-value-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-value-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForEmptyCatchFinally() async* {
+  try {
+    try {
+      await for (final item in Stream<String>.empty()) {
+        yield 'patched-stream-await-for-empty-catch-$item';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-empty-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-empty-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForFutureBreakCatchFinally(String value) async* {
+  try {
+    try {
+      await for (final item in Stream.fromFuture(Future.value(value))) {
+        if (item == 'stop') break;
+        yield 'patched-stream-await-for-future-break-catch-$item';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-future-break-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-future-break-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForPendingContinueCatchFinally(Future<String> ready) async* {
+  try {
+    try {
+      await for (final item in Stream.fromFuture(ready)) {
+        if (item == 'skip') continue;
+        yield 'patched-stream-await-for-pending-continue-catch-$item';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-pending-continue-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-pending-continue-catch-cleanup';
+  }
+}
+
 Stream<String> asyncGeneratedAwaitForEmpty() async* {
   await for (final item in Stream<String>.empty()) {
     yield 'patched-stream-await-for-empty-$item';
@@ -505,6 +605,110 @@ Stream<String> asyncGeneratedYieldStarTwoStreamsCatchFinally(Stream<String> firs
     }
   } finally {
     yield 'patched-stream-yield-star-two-streams-catch-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarDynamicCatchFinally(List<String> extra) async* {
+  try {
+    try {
+      yield* Stream.fromIterable(extra);
+    } catch (e) {
+      yield 'patched-stream-yield-star-dynamic-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-dynamic-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarFromFutureCatchFinally(String value) async* {
+  try {
+    try {
+      yield* Stream.fromFuture(Future.value('patched-stream-yield-star-future-catch-$value'));
+    } catch (e) {
+      yield 'patched-stream-yield-star-future-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-future-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarPendingFutureCatchFinally(Future<String> ready) async* {
+  try {
+    try {
+      yield* Stream.fromFuture(ready);
+    } catch (e) {
+      yield 'patched-stream-yield-star-pending-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-pending-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarValueCatchFinally(String value) async* {
+  try {
+    try {
+      yield* Stream.value('patched-stream-yield-star-value-catch-$value');
+    } catch (e) {
+      yield 'patched-stream-yield-star-value-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-value-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarEmptyCatchFinally() async* {
+  try {
+    try {
+      yield* Stream<String>.empty();
+    } catch (e) {
+      yield 'patched-stream-yield-star-empty-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-empty-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarStreamSandwichCatchFinally(Stream<String> extra) async* {
+  try {
+    try {
+      yield 'patched-stream-yield-star-stream-sandwich-catch-before';
+      yield* extra;
+      yield 'patched-stream-yield-star-stream-sandwich-catch-after';
+    } catch (e) {
+      yield 'patched-stream-yield-star-stream-sandwich-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-stream-sandwich-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarTwoStreamsSandwichCatchFinally(Stream<String> first, Stream<String> second) async* {
+  try {
+    try {
+      yield 'patched-stream-yield-star-two-streams-sandwich-before';
+      yield* first;
+      yield 'patched-stream-yield-star-two-streams-sandwich-middle';
+      yield* second;
+      yield 'patched-stream-yield-star-two-streams-sandwich-after';
+    } catch (e) {
+      yield 'patched-stream-yield-star-two-streams-sandwich-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-two-streams-sandwich-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarTripleStreamsCatchFinally(Stream<String> first, Stream<String> second, Stream<String> third) async* {
+  try {
+    try {
+      yield* first;
+      yield* second;
+      yield* third;
+    } catch (e) {
+      yield 'patched-stream-yield-star-triple-streams-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-triple-streams-cleanup';
   }
 }
 
@@ -588,6 +792,60 @@ Stream<String> asyncGeneratedAwaitForTwoStreamsCatchFinally(Stream<String> first
     }
   } finally {
     yield 'patched-stream-await-for-two-streams-catch-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForNestedStreamCatchFinally(Stream<String> outer, Stream<String> inner) async* {
+  try {
+    try {
+      await for (final left in outer) {
+        await for (final right in inner) {
+          yield 'patched-stream-await-for-nested-stream-catch-$left-$right';
+        }
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-nested-stream-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-nested-stream-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForNestedStreamBreakContinueCatchFinally(Stream<String> outer, Stream<String> inner) async* {
+  try {
+    try {
+      await for (final left in outer) {
+        if (left == 'skip') continue;
+        await for (final right in inner) {
+          if (right == 'stop') break;
+          yield 'patched-stream-await-for-nested-stream-break-continue-catch-$left-$right';
+        }
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-nested-stream-break-continue-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-nested-stream-break-continue-catch-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForTripleNestedStreamCatchFinally(Stream<String> outer, Stream<String> middle, Stream<String> inner) async* {
+  try {
+    try {
+      await for (final left in outer) {
+        if (left == 'skip') continue;
+        await for (final center in middle) {
+          if (center == 'stop-middle') break;
+          await for (final right in inner) {
+            yield 'patched-stream-await-for-triple-nested-catch-$left-$center-$right';
+          }
+        }
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-triple-nested-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-triple-nested-catch-cleanup';
   }
 }
 

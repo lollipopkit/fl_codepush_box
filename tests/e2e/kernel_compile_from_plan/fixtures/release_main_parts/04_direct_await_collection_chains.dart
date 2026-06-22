@@ -244,6 +244,33 @@ Future<List<String>> asyncAwaitConditionRuntimeStaticSpreadNames(
       : extra;
 }
 
+Future<List<String>> asyncAwaitConditionTryCatchDynamicRuntimeNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  return await ready ? ['base-await-condition-try-catch-list'] : extra;
+}
+
+Future<List<String>> asyncAwaitThenTryFinallyDynamicRuntimeNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  final enabled = await ready;
+  return enabled ? ['base-await-then-try-finally-list', ...extra] : tail;
+}
+
+Future<List<String>> asyncAwaitConditionTryCatchFinallyRuntimeDynamicNames(
+  Future<bool> ready,
+  List<String> extra,
+  List<String> tail,
+) async {
+  return await ready
+      ? ['base-await-condition-try-catch-finally-list', for (final item in extra) item]
+      : tail;
+}
+
 Future<Map<String, String>> asyncAwaitConditionLabels(
   Future<bool> ready,
 ) async {
@@ -505,4 +532,35 @@ Future<Map<String, String>> asyncAwaitConditionRuntimeStaticSpreadLabels(
           ...{'tail': 'base-await-condition-tail'},
         }
       : extra;
+}
+
+Future<Map<String, String>> asyncAwaitConditionTryCatchDynamicRuntimeLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  return await ready ? {'state': 'base-await-condition-try-catch-map', ...extra} : tail;
+}
+
+Future<Map<String, String>> asyncAwaitThenTryFinallyDynamicRuntimeLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  final enabled = await ready;
+  return enabled ? {'state': 'base-await-then-try-finally-map', ...extra} : tail;
+}
+
+Future<Map<String, String>>
+asyncAwaitConditionTryCatchFinallyRuntimeDynamicLabels(
+  Future<bool> ready,
+  Map<String, String> extra,
+  Map<String, String> tail,
+) async {
+  return await ready
+      ? {
+          'state': 'base-await-condition-try-catch-finally-map',
+          for (final entry in extra.entries) entry.key: entry.value,
+        }
+      : tail;
 }

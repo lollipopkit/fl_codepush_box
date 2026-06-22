@@ -9,6 +9,9 @@ jobs:
   fake-flutter:
     runs-on: [self-hosted, Linux, X64]
     steps:
+      - name: Clean workspace
+        run: sudo rm -rf "$GITHUB_WORKSPACE/.tmp" || true
+
       - name: Checkout
         uses: actions/checkout@v4
 
