@@ -18,6 +18,15 @@ jobs:
         with:
           targets: x86_64-apple-ios
 
+      - name: Cache iOS simulator engine output
+        id: engine-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/flutter/engine/src/out/ios_release_sim
+          key: ios-engine-x64-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'scripts/build_ios_engine.sh') }}
+          restore-keys: |
+            ios-engine-x64-${{ runner.os }}-
+
       - name: Bootstrap vendor
         run: |
           scripts/bootstrap.sh
@@ -25,15 +34,8 @@ jobs:
           test -x scripts/build_ios_engine.sh
           test -x scripts/test_ios_sim.sh
 
-      - name: Cache iOS simulator engine output
-        uses: actions/cache@v4
-        with:
-          path: vendor/flutter/engine/src/out/ios_release_sim
-          key: ios-engine-x64-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'scripts/build_ios_engine.sh', 'vendor/flutter/engine/src/flutter/DEPS') }}
-          restore-keys: |
-            ios-engine-x64-${{ runner.os }}-
-
       - name: Build iOS simulator engine
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         run: |
           FCB_IOS_SIMULATOR=1 \
           FCB_IOS_CPU=x64 \

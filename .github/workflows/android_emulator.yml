@@ -21,6 +21,15 @@ jobs:
       - name: Install Android Rust tooling
         run: cargo install cargo-ndk --locked
 
+      - name: Cache Android engine output
+        id: engine-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/flutter/engine/src/out/android_release_x64
+          key: android-engine-x64-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'scripts/build_android_engine.sh') }}
+          restore-keys: |
+            android-engine-x64-${{ runner.os }}-
+
       - name: Bootstrap vendor
         run: |
           scripts/bootstrap.sh
@@ -28,15 +37,8 @@ jobs:
           test -x scripts/build_android_engine.sh
           test -x scripts/test_android_x64.sh
 
-      - name: Cache Android engine output
-        uses: actions/cache@v4
-        with:
-          path: vendor/flutter/engine/src/out/android_release_x64
-          key: android-engine-x64-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'scripts/build_android_engine.sh', 'vendor/flutter/engine/src/flutter/DEPS') }}
-          restore-keys: |
-            android-engine-x64-${{ runner.os }}-
-
       - name: Build Android x64 engine
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         run: |
           FCB_ANDROID_CPU=x64 \
           FCB_ANDROID_ARCH=x64 \
