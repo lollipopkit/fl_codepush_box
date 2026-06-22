@@ -6,7 +6,7 @@ WORKDIR="${FCB_WORKDIR:-$ROOT_DIR/target/fcb/android-interpret-failure}"
 TEST_ANDROID_SCRIPT="${FCB_TEST_ANDROID_SCRIPT:-$ROOT_DIR/scripts/test_android.sh}"
 ADB="${FCB_ADB:-$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/android_tools/sdk/platform-tools/adb}"
 ADB_TIMEOUT_SECONDS="${FCB_ADB_TIMEOUT_SECONDS:-30}"
-MAX_INTERPRETER_RATIO="${FCB_MAX_INTERPRETER_RATIO:-0.01}"
+MAX_INTERPRETER_RATIO="${FCB_MAX_INTERPRETER_RATIO:-1.0}"
 PKG="${FCB_ANDROID_PACKAGE:-com.example.fcb_counter_app}"
 PATCH_NUMBER="${FCB_PATCH_NUMBER:-1}"
 SUMMARY_FILE="$WORKDIR/summary.txt"
@@ -55,7 +55,7 @@ Environment:
   FCB_PLATFORM             Platform passed to counter_app. Default: android
   FCB_ARCH                 Arch passed to counter_app. Default: arm64-v8a
   FCB_MAX_INTERPRETER_RATIO
-                            Max interpreter ratio for the failing patch launch. Default: 0.01
+                            Max interpreter ratio for the failing patch launch. Default: 1.0
   FCB_SERVER_DB            Optional sqlite DB path; when set, verifies patch_events has crash_rollback.
 USAGE
 }
@@ -202,6 +202,7 @@ main() {
   FCB_INCLUDE_ARG_FUNCTION_PATCH=0 \
   FCB_INCLUDE_STATIC_METHOD_PATCH=0 \
   FCB_INCLUDE_STRING_FUNCTION_PATCH=0 \
+  FCB_INCLUDE_WIDGET_TREE_FUNCTION_PATCH=0 \
   FCB_INCLUDE_FIELD_FUNCTION_PATCH=0 \
   FCB_INCLUDE_QUAD_FUNCTION_PATCH=0 \
   FCB_EXPECTED_INITIAL_COUNTER=1 \

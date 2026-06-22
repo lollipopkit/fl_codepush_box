@@ -475,6 +475,39 @@ Stream<String> asyncGeneratedYieldStarTwoStreamsFinally(Stream<String> first, St
   }
 }
 
+Stream<String> asyncGeneratedYieldStarStreamCatch(Stream<String> extra) async* {
+  try {
+    yield* extra;
+  } catch (e) {
+    yield 'patched-stream-yield-star-stream-caught-$e';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarStreamCatchFinally(Stream<String> extra) async* {
+  try {
+    try {
+      yield* extra;
+    } catch (e) {
+      yield 'patched-stream-yield-star-stream-catch-finally-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-stream-catch-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedYieldStarTwoStreamsCatchFinally(Stream<String> first, Stream<String> second) async* {
+  try {
+    try {
+      yield* first;
+      yield* second;
+    } catch (e) {
+      yield 'patched-stream-yield-star-two-streams-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-yield-star-two-streams-catch-finally-cleanup';
+  }
+}
+
 Stream<String> asyncGeneratedAwaitFor(Stream<String> extra) async* {
   await for (final value in extra) {
     yield value;
@@ -514,6 +547,47 @@ Stream<String> asyncGeneratedAwaitForStreamContinueBreakFinally(Stream<String> e
     }
   } finally {
     yield 'patched-stream-await-for-stream-continue-break-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForStreamCatch(Stream<String> extra) async* {
+  try {
+    await for (final value in extra) {
+      yield 'patched-stream-await-for-stream-caught-body-$value';
+    }
+  } catch (e) {
+    yield 'patched-stream-await-for-stream-caught-$e';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForStreamCatchFinally(Stream<String> extra) async* {
+  try {
+    try {
+      await for (final value in extra) {
+        yield 'patched-stream-await-for-stream-catch-finally-body-$value';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-stream-catch-finally-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-stream-catch-finally-cleanup';
+  }
+}
+
+Stream<String> asyncGeneratedAwaitForTwoStreamsCatchFinally(Stream<String> first, Stream<String> second) async* {
+  try {
+    try {
+      await for (final left in first) {
+        yield 'patched-stream-await-for-two-streams-left-$left';
+      }
+      await for (final right in second) {
+        yield 'patched-stream-await-for-two-streams-right-$right';
+      }
+    } catch (e) {
+      yield 'patched-stream-await-for-two-streams-caught-$e';
+    }
+  } finally {
+    yield 'patched-stream-await-for-two-streams-catch-finally-cleanup';
   }
 }
 

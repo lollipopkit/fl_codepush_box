@@ -13,12 +13,16 @@ import 'fcb_kernel_unsupported_audit.dart';
 
 part 'fcb_kernel_logical_expr.dart';
 part 'fcb_kernel_async_expr.dart';
+part 'fcb_kernel_async_for_expr.dart';
 part 'fcb_kernel_async_loop_expr.dart';
 part 'fcb_kernel_collection_expr.dart';
+part 'fcb_kernel_collection_append_expr.dart';
 part 'fcb_kernel_generator_expr.dart';
 part 'fcb_kernel_generator_for_expr.dart';
+part 'fcb_kernel_generator_for_in_body_expr.dart';
 part 'fcb_kernel_generator_loop_expr.dart';
 part 'fcb_kernel_generator_stream_expr.dart';
+part 'fcb_kernel_generator_yield_expr.dart';
 part 'fcb_kernel_returning_closure.dart';
 part 'fcb_kernel_statement_expr.dart';
 part 'fcb_kernel_static_invocation_expr.dart';
@@ -289,6 +293,7 @@ Map<String, Object?>? _bytecodeSource(
           : _expr(statement!.expression!, paramsSet, libraryUri)) ??
       _letBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _tryCatchBodySourceExpr(function.body, paramsSet, libraryUri) ??
+      _tryFinallyBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _syncExpressionStatementSequenceExpr(
         function.body,
         paramsSet,
@@ -573,7 +578,13 @@ Map<String, Object?>? _expr(
     };
   }
   if (expression is BlockExpression) {
-    return _blockCollectionExpr(expression, params, libraryUri);
+    return _blockCollectionExpr(
+      expression,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
   }
   if (expression is ListLiteral) {
     final items = <Map<String, Object?>>[];

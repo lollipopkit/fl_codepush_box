@@ -12,8 +12,8 @@ Usage:
 
 Audits the vendor Dart SDK delta boundary for Phase E. FCB implementation and
 test files are allowed; official Dart SDK files are allowed only when they are
-the small registration, generated-offset, or lifecycle-hook surfaces needed to
-wire FCB in.
+the small registration, generated-offset, lifecycle-hook, or guarded FCB VM hook
+surfaces needed to wire FCB in.
 
 Environment:
   FCB_VENDOR_SDK_DIR  Dart SDK checkout. Default: vendor/flutter/engine/src/flutter/third_party/dart
@@ -48,6 +48,21 @@ is_allowed_official_path() {
   return 1
 }
 
+is_allowed_fcb_vm_hook_path() {
+  case "$1" in
+    runtime/vm/compiler/aot/aot_call_specializer.cc) return 0 ;;
+    runtime/vm/compiler/frontend/kernel_to_il.cc) return 0 ;;
+    runtime/vm/compiler/stub_code_compiler_arm64.cc) return 0 ;;
+    runtime/vm/compiler/stub_code_compiler_x64.cc) return 0 ;;
+    runtime/vm/runtime_entry.cc) return 0 ;;
+  esac
+  return 1
+}
+
+has_fcb_delta_marker() {
+  git -C "$SDK_DIR" diff -- "$1" | grep -Eiq 'fcb|Fcb|FCB'
+}
+
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   usage
   exit 0
@@ -73,6 +88,9 @@ while IFS= read -r path; do
     continue
   fi
   if is_allowed_official_path "$path"; then
+    continue
+  fi
+  if is_allowed_fcb_vm_hook_path "$path" && has_fcb_delta_marker "$path"; then
     continue
   fi
   echo "unexpected Dart SDK delta: $path" >&2

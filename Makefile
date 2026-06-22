@@ -1,4 +1,4 @@
-.PHONY: all up down restart status clean build-webui build-server ci-local-core check-workflows check-github-actions-inventory check-phase-h-runbooks check-kernel-compile-fixture-size check-phase-e-host-evidence check-phase-e-completion test-phase-e-completion-gate test-s3-storage test-admin-runtime test-crash-rollback test-kernel-compile test-flutter-package test-vendor-sdk-delta test-vendor-vm-runtime test-desktop-embedder-bridge test-desktop-embedder-full check-macos-metal-toolchain check-android-arm64-device test-android-arm64-acceptance
+.PHONY: all up down restart status clean build-webui build-server ci-local-core check-workflows check-github-actions-inventory check-phase-h-runbooks check-kernel-compile-fixture-size check-phase-e-host-evidence check-phase-e-completion test-phase-e-host-evidence-gate test-phase-e-completion-gate test-s3-storage test-admin-runtime test-crash-rollback test-kernel-compile test-flutter-package test-vendor-sdk-delta test-vendor-vm-runtime test-desktop-embedder-bridge test-desktop-embedder-full check-macos-metal-toolchain check-android-arm64-device test-android-arm64-acceptance
 
 # Default port and database path configuration
 FCB_SERVER_ADDR ?= 127.0.0.1:8080
@@ -63,6 +63,10 @@ check-phase-e-host-evidence:
 check-phase-e-completion:
 	@echo "Checking full Phase E completion evidence..."
 	scripts/check_phase_e_completion.sh
+
+test-phase-e-host-evidence-gate:
+	@echo "Running Phase E host evidence gate regression test..."
+	tests/e2e/test_phase_e_host_evidence_gate.sh
 
 test-phase-e-completion-gate:
 	@echo "Running Phase E completion gate regression test..."

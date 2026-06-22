@@ -185,23 +185,31 @@ write_local_patch_files() {
   FUNCTION_FIELD_NAMES=()
   append_unique_function_id "$FUNCTION_ID" 0 unboxed_int64 Int "$RETURN_VALUE" "$PATCH_CODE_KIND"
   append_unique_function_id "package:fcb_counter_app/pricing_source.dart::$FUNCTION_ID" 0 unboxed_int64 Int "$RETURN_VALUE" "$PATCH_CODE_KIND"
+  append_unique_function_id "_phaseDInitialCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE" "$PATCH_CODE_KIND"
+  append_unique_function_id "package:fcb_counter_app/main.dart::_phaseDInitialCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE" "$PATCH_CODE_KIND"
   if [ "$INCLUDE_ARG_FUNCTION_PATCH" = "1" ]; then
     append_unique_function_id "$ARG_FUNCTION_ID" 1 unboxed_int64 Int "$RETURN_VALUE"
     append_unique_function_id "package:fcb_counter_app/pricing_source.dart::$ARG_FUNCTION_ID" 1 unboxed_int64 Int "$RETURN_VALUE"
+    append_unique_function_id "_phaseDAdjustedCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE"
+    append_unique_function_id "package:fcb_counter_app/main.dart::_phaseDAdjustedCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE"
   fi
   if [ "$INCLUDE_STATIC_METHOD_PATCH" = "1" ]; then
     append_unique_function_id "$STATIC_METHOD_ID" 0 unboxed_int64 Int "$RETURN_VALUE"
     append_unique_function_id "package:fcb_counter_app/pricing_source.dart::$STATIC_METHOD_ID" 0 unboxed_int64 Int "$RETURN_VALUE"
+    append_unique_function_id "_phaseDStaticCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE"
+    append_unique_function_id "package:fcb_counter_app/main.dart::_phaseDStaticCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE"
   fi
   if [ "$INCLUDE_STRING_FUNCTION_PATCH" = "1" ]; then
     append_unique_function_id "$STRING_FUNCTION_ID" 0 tagged String "$STRING_RETURN_VALUE"
     append_unique_function_id "package:fcb_counter_app/pricing_source.dart::$STRING_FUNCTION_ID" 0 tagged String "$STRING_RETURN_VALUE"
+    append_unique_function_id "_phaseDStatusLabel" 0 tagged String "$STRING_RETURN_VALUE"
+    append_unique_function_id "package:fcb_counter_app/main.dart::_phaseDStatusLabel" 0 tagged String "$STRING_RETURN_VALUE"
   fi
   if [ "$INCLUDE_WIDGET_TREE_FUNCTION_PATCH" = "1" ]; then
     append_unique_function_id "$WIDGET_TREE_FUNCTION_ID" 0 tagged String "$WIDGET_TREE_RETURN_VALUE"
     append_unique_function_id "package:fcb_counter_app/pricing_source.dart::$WIDGET_TREE_FUNCTION_ID" 0 tagged String "$WIDGET_TREE_RETURN_VALUE"
-    append_unique_call_static_function_id "_phaseDWidgetTreeLabel" "$WIDGET_TREE_FUNCTION_ID"
-    append_unique_call_static_function_id "package:fcb_counter_app/main.dart::_phaseDWidgetTreeLabel" "$WIDGET_TREE_FUNCTION_ID"
+    append_unique_function_id "_phaseDWidgetTreeLabel" 0 tagged String "$WIDGET_TREE_RETURN_VALUE"
+    append_unique_function_id "package:fcb_counter_app/main.dart::_phaseDWidgetTreeLabel" 0 tagged String "$WIDGET_TREE_RETURN_VALUE"
   fi
   if [ "$INCLUDE_FIELD_FUNCTION_PATCH" = "1" ]; then
     append_unique_get_field_function_id "$FIELD_FUNCTION_ID" "$FIELD_NAME"
@@ -212,6 +220,8 @@ write_local_patch_files() {
   if [ "$INCLUDE_QUAD_FUNCTION_PATCH" = "1" ]; then
     append_unique_function_id "$QUAD_FUNCTION_ID" 4 unboxed_int64 Int "$RETURN_VALUE"
     append_unique_function_id "package:fcb_counter_app/pricing_source.dart::$QUAD_FUNCTION_ID" 4 unboxed_int64 Int "$RETURN_VALUE"
+    append_unique_function_id "_phaseDQuadCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE"
+    append_unique_function_id "package:fcb_counter_app/main.dart::_phaseDQuadCounterValue" 0 unboxed_int64 Int "$RETURN_VALUE"
   fi
   if [ -n "$FUNCTION_ID_VARIANTS" ]; then
     local variant
@@ -287,11 +297,11 @@ install_patch() {
   adb_cmd wait-for-device
 
   local owner
-  owner="$(device_owner)"
+  owner="$(device_owner || true)"
   if [ -z "$owner" ] && [ "${FCB_ADB_ROOT_FOR_PATCH:-1}" = "1" ]; then
     adb_cmd root >/dev/null 2>&1 || true
     adb_cmd wait-for-device
-    owner="$(device_owner)"
+    owner="$(device_owner || true)"
   fi
   [ -n "$owner" ] || die "cannot determine owner for /data/user/0/$PKG; is the app installed?"
 

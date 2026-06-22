@@ -4,6 +4,8 @@ Map<String, Object?>? _blockCollectionExpr(
   BlockExpression expression,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
   if (expression.body.statements.isEmpty || expression.value is! VariableGet) {
     return null;
@@ -11,20 +13,27 @@ Map<String, Object?>? _blockCollectionExpr(
   final first = expression.body.statements.first;
   if (first is! VariableDeclaration || first.initializer == null) return null;
   if ((expression.value as VariableGet).variable != first) return null;
-  final seed = _expr(first.initializer!, params, libraryUri);
+  final seed = _expr(first.initializer!, params, libraryUri, locals, closures);
   final list = seed?['list'];
   final map = seed?['map'];
   if (list is List) {
     Map<String, Object?> expr = {'list': list.cast<Map<String, Object?>>()};
     for (final statement in expression.body.statements.skip(1)) {
       if (statement is IfStatement && statement.condition is! BoolLiteral) {
-        final condition = _expr(statement.condition, params, libraryUri);
+        final condition = _asyncConditionExpr(
+          statement.condition,
+          params,
+          libraryUri,
+          locals,
+        );
         final thenExpr = _appendListExpr(
           expr,
           statement.then,
           first,
           params,
           libraryUri,
+          locals,
+          closures,
         );
         final elseExpr = statement.otherwise == null
             ? expr
@@ -34,6 +43,8 @@ Map<String, Object?>? _blockCollectionExpr(
                 first,
                 params,
                 libraryUri,
+                locals,
+                closures,
               );
         if (condition == null || thenExpr == null || elseExpr == null) {
           return null;
@@ -52,6 +63,8 @@ Map<String, Object?>? _blockCollectionExpr(
           first,
           params,
           libraryUri,
+          locals,
+          closures,
         );
         if (next == null) return null;
         expr = next;
@@ -63,13 +76,20 @@ Map<String, Object?>? _blockCollectionExpr(
     Map<String, Object?> expr = {'map': map.cast<Map<String, Object?>>()};
     for (final statement in expression.body.statements.skip(1)) {
       if (statement is IfStatement && statement.condition is! BoolLiteral) {
-        final condition = _expr(statement.condition, params, libraryUri);
+        final condition = _asyncConditionExpr(
+          statement.condition,
+          params,
+          libraryUri,
+          locals,
+        );
         final thenExpr = _appendMapExpr(
           expr,
           statement.then,
           first,
           params,
           libraryUri,
+          locals,
+          closures,
         );
         final elseExpr = statement.otherwise == null
             ? expr
@@ -79,6 +99,8 @@ Map<String, Object?>? _blockCollectionExpr(
                 first,
                 params,
                 libraryUri,
+                locals,
+                closures,
               );
         if (condition == null || thenExpr == null || elseExpr == null) {
           return null;
@@ -91,7 +113,15 @@ Map<String, Object?>? _blockCollectionExpr(
           },
         };
       } else {
-        final next = _appendMapExpr(expr, statement, first, params, libraryUri);
+        final next = _appendMapExpr(
+          expr,
+          statement,
+          first,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
         if (next == null) return null;
         expr = next;
       }
@@ -101,215 +131,14 @@ Map<String, Object?>? _blockCollectionExpr(
   return null;
 }
 
-Map<String, Object?>? _appendListExpr(
-  Map<String, Object?> expr,
-  Statement statement,
-  VariableDeclaration variable,
-  Set<String> params,
-  String libraryUri,
-) {
-  final list = expr['list'];
-  final conditional = expr['conditional'];
-  if (list is List) {
-    final items = [...list.cast<Map<String, Object?>>()];
-    final spread = _dynamicListSpread(statement, variable, params, libraryUri);
-    if (spread != null) {
-      return {
-        'list_add_all': {
-          'receiver': {'list': items},
-          'spread': spread,
-        },
-      };
-    }
-    final runtimeFor = _runtimeListForExpr(
-      statement,
-      variable,
-      {'list': items},
-      params,
-      libraryUri,
-    );
-    if (runtimeFor != null) return runtimeFor;
-    return _applyListStatement(statement, variable, items, params, libraryUri)
-        ? {'list': items}
-        : null;
-  }
-  if (conditional is Map) {
-    final spec = conditional.cast<String, Object?>();
-    final thenExpr = spec['then'];
-    final elseExpr = spec['else'];
-    if (thenExpr is! Map || elseExpr is! Map) return null;
-    final thenAppended = _appendListExpr(
-      thenExpr.cast<String, Object?>(),
-      statement,
-      variable,
-      params,
-      libraryUri,
-    );
-    final elseAppended = _appendListExpr(
-      elseExpr.cast<String, Object?>(),
-      statement,
-      variable,
-      params,
-      libraryUri,
-    );
-    if (thenAppended == null || elseAppended == null) return null;
-    return {
-      'conditional': {
-        'condition': spec['condition'],
-        'then': thenAppended,
-        'else': elseAppended,
-      },
-    };
-  }
-  return null;
-}
-
-Map<String, Object?>? _appendMapExpr(
-  Map<String, Object?> expr,
-  Statement statement,
-  VariableDeclaration variable,
-  Set<String> params,
-  String libraryUri,
-) {
-  final map = expr['map'];
-  final conditional = expr['conditional'];
-  if (map is List) {
-    final entries = [...map.cast<Map<String, Object?>>()];
-    final spread = _dynamicMapSpread(statement, variable, params, libraryUri);
-    if (spread != null) {
-      return {
-        'map_add_all': {
-          'receiver': {'map': entries},
-          'spread': spread,
-        },
-      };
-    }
-    final runtimeFor = _runtimeMapForExpr(
-      statement,
-      variable,
-      {'map': entries},
-      params,
-      libraryUri,
-    );
-    if (runtimeFor != null) return runtimeFor;
-    return _applyMapStatement(statement, variable, entries, params, libraryUri)
-        ? {'map': entries}
-        : null;
-  }
-  if (conditional is Map) {
-    final spec = conditional.cast<String, Object?>();
-    final thenExpr = spec['then'];
-    final elseExpr = spec['else'];
-    if (thenExpr is! Map || elseExpr is! Map) return null;
-    final thenAppended = _appendMapExpr(
-      thenExpr.cast<String, Object?>(),
-      statement,
-      variable,
-      params,
-      libraryUri,
-    );
-    final elseAppended = _appendMapExpr(
-      elseExpr.cast<String, Object?>(),
-      statement,
-      variable,
-      params,
-      libraryUri,
-    );
-    if (thenAppended == null || elseAppended == null) return null;
-    return {
-      'conditional': {
-        'condition': spec['condition'],
-        'then': thenAppended,
-        'else': elseAppended,
-      },
-    };
-  }
-  return null;
-}
-
-Map<String, Object?>? _dynamicListSpread(
-  Statement statement,
-  VariableDeclaration variable,
-  Set<String> params,
-  String libraryUri,
-) {
-  if (statement is! ExpressionStatement) return null;
-  final expression = statement.expression;
-  if (!_isCollectionCall(expression, variable, 'addAll', 1)) return null;
-  final call = expression as InstanceInvocationExpression;
-  final spread = _expr(call.arguments.positional.single, params, libraryUri);
-  if (spread == null || spread['list'] is List) return null;
-  return spread;
-}
-
-Map<String, Object?>? _dynamicMapSpread(
-  Statement statement,
-  VariableDeclaration variable,
-  Set<String> params,
-  String libraryUri,
-) {
-  if (statement is! ExpressionStatement) return null;
-  final expression = statement.expression;
-  if (!_isCollectionCall(expression, variable, 'addAll', 1)) return null;
-  final call = expression as InstanceInvocationExpression;
-  final spread = _expr(call.arguments.positional.single, params, libraryUri);
-  if (spread == null || spread['map'] is List) return null;
-  return spread;
-}
-
-Map<String, Object?>? _runtimeListForExpr(
-  Statement statement,
-  VariableDeclaration variable,
-  Map<String, Object?> receiver,
-  Set<String> params,
-  String libraryUri,
-) {
-  final parsed = _runtimeCollectionFor(statement, params, libraryUri);
-  if (parsed == null || parsed.kind != _RuntimeCollectionForKind.list) {
-    return null;
-  }
-  final addExpression = parsed.addExpression;
-  if (!_isCollectionCall(addExpression, variable, 'add', 1)) return null;
-  final call = addExpression as InstanceInvocationExpression;
-  if (!_isVariableGet(call.arguments.positional.single, parsed.loopVariable)) {
-    return null;
-  }
-  return {
-    'list_for_in': {'receiver': receiver, 'source': parsed.source},
-  };
-}
-
-Map<String, Object?>? _runtimeMapForExpr(
-  Statement statement,
-  VariableDeclaration variable,
-  Map<String, Object?> receiver,
-  Set<String> params,
-  String libraryUri,
-) {
-  final parsed = _runtimeCollectionFor(statement, params, libraryUri);
-  if (parsed == null || parsed.kind != _RuntimeCollectionForKind.map) {
-    return null;
-  }
-  final addExpression = parsed.addExpression;
-  if (!_isCollectionCall(addExpression, variable, '[]=', 2)) return null;
-  final call = addExpression as InstanceInvocationExpression;
-  final key = call.arguments.positional[0];
-  final value = call.arguments.positional[1];
-  if (!_isVariableFieldGet(key, parsed.loopVariable, 'key') ||
-      !_isVariableFieldGet(value, parsed.loopVariable, 'value')) {
-    return null;
-  }
-  return {
-    'map_for_in': {'receiver': receiver, 'source': parsed.source},
-  };
-}
-
 bool _applyListStatement(
   Statement statement,
   VariableDeclaration variable,
   List<Map<String, Object?>> items,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
   if (_applyStaticListForStatement(
     statement,
@@ -317,6 +146,8 @@ bool _applyListStatement(
     items,
     params,
     libraryUri,
+    locals,
+    closures,
   )) {
     return true;
   }
@@ -325,13 +156,27 @@ bool _applyListStatement(
     if (condition is! BoolLiteral) return false;
     final selected = condition.value ? statement.then : statement.otherwise;
     return selected == null ||
-        _applyListStatement(selected, variable, items, params, libraryUri);
+        _applyListStatement(
+          selected,
+          variable,
+          items,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
   }
   if (statement is! ExpressionStatement) return false;
   final expression = statement.expression;
   if (_isCollectionCall(expression, variable, 'addAll', 1)) {
     final call = expression as InstanceInvocationExpression;
-    final spread = _expr(call.arguments.positional.single, params, libraryUri);
+    final spread = _expr(
+      call.arguments.positional.single,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
     final list = spread?['list'];
     if (list is! List) return false;
     items.addAll(list.cast<Map<String, Object?>>());
@@ -339,7 +184,13 @@ bool _applyListStatement(
   }
   if (!_isCollectionCall(expression, variable, 'add', 1)) return false;
   final call = expression as InstanceInvocationExpression;
-  final item = _expr(call.arguments.positional.single, params, libraryUri);
+  final item = _expr(
+    call.arguments.positional.single,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
   if (item == null) return false;
   items.add(item);
   return true;
@@ -351,6 +202,8 @@ bool _applyMapStatement(
   List<Map<String, Object?>> entries,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
   if (_applyStaticMapForStatement(
     statement,
@@ -358,6 +211,8 @@ bool _applyMapStatement(
     entries,
     params,
     libraryUri,
+    locals,
+    closures,
   )) {
     return true;
   }
@@ -366,13 +221,27 @@ bool _applyMapStatement(
     if (condition is! BoolLiteral) return false;
     final selected = condition.value ? statement.then : statement.otherwise;
     return selected == null ||
-        _applyMapStatement(selected, variable, entries, params, libraryUri);
+        _applyMapStatement(
+          selected,
+          variable,
+          entries,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
   }
   if (statement is! ExpressionStatement) return false;
   final expression = statement.expression;
   if (_isCollectionCall(expression, variable, 'addAll', 1)) {
     final call = expression as InstanceInvocationExpression;
-    final spread = _expr(call.arguments.positional.single, params, libraryUri);
+    final spread = _expr(
+      call.arguments.positional.single,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
     final map = spread?['map'];
     if (map is! List) return false;
     entries.addAll(map.cast<Map<String, Object?>>());
@@ -380,8 +249,20 @@ bool _applyMapStatement(
   }
   if (!_isCollectionCall(expression, variable, '[]=', 2)) return false;
   final call = expression as InstanceInvocationExpression;
-  final key = _expr(call.arguments.positional[0], params, libraryUri);
-  final value = _expr(call.arguments.positional[1], params, libraryUri);
+  final key = _expr(
+    call.arguments.positional[0],
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
+  final value = _expr(
+    call.arguments.positional[1],
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
   if (key == null || value == null) return false;
   entries.add({'key': key, 'value': value});
   return true;
@@ -393,8 +274,16 @@ bool _applyStaticListForStatement(
   List<Map<String, Object?>> items,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
-  final parsed = _staticCollectionFor(statement, params, libraryUri);
+  final parsed = _staticCollectionFor(
+    statement,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
   if (parsed == null || parsed.items == null) return false;
   final addExpression = parsed.addExpression;
   if (!_isCollectionCall(addExpression, variable, 'add', 1)) return false;
@@ -412,8 +301,16 @@ bool _applyStaticMapForStatement(
   List<Map<String, Object?>> entries,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
-  final parsed = _staticCollectionFor(statement, params, libraryUri);
+  final parsed = _staticCollectionFor(
+    statement,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
   if (parsed == null || parsed.entries == null) return false;
   final addExpression = parsed.addExpression;
   if (!_isCollectionCall(addExpression, variable, '[]=', 2)) return false;
@@ -432,6 +329,8 @@ _StaticCollectionFor? _staticCollectionFor(
   Statement statement,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
   if (statement is! Block || statement.statements.length != 2) return null;
   final iterator = statement.statements[0];
@@ -442,6 +341,8 @@ _StaticCollectionFor? _staticCollectionFor(
     iterator.initializer!,
     params,
     libraryUri,
+    locals,
+    closures,
   );
   if (source == null) return null;
   final loop = statement.statements[1];
@@ -474,6 +375,8 @@ _StaticIteratorSource? _staticIteratorSource(
   Expression expression,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
   if (_propertyName(expression) != 'iterator') return null;
   final receiver = _propertyReceiver(expression);
@@ -481,13 +384,19 @@ _StaticIteratorSource? _staticIteratorSource(
   if (_propertyName(receiver) == 'entries') {
     final mapReceiver = _propertyReceiver(receiver);
     if (mapReceiver == null) return null;
-    final map = _expr(mapReceiver, params, libraryUri)?['map'];
+    final map = _expr(
+      mapReceiver,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    )?['map'];
     if (map is List) {
       return _StaticIteratorSource(entries: map.cast<Map<String, Object?>>());
     }
     return null;
   }
-  final list = _expr(receiver, params, libraryUri)?['list'];
+  final list = _expr(receiver, params, libraryUri, locals, closures)?['list'];
   if (list is List) {
     return _StaticIteratorSource(items: list.cast<Map<String, Object?>>());
   }
@@ -498,6 +407,8 @@ _RuntimeCollectionFor? _runtimeCollectionFor(
   Statement statement,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
   if (statement is! Block || statement.statements.length != 2) return null;
   final iterator = statement.statements[0];
@@ -508,6 +419,8 @@ _RuntimeCollectionFor? _runtimeCollectionFor(
     iterator.initializer!,
     params,
     libraryUri,
+    locals,
+    closures,
   );
   if (source == null) return null;
   final loop = statement.statements[1];
@@ -540,6 +453,8 @@ _RuntimeIteratorSource? _runtimeIteratorSource(
   Expression expression,
   Set<String> params,
   String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
 ) {
   if (_propertyName(expression) != 'iterator') return null;
   final receiver = _propertyReceiver(expression);
@@ -547,7 +462,7 @@ _RuntimeIteratorSource? _runtimeIteratorSource(
   if (_propertyName(receiver) == 'entries') {
     final mapReceiver = _propertyReceiver(receiver);
     if (mapReceiver == null) return null;
-    final map = _expr(mapReceiver, params, libraryUri);
+    final map = _expr(mapReceiver, params, libraryUri, locals, closures);
     if (map == null || map['map'] is List) return null;
     return _RuntimeIteratorSource(
       kind: _RuntimeCollectionForKind.map,
@@ -556,7 +471,7 @@ _RuntimeIteratorSource? _runtimeIteratorSource(
       },
     );
   }
-  final source = _expr(receiver, params, libraryUri);
+  final source = _expr(receiver, params, libraryUri, locals, closures);
   if (source == null || source['list'] is List) return null;
   return _RuntimeIteratorSource(
     kind: _RuntimeCollectionForKind.list,

@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SDK_DIR="${FCB_VENDOR_SDK_DIR:-$ROOT_DIR/vendor/flutter/engine/src/flutter/third_party/dart}"
-OUT_DIR="${FCB_VENDOR_VM_TEST_DIR:-$ROOT_DIR/target/fcb/vendor-vm-test}"
+DEFAULT_OUT_DIR="$ROOT_DIR/target/fcb/vendor-vm-test"
+OUT_DIR="${FCB_VENDOR_VM_TEST_DIR:-$DEFAULT_OUT_DIR}"
 CXX_BIN="${CXX:-clang++}"
 SDK_DELTA_AUDIT="${FCB_VENDOR_SDK_DELTA_AUDIT:-$ROOT_DIR/scripts/audit_vendor_dart_sdk_delta.sh}"
 DEBUG_RUN_VM_TESTS="${FCB_VENDOR_VM_DEBUG_RUNNER:-$ROOT_DIR/vendor/flutter/engine/src/out/host_debug_unopt_arm64/run_vm_tests}"
@@ -15,62 +16,7 @@ VPYTHON_ROOT="${VPYTHON_VIRTUALENV_ROOT:-$ROOT_DIR/target/fcb/vpython-root}"
 RUN_VM_TEST_LOG_DIR="$OUT_DIR/run-vm-tests"
 RUN_VM_TEST_REBUILD_LOG_DIR="$OUT_DIR/rebuild-run-vm-tests"
 
-COMMON_VM_TEST_FILTERS=(
-  FcbPatchRuntimeMapCrossesDynamicCallBoundary
-  FcbPatchRuntimeListMaterializesAsDartArray
-  FcbPatchRuntimeNewObjectFutureValue
-  FcbPatchRuntimeAwaitCompletedFutureValue
-  FcbPatchRuntimeAwaitCompletedFutureErrorCaught
-  FcbPatchRuntimeAwaitChainedCompletedFutureValue
-  FcbPatchRuntimeAwaitPendingFutureSuspendsAndResumes
-  FcbPatchRuntimeDisablePatchDrainsSuspendedAwait
-  FcbPatchRuntimeResumePatchErrorMarksBadPatch
-  FcbPatchRuntimeResumeErrorCompletesWithoutBadPatch
-  FcbPatchRuntimeClearDrainsSuspendedAwait
-  FcbPatchRuntimeAwaitPendingFutureDrainsMicrotask
-  FcbPatchRuntimeAwaitTwoPendingFuturesDrainsMicrotasks
-  FcbPatchRuntimeAwaitPendingErrorCaughtFromMicrotask
-  FcbPatchRuntimeAwaitPendingErrorCompletesFutureError
-  FcbPatchRuntimeAwaitPendingFutureRunsFinally
-  FcbPatchRuntimeAwaitPendingErrorRunsFinally
-  FcbPatchRuntimeAsyncReturnCompletedFutureValue
-  FcbPatchRuntimeAsyncReturnAdoptsFutureValue
-  FcbPatchRuntimeAsyncReturnCompletedFutureNull
-  FcbPatchRuntimeSyncStarYieldsValues
-  FcbPatchRuntimeSyncStarReiterates
-  FcbPatchRuntimeSyncStarAbandonedIterableFinalizer
-  FcbPatchRuntimeSyncStarAbandonedIteratorFinalizer
-  FcbPatchRuntimeClearDrainsSyncGenerators
-  FcbPatchRuntimeAsyncStarReturnsStream
-  FcbPatchRuntimeAsyncStarPendingAwaitResumes
-  FcbPatchRuntimeAsyncStarPendingAwaitErrorAddsStreamError
-  FcbPatchRuntimeAsyncStarBackpressureResumes
-  FcbPatchRuntimeAsyncStarCancelRunsFinally
-  FcbPatchRuntimeAsyncStarSourceModuleStreamListen
-  FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor
-  FcbPatchRuntimeBusinessStreamSourceE2e
-  FcbPatchRuntimeAsyncStarPendingAwaitSurvivesGc
-  FcbPatchRuntimeTryCatchesCallDynamicException
-  FcbPatchRuntimeTryCatchesCallOriginalException
-  FcbPatchRuntimeTryCatchesNewObjectException
-  FcbPatchRuntimeTryCatchesCallClosureException
-  FcbPatchRuntimeTryCatchesMakeClosureMissingTarget
-  FcbPatchRuntimeTryCatchesAsTypeMismatch
-  FcbPatchRuntimeTypeEnvironmentListT
-  FcbPatchRuntimeGcStress
-)
-
-DEBUG_VM_TEST_FILTERS=(
-  FcbPatchDebuggerCollectsActiveInterpreterFrame
-  FcbPatchDebuggerCollectsAsyncResumeFrame
-  FcbPatchDebuggerCollectsAsyncStarResumeFrame
-  FcbPatchDebuggerAsyncStarErrorHasSourceStackFrame
-  FcbPatchDebuggerExposesActiveHandlerMetadata
-  FcbPatchDebuggerDoesNotTreatFinallyAsCatchHandler
-  FcbPatchDebuggerFrameEvaluationUsesSourceLibrary
-  FcbPatchDebuggerCollectsMaterializedClosureActiveFrame
-  FcbPatchDebuggerSourceBreakpointAndStepPause
-)
+. "$ROOT_DIR/scripts/fcb_vm_test_filters.sh"
 
 usage() {
   cat <<USAGE
@@ -87,6 +33,9 @@ Environment:
   FCB_VENDOR_VM_DEBUG_RUNNER    Debug run_vm_tests binary.
   FCB_VENDOR_VM_RELEASE_RUNNER  Release run_vm_tests binary.
   FCB_VENDOR_VM_REBUILD_RUNNERS Rebuild run_vm_tests before running filters. Default: 1.
+                              When set to 0, FCB_VENDOR_VM_TEST_DIR must point
+                              at a non-default scratch directory so canonical
+                              Phase E evidence cannot be downgraded.
   FCB_VENDOR_NINJA              ninja binary. Default: vendor/depot_tools/ninja.
   FCB_VENDOR_DEPOT_TOOLS_DIR    depot_tools dir prepended to PATH for ninja actions.
   VPYTHON_VIRTUALENV_ROOT       vpython cache root. Default: target/fcb/vpython-root.
@@ -99,9 +48,31 @@ die() {
   exit 1
 }
 
+canonical_path() {
+  local path="$1"
+  local dir
+  local base
+  if [ -d "$path" ]; then
+    (cd "$path" && pwd -P)
+    return
+  fi
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+  if [ -d "$dir" ]; then
+    (cd "$dir" && printf '%s/%s\n' "$(pwd -P)" "$base")
+    return
+  fi
+  printf '%s\n' "$path"
+}
+
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   usage
   exit 0
+fi
+
+if [ "$FCB_VENDOR_VM_REBUILD_RUNNERS" = "0" ] &&
+   [ "$(canonical_path "$OUT_DIR")" = "$(canonical_path "$DEFAULT_OUT_DIR")" ]; then
+  die "refusing no-rebuild VM validation in canonical evidence dir; set FCB_VENDOR_VM_TEST_DIR to a scratch path"
 fi
 
 [ -d "$SDK_DIR" ] || die "missing Dart SDK checkout: $SDK_DIR"

@@ -1,30 +1,329 @@
+from assert_module_callback_calls import assert_callback_calls
+from assert_module_collection_calls import assert_collection_calls
+from assert_module_object_calls import assert_object_calls
+
+
+def assert_constant(function, type_name, value):
+    assert any(
+        constant.get("type") == type_name and constant.get("value") == value
+        for constant in function["constants"]
+    ), function
+
+
+def assert_string_constant(function, value):
+    assert_constant(function, "String", value)
+
+
+def assert_int_constant(function, value):
+    assert_constant(function, "Int", value)
+
+
+def assert_bool_constant(function, value):
+    assert_constant(function, "Bool", value)
+
+
+def assert_null_constant(function):
+    assert_constant(function, "Null", None)
+
+
 def assert_core_calls(module):
     label = next(item for item in module["functions"] if item["name"].endswith("::label"))
     assert label["param_count"] == 1, label
     assert 0x42 in label["code"], label
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "hello "
-        for constant in label["constants"]
-    ), label
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "!"
-        for constant in label["constants"]
-    ), label
+    assert_string_constant(label, "hello ")
+    assert_string_constant(label, "!")
+    sync_try_finally = next(item for item in module["functions"] if item["name"].endswith("::syncTryFinallyTail"))
+    assert sync_try_finally["async_kind"] == "sync", sync_try_finally
+    assert sync_try_finally["param_count"] == 1, sync_try_finally
+    assert 0x65 in sync_try_finally["code"], sync_try_finally
+    assert 0x66 in sync_try_finally["code"], sync_try_finally
+    assert sync_try_finally["code"].count(0x04) >= 2, sync_try_finally
+    assert sync_try_finally["code"].count(0x05) >= 2, sync_try_finally
+    assert 0x42 in sync_try_finally["code"], sync_try_finally
+    assert 0x03 in sync_try_finally["code"], sync_try_finally
+    assert {"slot": 0, "name": "name"} in sync_try_finally.get("debug_locals", []), sync_try_finally
+    assert any(entry.get("name") == "out" for entry in sync_try_finally.get("debug_locals", [])), sync_try_finally
+    assert_string_constant(sync_try_finally, "patched-sync-finally")
+    assert_string_constant(sync_try_finally, "-body-")
+    assert_string_constant(sync_try_finally, "-cleanup")
+    sync_try_catch = next(item for item in module["functions"] if item["name"].endswith("::syncTryCatchTail"))
+    assert sync_try_catch["async_kind"] == "sync", sync_try_catch
+    assert sync_try_catch["param_count"] == 1, sync_try_catch
+    assert 0x61 in sync_try_catch["code"], sync_try_catch
+    assert sync_try_catch["code"].count(0x04) >= 2, sync_try_catch
+    assert sync_try_catch["code"].count(0x03) >= 2, sync_try_catch
+    assert 0x42 in sync_try_catch["code"], sync_try_catch
+    assert 0x05 in sync_try_catch["code"], sync_try_catch
+    assert {"slot": 0, "name": "name"} in sync_try_catch.get("debug_locals", []), sync_try_catch
+    assert any(entry.get("name") == "out" for entry in sync_try_catch.get("debug_locals", [])), sync_try_catch
+    assert_string_constant(sync_try_catch, "patched-sync-catch")
+    assert_string_constant(sync_try_catch, "-ok-")
+    assert_string_constant(sync_try_catch, "-caught-")
+    sync_try_catch_local_statement = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryCatchLocalStatementTail")
+    )
+    assert sync_try_catch_local_statement["async_kind"] == "sync", sync_try_catch_local_statement
+    assert sync_try_catch_local_statement["param_count"] == 1, sync_try_catch_local_statement
+    assert 0x61 in sync_try_catch_local_statement["code"], sync_try_catch_local_statement
+    assert sync_try_catch_local_statement["code"].count(0x04) >= 2, sync_try_catch_local_statement
+    assert sync_try_catch_local_statement["code"].count(0x03) >= 2, sync_try_catch_local_statement
+    assert 0x42 in sync_try_catch_local_statement["code"], sync_try_catch_local_statement
+    sync_try_catch_local_statement_names = {
+        entry.get("name") for entry in sync_try_catch_local_statement.get("debug_locals", [])
+    }
+    assert {"name", "out", "message"}.issubset(
+        sync_try_catch_local_statement_names,
+    ), sync_try_catch_local_statement
+    assert_string_constant(sync_try_catch_local_statement, "patched-sync-catch-local-statement")
+    assert_string_constant(sync_try_catch_local_statement, "patched-sync-catch-local-message-")
+    sync_try_catch_body_local = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryCatchBodyLocalStatementTail")
+    )
+    assert sync_try_catch_body_local["async_kind"] == "sync", sync_try_catch_body_local
+    assert sync_try_catch_body_local["param_count"] == 1, sync_try_catch_body_local
+    assert 0x61 in sync_try_catch_body_local["code"], sync_try_catch_body_local
+    assert sync_try_catch_body_local["code"].count(0x04) >= 2, sync_try_catch_body_local
+    assert sync_try_catch_body_local["code"].count(0x03) >= 2, sync_try_catch_body_local
+    assert 0x42 in sync_try_catch_body_local["code"], sync_try_catch_body_local
+    sync_try_catch_body_local_names = {
+        entry.get("name") for entry in sync_try_catch_body_local.get("debug_locals", [])
+    }
+    assert {"name", "out", "message"}.issubset(sync_try_catch_body_local_names), sync_try_catch_body_local
+    assert_string_constant(sync_try_catch_body_local, "patched-sync-catch-body-local-statement")
+    assert_string_constant(sync_try_catch_body_local, "patched-sync-catch-body-local-message-")
+    assert_string_constant(sync_try_catch_body_local, "patched-sync-catch-body-local-caught-")
+    sync_try_catch_return = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryCatchReturnValue")
+    )
+    assert sync_try_catch_return["async_kind"] == "sync", sync_try_catch_return
+    assert sync_try_catch_return["param_count"] == 1, sync_try_catch_return
+    assert 0x61 in sync_try_catch_return["code"], sync_try_catch_return
+    assert 0x42 in sync_try_catch_return["code"], sync_try_catch_return
+    assert 0x03 in sync_try_catch_return["code"], sync_try_catch_return
+    assert {"slot": 0, "name": "name"} in sync_try_catch_return.get(
+        "debug_locals",
+        [],
+    ), sync_try_catch_return
+    assert_string_constant(sync_try_catch_return, "patched-catch-return-")
+    assert_string_constant(sync_try_catch_return, "patched-caught-return-")
+    sync_try_catch_local_return = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryCatchLocalReturnValue")
+    )
+    assert sync_try_catch_local_return["async_kind"] == "sync", sync_try_catch_local_return
+    assert sync_try_catch_local_return["param_count"] == 1, sync_try_catch_local_return
+    assert 0x61 in sync_try_catch_local_return["code"], sync_try_catch_local_return
+    assert sync_try_catch_local_return["code"].count(0x04) >= 1, sync_try_catch_local_return
+    assert sync_try_catch_local_return["code"].count(0x03) >= 2, sync_try_catch_local_return
+    assert 0x42 in sync_try_catch_local_return["code"], sync_try_catch_local_return
+    sync_try_catch_local_return_names = {
+        entry.get("name") for entry in sync_try_catch_local_return.get("debug_locals", [])
+    }
+    assert {"name", "message"}.issubset(sync_try_catch_local_return_names), sync_try_catch_local_return
+    assert_string_constant(sync_try_catch_local_return, "patched-catch-local-return-")
+    assert_string_constant(sync_try_catch_local_return, "patched-catch-local-caught-")
+    sync_try_catch_finally_return = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryCatchFinallyReturnValue")
+    )
+    assert sync_try_catch_finally_return["async_kind"] == "sync", sync_try_catch_finally_return
+    assert sync_try_catch_finally_return["param_count"] == 1, sync_try_catch_finally_return
+    assert 0x65 in sync_try_catch_finally_return["code"], sync_try_catch_finally_return
+    assert 0x66 in sync_try_catch_finally_return["code"], sync_try_catch_finally_return
+    assert 0x61 in sync_try_catch_finally_return["code"], sync_try_catch_finally_return
+    assert 0x04 in sync_try_catch_finally_return["code"], sync_try_catch_finally_return
+    assert 0x03 in sync_try_catch_finally_return["code"], sync_try_catch_finally_return
+    assert 0x42 in sync_try_catch_finally_return["code"], sync_try_catch_finally_return
+    assert 0x50 in sync_try_catch_finally_return["code"], sync_try_catch_finally_return
+    assert {"slot": 0, "name": "name"} in sync_try_catch_finally_return.get(
+        "debug_locals",
+        [],
+    ), sync_try_catch_finally_return
+    assert_string_constant(sync_try_catch_finally_return, "patched-catch-finally-return-")
+    assert_string_constant(sync_try_catch_finally_return, "patched-catch-finally-caught-")
+    assert_string_constant(sync_try_catch_finally_return, "patched-catch-finally-cleanup-")
+    sync_try_catch_statement = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryCatchStatementTail")
+    )
+    assert sync_try_catch_statement["async_kind"] == "sync", sync_try_catch_statement
+    assert sync_try_catch_statement["param_count"] == 1, sync_try_catch_statement
+    assert 0x61 in sync_try_catch_statement["code"], sync_try_catch_statement
+    assert sync_try_catch_statement["code"].count(0x50) == 2, sync_try_catch_statement
+    assert 0x42 in sync_try_catch_statement["code"], sync_try_catch_statement
+    assert 0x05 in sync_try_catch_statement["code"], sync_try_catch_statement
+    assert {"slot": 0, "name": "name"} in sync_try_catch_statement.get("debug_locals", []), sync_try_catch_statement
+    assert_string_constant(
+        sync_try_catch_statement,
+        "package:fcb_kernel_compile_test/main.dart::label",
+    )
+    assert_string_constant(sync_try_catch_statement, "patched-sync-catch-statement-")
+    sync_try_catch_void = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryCatchStatementVoid")
+    )
+    assert sync_try_catch_void["async_kind"] == "sync", sync_try_catch_void
+    assert sync_try_catch_void["param_count"] == 1, sync_try_catch_void
+    assert 0x61 in sync_try_catch_void["code"], sync_try_catch_void
+    assert sync_try_catch_void["code"].count(0x50) == 2, sync_try_catch_void
+    assert 0x42 in sync_try_catch_void["code"], sync_try_catch_void
+    assert 0x05 in sync_try_catch_void["code"], sync_try_catch_void
+    assert {"slot": 0, "name": "name"} in sync_try_catch_void.get("debug_locals", []), sync_try_catch_void
+    assert_string_constant(
+        sync_try_catch_void,
+        "package:fcb_kernel_compile_test/main.dart::label",
+    )
+    assert_string_constant(sync_try_catch_void, "patched-catch-void-")
+    assert_null_constant(sync_try_catch_void)
+    sync_try_finally_statement = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryFinallyStatementTail")
+    )
+    assert sync_try_finally_statement["async_kind"] == "sync", sync_try_finally_statement
+    assert sync_try_finally_statement["param_count"] == 1, sync_try_finally_statement
+    assert 0x65 in sync_try_finally_statement["code"], sync_try_finally_statement
+    assert 0x66 in sync_try_finally_statement["code"], sync_try_finally_statement
+    assert sync_try_finally_statement["code"].count(0x50) == 2, sync_try_finally_statement
+    assert 0x42 in sync_try_finally_statement["code"], sync_try_finally_statement
+    assert sync_try_finally_statement["code"].count(0x05) >= 2, sync_try_finally_statement
+    assert {"slot": 0, "name": "name"} in sync_try_finally_statement.get(
+        "debug_locals",
+        [],
+    ), sync_try_finally_statement
+    assert_string_constant(
+        sync_try_finally_statement,
+        "package:fcb_kernel_compile_test/main.dart::label",
+    )
+    assert_string_constant(sync_try_finally_statement, "patched-cleanup-")
+    assert_string_constant(sync_try_finally_statement, "patched-sync-finally-statement-")
+    sync_try_finally_local_statement = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryFinallyLocalStatementTail")
+    )
+    assert sync_try_finally_local_statement["async_kind"] == "sync", sync_try_finally_local_statement
+    assert sync_try_finally_local_statement["param_count"] == 1, sync_try_finally_local_statement
+    assert 0x65 in sync_try_finally_local_statement["code"], sync_try_finally_local_statement
+    assert 0x66 in sync_try_finally_local_statement["code"], sync_try_finally_local_statement
+    assert sync_try_finally_local_statement["code"].count(0x50) == 2, sync_try_finally_local_statement
+    assert 0x04 in sync_try_finally_local_statement["code"], sync_try_finally_local_statement
+    assert 0x03 in sync_try_finally_local_statement["code"], sync_try_finally_local_statement
+    sync_try_finally_local_names = {
+        entry.get("name") for entry in sync_try_finally_local_statement.get("debug_locals", [])
+    }
+    assert {"name", "cleanup"}.issubset(sync_try_finally_local_names), sync_try_finally_local_statement
+    assert_string_constant(sync_try_finally_local_statement, "patched-cleanup-local-")
+    assert_string_constant(sync_try_finally_local_statement, "patched-sync-finally-local-statement-")
+    sync_try_finally_body_local = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryFinallyBodyLocalStatementTail")
+    )
+    assert sync_try_finally_body_local["async_kind"] == "sync", sync_try_finally_body_local
+    assert sync_try_finally_body_local["param_count"] == 1, sync_try_finally_body_local
+    assert 0x65 in sync_try_finally_body_local["code"], sync_try_finally_body_local
+    assert 0x66 in sync_try_finally_body_local["code"], sync_try_finally_body_local
+    assert sync_try_finally_body_local["code"].count(0x50) == 2, sync_try_finally_body_local
+    assert 0x04 in sync_try_finally_body_local["code"], sync_try_finally_body_local
+    assert 0x03 in sync_try_finally_body_local["code"], sync_try_finally_body_local
+    sync_try_finally_body_local_names = {
+        entry.get("name") for entry in sync_try_finally_body_local.get("debug_locals", [])
+    }
+    assert {"name", "message"}.issubset(sync_try_finally_body_local_names), sync_try_finally_body_local
+    assert_string_constant(sync_try_finally_body_local, "patched-finally-body-local-")
+    assert_string_constant(sync_try_finally_body_local, "patched-finally-body-cleanup-")
+    assert_string_constant(sync_try_finally_body_local, "patched-sync-finally-body-local-statement-")
+    sync_try_finally_void = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryFinallyStatementVoid")
+    )
+    assert sync_try_finally_void["async_kind"] == "sync", sync_try_finally_void
+    assert sync_try_finally_void["param_count"] == 1, sync_try_finally_void
+    assert 0x65 in sync_try_finally_void["code"], sync_try_finally_void
+    assert 0x66 in sync_try_finally_void["code"], sync_try_finally_void
+    assert sync_try_finally_void["code"].count(0x50) == 2, sync_try_finally_void
+    assert 0x42 in sync_try_finally_void["code"], sync_try_finally_void
+    assert sync_try_finally_void["code"].count(0x05) >= 2, sync_try_finally_void
+    assert {"slot": 0, "name": "name"} in sync_try_finally_void.get("debug_locals", []), sync_try_finally_void
+    assert_string_constant(
+        sync_try_finally_void,
+        "package:fcb_kernel_compile_test/main.dart::label",
+    )
+    assert_string_constant(sync_try_finally_void, "patched-void-cleanup-")
+    assert_null_constant(sync_try_finally_void)
+    sync_try_finally_return = next(
+        item for item in module["functions"] if item["name"].endswith("::syncTryFinallyReturnValue")
+    )
+    assert sync_try_finally_return["async_kind"] == "sync", sync_try_finally_return
+    assert sync_try_finally_return["param_count"] == 1, sync_try_finally_return
+    assert 0x65 in sync_try_finally_return["code"], sync_try_finally_return
+    assert 0x66 in sync_try_finally_return["code"], sync_try_finally_return
+    assert 0x04 in sync_try_finally_return["code"], sync_try_finally_return
+    assert 0x03 in sync_try_finally_return["code"], sync_try_finally_return
+    assert 0x42 in sync_try_finally_return["code"], sync_try_finally_return
+    assert 0x50 in sync_try_finally_return["code"], sync_try_finally_return
+    assert {"slot": 0, "name": "name"} in sync_try_finally_return.get(
+        "debug_locals",
+        [],
+    ), sync_try_finally_return
+    assert_string_constant(sync_try_finally_return, "patched-finally-return-")
+    assert_string_constant(sync_try_finally_return, "patched-return-cleanup-")
+    assert_string_constant(
+        sync_try_finally_return,
+        "package:fcb_kernel_compile_test/main.dart::label",
+    )
+    sync_if_side_effect = next(
+        item for item in module["functions"] if item["name"].endswith("::syncIfSideEffectTail")
+    )
+    assert sync_if_side_effect["async_kind"] == "sync", sync_if_side_effect
+    assert sync_if_side_effect["param_count"] == 2, sync_if_side_effect
+    assert 0x31 in sync_if_side_effect["code"], sync_if_side_effect
+    assert 0x50 in sync_if_side_effect["code"], sync_if_side_effect
+    assert 0x42 in sync_if_side_effect["code"], sync_if_side_effect
+    assert {"slot": 0, "name": "enabled"} in sync_if_side_effect.get(
+        "debug_locals",
+        [],
+    ), sync_if_side_effect
+    assert {"slot": 1, "name": "name"} in sync_if_side_effect.get(
+        "debug_locals",
+        [],
+    ), sync_if_side_effect
+    assert_string_constant(sync_if_side_effect, "patched-if-side-effect-")
+    assert_string_constant(sync_if_side_effect, "patched-if-tail-")
+    sync_ifelse_side_effect = next(
+        item for item in module["functions"] if item["name"].endswith("::syncIfElseSideEffectTail")
+    )
+    assert sync_ifelse_side_effect["async_kind"] == "sync", sync_ifelse_side_effect
+    assert sync_ifelse_side_effect["param_count"] == 2, sync_ifelse_side_effect
+    assert 0x31 in sync_ifelse_side_effect["code"], sync_ifelse_side_effect
+    assert sync_ifelse_side_effect["code"].count(0x50) == 2, sync_ifelse_side_effect
+    assert 0x42 in sync_ifelse_side_effect["code"], sync_ifelse_side_effect
+    assert {"slot": 0, "name": "enabled"} in sync_ifelse_side_effect.get(
+        "debug_locals",
+        [],
+    ), sync_ifelse_side_effect
+    assert {"slot": 1, "name": "name"} in sync_ifelse_side_effect.get(
+        "debug_locals",
+        [],
+    ), sync_ifelse_side_effect
+    assert_string_constant(sync_ifelse_side_effect, "patched-ifelse-side-effect-on-")
+    assert_string_constant(sync_ifelse_side_effect, "patched-ifelse-side-effect-off-")
+    assert_string_constant(sync_ifelse_side_effect, "patched-ifelse-tail-")
+    sync_ifelse_local = next(
+        item for item in module["functions"] if item["name"].endswith("::syncIfElseLocalSideEffectTail")
+    )
+    assert sync_ifelse_local["async_kind"] == "sync", sync_ifelse_local
+    assert sync_ifelse_local["param_count"] == 2, sync_ifelse_local
+    assert 0x31 in sync_ifelse_local["code"], sync_ifelse_local
+    assert sync_ifelse_local["code"].count(0x50) == 2, sync_ifelse_local
+    assert sync_ifelse_local["code"].count(0x04) >= 2, sync_ifelse_local
+    assert sync_ifelse_local["code"].count(0x03) >= 2, sync_ifelse_local
+    sync_ifelse_local_names = {
+        entry.get("name") for entry in sync_ifelse_local.get("debug_locals", [])
+    }
+    assert {"enabled", "name", "message"}.issubset(sync_ifelse_local_names), sync_ifelse_local
+    assert_string_constant(sync_ifelse_local, "patched-ifelse-local-on-")
+    assert_string_constant(sync_ifelse_local, "patched-ifelse-local-off-")
+    assert_string_constant(sync_ifelse_local, "patched-ifelse-local-tail-")
     display = next(item for item in module["functions"] if item["name"].endswith("::displayName"))
     assert display["param_count"] == 1, display
     assert 0x43 in display["code"], display
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "label"
-        for constant in display["constants"]
-    ), display
+    assert_string_constant(display, "label")
     async_display = next(item for item in module["functions"] if item["name"].endswith("::asyncDisplayName"))
     assert async_display["async_kind"] == "async_future", async_display
     assert async_display["param_count"] == 1, async_display
     assert 0x43 in async_display["code"], async_display
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "label"
-        for constant in async_display["constants"]
-    ), async_display
+    assert_string_constant(async_display, "label")
     async_await_field = next(item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenReadField"))
     assert async_await_field["async_kind"] == "async_future", async_await_field
     assert async_await_field["param_count"] == 2, async_await_field
@@ -34,60 +333,36 @@ def assert_core_calls(module):
     assert 0x42 in async_await_field["code"], async_await_field
     assert 0x55 in async_await_field["code"], async_await_field
     assert 0x63 in async_await_field["code"], async_await_field
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-await-field:"
-        for constant in async_await_field["constants"]
-    ), async_await_field
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "label"
-        for constant in async_await_field["constants"]
-    ), async_await_field
+    assert_string_constant(async_await_field, "patched-await-field:")
+    assert_string_constant(async_await_field, "label")
     is_known = next(item for item in module["functions"] if item["name"].endswith("::isKnown"))
     assert is_known["param_count"] == 1, is_known
     assert 0x45 in is_known["code"], is_known
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "String"
-        for constant in is_known["constants"]
-    ), is_known
+    assert_string_constant(is_known, "String")
     is_user = next(item for item in module["functions"] if item["name"].endswith("::isUser"))
     assert is_user["param_count"] == 1, is_user
     assert 0x45 in is_user["code"], is_user
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::User"
-        for constant in is_user["constants"]
-    ), is_user
+    assert_string_constant(is_user, "package:fcb_kernel_compile_test/main.dart::User")
     is_string_list = next(item for item in module["functions"] if item["name"].endswith("::isStringList"))
     assert is_string_list["param_count"] == 1, is_string_list
     assert 0x45 in is_string_list["code"], is_string_list
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "List<String>"
-        for constant in is_string_list["constants"]
-    ), is_string_list
+    assert_string_constant(is_string_list, "List<String>")
     as_string_list = next(item for item in module["functions"] if item["name"].endswith("::asStringList"))
     assert as_string_list["param_count"] == 1, as_string_list
     assert 0x46 in as_string_list["code"], as_string_list
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "List<String>"
-        for constant in as_string_list["constants"]
-    ), as_string_list
+    assert_string_constant(as_string_list, "List<String>")
     async_is_string_list = next(item for item in module["functions"] if item["name"].endswith("::asyncIsStringList"))
     assert async_is_string_list["async_kind"] == "async_future", async_is_string_list
     assert async_is_string_list["param_count"] == 1, async_is_string_list
     assert 0x45 in async_is_string_list["code"], async_is_string_list
     assert 0x63 in async_is_string_list["code"], async_is_string_list
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "List<String>"
-        for constant in async_is_string_list["constants"]
-    ), async_is_string_list
+    assert_string_constant(async_is_string_list, "List<String>")
     async_as_string_list = next(item for item in module["functions"] if item["name"].endswith("::asyncAsStringList"))
     assert async_as_string_list["async_kind"] == "async_future", async_as_string_list
     assert async_as_string_list["param_count"] == 1, async_as_string_list
     assert 0x46 in async_as_string_list["code"], async_as_string_list
     assert 0x63 in async_as_string_list["code"], async_as_string_list
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "List<String>"
-        for constant in async_as_string_list["constants"]
-    ), async_as_string_list
+    assert_string_constant(async_as_string_list, "List<String>")
     async_arithmetic_value = next(item for item in module["functions"] if item["name"].endswith("::asyncArithmeticValue"))
     assert async_arithmetic_value["async_kind"] == "async_future", async_arithmetic_value
     assert async_arithmetic_value["param_count"] == 1, async_arithmetic_value
@@ -96,10 +371,7 @@ def assert_core_calls(module):
     assert 0x10 in async_arithmetic_value["code"], async_arithmetic_value
     assert 0x55 in async_arithmetic_value["code"], async_arithmetic_value
     assert 0x63 in async_arithmetic_value["code"], async_arithmetic_value
-    assert any(
-        constant.get("type") == "Int" and constant.get("value") == 2
-        for constant in async_arithmetic_value["constants"]
-    ), async_arithmetic_value
+    assert_int_constant(async_arithmetic_value, 2)
     async_await_arithmetic = next(
         item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenArithmeticValue")
     )
@@ -110,10 +382,7 @@ def assert_core_calls(module):
     assert 0x10 in async_await_arithmetic["code"], async_await_arithmetic
     assert 0x55 in async_await_arithmetic["code"], async_await_arithmetic
     assert 0x63 in async_await_arithmetic["code"], async_await_arithmetic
-    assert any(
-        constant.get("type") == "Int" and constant.get("value") == 5
-        for constant in async_await_arithmetic["constants"]
-    ), async_await_arithmetic
+    assert_int_constant(async_await_arithmetic, 5)
     async_subtract_value = next(item for item in module["functions"] if item["name"].endswith("::asyncSubtractValue"))
     assert async_subtract_value["async_kind"] == "async_future", async_subtract_value
     assert async_subtract_value["param_count"] == 1, async_subtract_value
@@ -122,10 +391,7 @@ def assert_core_calls(module):
     assert 0x11 in async_subtract_value["code"], async_subtract_value
     assert 0x55 in async_subtract_value["code"], async_subtract_value
     assert 0x63 in async_subtract_value["code"], async_subtract_value
-    assert any(
-        constant.get("type") == "Int" and constant.get("value") == 3
-        for constant in async_subtract_value["constants"]
-    ), async_subtract_value
+    assert_int_constant(async_subtract_value, 3)
     async_await_subtract = next(
         item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenSubtractValue")
     )
@@ -136,10 +402,7 @@ def assert_core_calls(module):
     assert 0x11 in async_await_subtract["code"], async_await_subtract
     assert 0x55 in async_await_subtract["code"], async_await_subtract
     assert 0x63 in async_await_subtract["code"], async_await_subtract
-    assert any(
-        constant.get("type") == "Int" and constant.get("value") == 7
-        for constant in async_await_subtract["constants"]
-    ), async_await_subtract
+    assert_int_constant(async_await_subtract, 7)
     async_multiply_value = next(item for item in module["functions"] if item["name"].endswith("::asyncMultiplyValue"))
     assert async_multiply_value["async_kind"] == "async_future", async_multiply_value
     assert async_multiply_value["param_count"] == 1, async_multiply_value
@@ -148,10 +411,7 @@ def assert_core_calls(module):
     assert 0x12 in async_multiply_value["code"], async_multiply_value
     assert 0x55 in async_multiply_value["code"], async_multiply_value
     assert 0x63 in async_multiply_value["code"], async_multiply_value
-    assert any(
-        constant.get("type") == "Int" and constant.get("value") == 3
-        for constant in async_multiply_value["constants"]
-    ), async_multiply_value
+    assert_int_constant(async_multiply_value, 3)
     async_await_multiply = next(
         item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenMultiplyValue")
     )
@@ -162,10 +422,7 @@ def assert_core_calls(module):
     assert 0x12 in async_await_multiply["code"], async_await_multiply
     assert 0x55 in async_await_multiply["code"], async_await_multiply
     assert 0x63 in async_await_multiply["code"], async_await_multiply
-    assert any(
-        constant.get("type") == "Int" and constant.get("value") == 9
-        for constant in async_await_multiply["constants"]
-    ), async_await_multiply
+    assert_int_constant(async_await_multiply, 9)
     async_divide_value = next(item for item in module["functions"] if item["name"].endswith("::asyncDivideValue"))
     assert async_divide_value["async_kind"] == "async_future", async_divide_value
     assert async_divide_value["param_count"] == 1, async_divide_value
@@ -174,10 +431,18 @@ def assert_core_calls(module):
     assert 0x13 in async_divide_value["code"], async_divide_value
     assert 0x55 in async_divide_value["code"], async_divide_value
     assert 0x63 in async_divide_value["code"], async_divide_value
-    assert any(
-        constant.get("type") == "Int" and constant.get("value") == 4
-        for constant in async_divide_value["constants"]
-    ), async_divide_value
+    assert_int_constant(async_divide_value, 4)
+    async_await_divide = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenDivideValue")
+    )
+    assert async_await_divide["async_kind"] == "async_future", async_await_divide
+    assert async_await_divide["param_count"] == 1, async_await_divide
+    assert 0x62 in async_await_divide["code"], async_await_divide
+    assert 0x03 in async_await_divide["code"], async_await_divide
+    assert 0x13 in async_await_divide["code"], async_await_divide
+    assert 0x55 in async_await_divide["code"], async_await_divide
+    assert 0x63 in async_await_divide["code"], async_await_divide
+    assert_int_constant(async_await_divide, 11)
     async_logical_flag = next(item for item in module["functions"] if item["name"].endswith("::asyncLogicalFlag"))
     assert async_logical_flag["async_kind"] == "async_future", async_logical_flag
     assert async_logical_flag["param_count"] == 2, async_logical_flag
@@ -186,24 +451,40 @@ def assert_core_calls(module):
     assert 0x30 in async_logical_flag["code"], async_logical_flag
     assert 0x55 in async_logical_flag["code"], async_logical_flag
     assert 0x63 in async_logical_flag["code"], async_logical_flag
-    assert any(
-        constant.get("type") == "Bool" and constant.get("value") is True
-        for constant in async_logical_flag["constants"]
-    ), async_logical_flag
-    assert any(
-        constant.get("type") == "Bool" and constant.get("value") is False
-        for constant in async_logical_flag["constants"]
-    ), async_logical_flag
+    assert_bool_constant(async_logical_flag, True)
+    assert_bool_constant(async_logical_flag, False)
+    async_await_logical = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenLogicalFlag")
+    )
+    assert async_await_logical["async_kind"] == "async_future", async_await_logical
+    assert async_await_logical["param_count"] == 2, async_await_logical
+    assert 0x62 in async_await_logical["code"], async_await_logical
+    assert 0x03 in async_await_logical["code"], async_await_logical
+    assert async_await_logical["code"].count(0x31) >= 3, async_await_logical
+    assert 0x30 in async_await_logical["code"], async_await_logical
+    assert 0x55 in async_await_logical["code"], async_await_logical
+    assert 0x63 in async_await_logical["code"], async_await_logical
+    assert_bool_constant(async_await_logical, True)
+    assert_bool_constant(async_await_logical, False)
     async_always_throw = next(item for item in module["functions"] if item["name"].endswith("::asyncAlwaysThrow"))
     assert async_always_throw["async_kind"] == "async_future", async_always_throw
     assert async_always_throw["param_count"] == 0, async_always_throw
     assert 0x60 in async_always_throw["code"], async_always_throw
     assert 0x55 in async_always_throw["code"], async_always_throw
     assert 0x63 in async_always_throw["code"], async_always_throw
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-async-boom"
-        for constant in async_always_throw["constants"]
-    ), async_always_throw
+    assert_string_constant(async_always_throw, "patched-async-boom")
+    async_await_throw = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenAlwaysThrow")
+    )
+    assert async_await_throw["async_kind"] == "async_future", async_await_throw
+    assert async_await_throw["param_count"] == 1, async_await_throw
+    assert 0x62 in async_await_throw["code"], async_await_throw
+    assert 0x03 in async_await_throw["code"], async_await_throw
+    assert 0x42 in async_await_throw["code"], async_await_throw
+    assert 0x60 in async_await_throw["code"], async_await_throw
+    assert 0x55 in async_await_throw["code"], async_await_throw
+    assert 0x63 in async_await_throw["code"], async_await_throw
+    assert_string_constant(async_await_throw, "patched-await-throw:")
     async_static_helper = next(item for item in module["functions"] if item["name"].endswith("::asyncStaticHelperValue"))
     assert async_static_helper["async_kind"] == "async_future", async_static_helper
     assert async_static_helper["param_count"] == 0, async_static_helper
@@ -232,6 +513,20 @@ def assert_core_calls(module):
         constant.get("type") == "String" and constant.get("value", "").endswith("::helper")
         for constant in async_await_static["constants"]
     ), async_await_static
+    async_await_static_combine = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenStaticCombine")
+    )
+    assert async_await_static_combine["async_kind"] == "async_future", async_await_static_combine
+    assert async_await_static_combine["param_count"] == 2, async_await_static_combine
+    assert 0x62 in async_await_static_combine["code"], async_await_static_combine
+    assert 0x03 in async_await_static_combine["code"], async_await_static_combine
+    assert 0x50 in async_await_static_combine["code"], async_await_static_combine
+    assert 0x55 in async_await_static_combine["code"], async_await_static_combine
+    assert 0x63 in async_await_static_combine["code"], async_await_static_combine
+    assert any(
+        constant.get("type") == "String" and constant.get("value", "").endswith("::combine")
+        for constant in async_await_static_combine["constants"]
+    ), async_await_static_combine
     async_concat_label = next(item for item in module["functions"] if item["name"].endswith("::asyncConcatLabel"))
     assert async_concat_label["async_kind"] == "async_future", async_concat_label
     assert async_concat_label["param_count"] == 1, async_concat_label
@@ -239,10 +534,18 @@ def assert_core_calls(module):
     assert 0x42 in async_concat_label["code"], async_concat_label
     assert 0x55 in async_concat_label["code"], async_concat_label
     assert 0x63 in async_concat_label["code"], async_concat_label
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-async "
-        for constant in async_concat_label["constants"]
-    ), async_concat_label
+    assert_string_constant(async_concat_label, "patched-async ")
+    async_await_concat = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenConcatLabel")
+    )
+    assert async_await_concat["async_kind"] == "async_future", async_await_concat
+    assert async_await_concat["param_count"] == 1, async_await_concat
+    assert 0x62 in async_await_concat["code"], async_await_concat
+    assert 0x03 in async_await_concat["code"], async_await_concat
+    assert 0x42 in async_await_concat["code"], async_await_concat
+    assert 0x55 in async_await_concat["code"], async_await_concat
+    assert 0x63 in async_await_concat["code"], async_await_concat
+    assert_string_constant(async_await_concat, "patched-await-concat ")
     async_nullable_choice = next(item for item in module["functions"] if item["name"].endswith("::asyncNullableChoice"))
     assert async_nullable_choice["async_kind"] == "async_future", async_nullable_choice
     assert async_nullable_choice["param_count"] == 1, async_nullable_choice
@@ -251,144 +554,46 @@ def assert_core_calls(module):
     assert 0x30 in async_nullable_choice["code"], async_nullable_choice
     assert 0x55 in async_nullable_choice["code"], async_nullable_choice
     assert 0x63 in async_nullable_choice["code"], async_nullable_choice
-    assert any(
-        constant.get("type") == "Null" and constant.get("value") is None
-        for constant in async_nullable_choice["constants"]
-    ), async_nullable_choice
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-null"
-        for constant in async_nullable_choice["constants"]
-    ), async_nullable_choice
-    make_user = next(item for item in module["functions"] if item["name"].endswith("::makeUser"))
-    assert make_user["param_count"] == 0, make_user
-    assert 0x55 in make_user["code"], make_user
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:User."
-        for constant in make_user["constants"]
-    ), make_user
-    async_make_user = next(item for item in module["functions"] if item["name"].endswith("::asyncMakeUser"))
-    assert async_make_user["async_kind"] == "async_future", async_make_user
-    assert async_make_user["param_count"] == 0, async_make_user
-    assert async_make_user["code"].count(0x55) >= 2, async_make_user
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:User."
-        for constant in async_make_user["constants"]
-    ), async_make_user
-    assert any(
-        constant.get("type") == "String"
-        and constant.get("value") == "dart:async::class:_Future.value;types:User"
-        for constant in async_make_user["constants"]
-    ), async_make_user
-    make_config = next(item for item in module["functions"] if item["name"].endswith("::makeConfig"))
-    assert make_config["param_count"] == 0, make_config
-    assert 0x55 in make_config["code"], make_config
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Config.;named:name,label"
-        for constant in make_config["constants"]
-    ), make_config
-    async_make_config = next(item for item in module["functions"] if item["name"].endswith("::asyncMakeConfig"))
-    assert async_make_config["async_kind"] == "async_future", async_make_config
-    assert async_make_config["param_count"] == 0, async_make_config
-    assert async_make_config["code"].count(0x55) >= 2, async_make_config
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Config.;named:name,label"
-        for constant in async_make_config["constants"]
-    ), async_make_config
-    assert any(
-        constant.get("type") == "String"
-        and constant.get("value") == "dart:async::class:_Future.value;types:Config"
-        for constant in async_make_config["constants"]
-    ), async_make_config
+    assert_null_constant(async_nullable_choice)
+    assert_string_constant(async_nullable_choice, "patched-null")
+    async_await_nullable = next(
+        item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenNullableChoice")
+    )
+    assert async_await_nullable["async_kind"] == "async_future", async_await_nullable
+    assert async_await_nullable["param_count"] == 1, async_await_nullable
+    assert 0x62 in async_await_nullable["code"], async_await_nullable
+    assert 0x03 in async_await_nullable["code"], async_await_nullable
+    assert 0x31 in async_await_nullable["code"], async_await_nullable
+    assert 0x30 in async_await_nullable["code"], async_await_nullable
+    assert 0x55 in async_await_nullable["code"], async_await_nullable
+    assert 0x63 in async_await_nullable["code"], async_await_nullable
+    assert_null_constant(async_await_nullable)
+    assert_string_constant(async_await_nullable, "patched-await-null")
+    assert_object_calls(module)
     update_config = next(item for item in module["functions"] if item["name"].endswith("::updateConfigLabel"))
     assert update_config["param_count"] == 2, update_config
     assert 0x44 in update_config["code"], update_config
     assert 0x43 in update_config["code"], update_config
     assert 0x05 in update_config["code"], update_config
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "label"
-        for constant in update_config["constants"]
-    ), update_config
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "-patched"
-        for constant in update_config["constants"]
-    ), update_config
-    make_string_box = next(item for item in module["functions"] if item["name"].endswith("::makeStringBox"))
-    assert make_string_box["param_count"] == 0, make_string_box
-    assert 0x55 in make_string_box["code"], make_string_box
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Box.;types:String"
-        for constant in make_string_box["constants"]
-    ), make_string_box
-    async_make_string_box = next(item for item in module["functions"] if item["name"].endswith("::asyncMakeStringBox"))
-    assert async_make_string_box["async_kind"] == "async_future", async_make_string_box
-    assert async_make_string_box["param_count"] == 0, async_make_string_box
-    assert async_make_string_box["code"].count(0x55) >= 2, async_make_string_box
-    assert any(
-        constant.get("type") == "String"
-        and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Box.;types:String"
-        for constant in async_make_string_box["constants"]
-    ), async_make_string_box
-    assert any(
-        constant.get("type") == "String"
-        and constant.get("value") == "dart:async::class:_Future.value;types:Box<String>"
-        for constant in async_make_string_box["constants"]
-    ), async_make_string_box
-    async_await_box = next(item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenMakeStringBox"))
-    assert async_await_box["async_kind"] == "async_future", async_await_box
-    assert async_await_box["param_count"] == 1, async_await_box
-    assert 0x62 in async_await_box["code"], async_await_box
-    assert async_await_box["code"].count(0x55) >= 2, async_await_box
-    assert 0x42 in async_await_box["code"], async_await_box
-    assert 0x63 in async_await_box["code"], async_await_box
-    assert any(
-        constant.get("type") == "String"
-        and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Box.;types:String"
-        for constant in async_await_box["constants"]
-    ), async_await_box
-    assert any(
-        constant.get("type") == "String"
-        and constant.get("value") == "dart:async::class:_Future.value;types:Box<String>"
-        for constant in async_await_box["constants"]
-    ), async_await_box
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-await-box:"
-        for constant in async_await_box["constants"]
-    ), async_await_box
+    assert_string_constant(update_config, "label")
+    assert_string_constant(update_config, "-patched")
     dynamic_named_call = next(item for item in module["functions"] if item["name"].endswith("::dynamicNamedCall"))
     assert dynamic_named_call["param_count"] == 0, dynamic_named_call
     assert 0x55 in dynamic_named_call["code"], dynamic_named_call
     assert 0x51 in dynamic_named_call["code"], dynamic_named_call
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Greeter."
-        for constant in dynamic_named_call["constants"]
-    ), dynamic_named_call
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "surround;named:prefix,suffix"
-        for constant in dynamic_named_call["constants"]
-    ), dynamic_named_call
+    assert_string_constant(dynamic_named_call, "package:fcb_kernel_compile_test/main.dart::class:Greeter.")
+    assert_string_constant(dynamic_named_call, "surround;named:prefix,suffix")
     for value in ["patched", "<", ">"]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in dynamic_named_call["constants"]
-        ), dynamic_named_call
+        assert_string_constant(dynamic_named_call, value)
     async_dynamic_named_call = next(item for item in module["functions"] if item["name"].endswith("::asyncDynamicNamedCall"))
     assert async_dynamic_named_call["async_kind"] == "async_future", async_dynamic_named_call
     assert async_dynamic_named_call["param_count"] == 0, async_dynamic_named_call
     assert 0x55 in async_dynamic_named_call["code"], async_dynamic_named_call
     assert 0x51 in async_dynamic_named_call["code"], async_dynamic_named_call
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "package:fcb_kernel_compile_test/main.dart::class:Greeter."
-        for constant in async_dynamic_named_call["constants"]
-    ), async_dynamic_named_call
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "surround;named:prefix,suffix"
-        for constant in async_dynamic_named_call["constants"]
-    ), async_dynamic_named_call
+    assert_string_constant(async_dynamic_named_call, "package:fcb_kernel_compile_test/main.dart::class:Greeter.")
+    assert_string_constant(async_dynamic_named_call, "surround;named:prefix,suffix")
     for value in ["patched-async", "<", ">"]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in async_dynamic_named_call["constants"]
-        ), async_dynamic_named_call
+        assert_string_constant(async_dynamic_named_call, value)
     async_await_dynamic_call = next(item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenDynamicCall"))
     assert async_await_dynamic_call["async_kind"] == "async_future", async_await_dynamic_call
     assert async_await_dynamic_call["param_count"] == 1, async_await_dynamic_call
@@ -397,14 +602,8 @@ def assert_core_calls(module):
     assert 0x51 in async_await_dynamic_call["code"], async_await_dynamic_call
     assert 0x55 in async_await_dynamic_call["code"], async_await_dynamic_call
     assert 0x63 in async_await_dynamic_call["code"], async_await_dynamic_call
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "surround;named:prefix,suffix"
-        for constant in async_await_dynamic_call["constants"]
-    ), async_await_dynamic_call
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-await-dynamic<"
-        for constant in async_await_dynamic_call["constants"]
-    ), async_await_dynamic_call
+    assert_string_constant(async_await_dynamic_call, "surround;named:prefix,suffix")
+    assert_string_constant(async_await_dynamic_call, "patched-await-dynamic<")
     async_await_callback = next(item for item in module["functions"] if item["name"].endswith("::asyncAwaitThenDirectCallbackMixed"))
     assert async_await_callback["async_kind"] == "async_future", async_await_callback
     assert async_await_callback["param_count"] == 3, async_await_callback
@@ -484,95 +683,7 @@ def assert_core_calls(module):
         constant.get("type") == "String" and constant.get("value") == "List<String>"
         for constant in async_await_as["constants"]
     ), async_await_as
-    captured_greeting = next(item for item in module["functions"] if item["name"].endswith("::capturedGreeting"))
-    assert captured_greeting["param_count"] == 1, captured_greeting
-    assert 0x42 in captured_greeting["code"], captured_greeting
-    assert 0x03 in captured_greeting["code"], captured_greeting
-    assert 0x04 in captured_greeting["code"], captured_greeting
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched"
-        for constant in captured_greeting["constants"]
-    ), captured_greeting
-    stored_closure_greeting = next(item for item in module["functions"] if item["name"].endswith("::storedClosureGreeting"))
-    assert stored_closure_greeting["param_count"] == 1, stored_closure_greeting
-    assert 0x42 in stored_closure_greeting["code"], stored_closure_greeting
-    assert 0x03 in stored_closure_greeting["code"], stored_closure_greeting
-    assert 0x04 in stored_closure_greeting["code"], stored_closure_greeting
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched"
-        for constant in stored_closure_greeting["constants"]
-    ), stored_closure_greeting
-    passed_escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::passedEscapingGreeting"))
-    assert passed_escaping_greeting["param_count"] == 1, passed_escaping_greeting
-    assert 0x42 in passed_escaping_greeting["code"], passed_escaping_greeting
-    assert 0x03 in passed_escaping_greeting["code"], passed_escaping_greeting
-    assert 0x04 in passed_escaping_greeting["code"], passed_escaping_greeting
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched"
-        for constant in passed_escaping_greeting["constants"]
-    ), passed_escaping_greeting
-    direct_callback = next(item for item in module["functions"] if item["name"].endswith("::directCallbackValue"))
-    assert direct_callback["param_count"] == 1, direct_callback
-    assert direct_callback["async_kind"] == "sync", direct_callback
-    assert 0x53 in direct_callback["code"], direct_callback
-    assert 0x42 in direct_callback["code"], direct_callback
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == " patched-direct"
-        for constant in direct_callback["constants"]
-    ), direct_callback
-    direct_callback_arg = next(item for item in module["functions"] if item["name"].endswith("::directCallbackArg"))
-    assert direct_callback_arg["param_count"] == 2, direct_callback_arg
-    assert direct_callback_arg["async_kind"] == "sync", direct_callback_arg
-    assert direct_callback_arg["code"].count(0x02) >= 2, direct_callback_arg
-    assert 0x53 in direct_callback_arg["code"], direct_callback_arg
-    assert 0x42 in direct_callback_arg["code"], direct_callback_arg
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == " patched-arg"
-        for constant in direct_callback_arg["constants"]
-    ), direct_callback_arg
-    direct_callback_named = next(item for item in module["functions"] if item["name"].endswith("::directCallbackNamed"))
-    assert direct_callback_named["param_count"] == 2, direct_callback_named
-    assert direct_callback_named["async_kind"] == "sync", direct_callback_named
-    assert direct_callback_named["code"].count(0x02) >= 2, direct_callback_named
-    assert 0x53 in direct_callback_named["code"], direct_callback_named
-    assert 0x42 in direct_callback_named["code"], direct_callback_named
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == ";named:value"
-        for constant in direct_callback_named["constants"]
-    ), direct_callback_named
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == " patched-named"
-        for constant in direct_callback_named["constants"]
-    ), direct_callback_named
-    direct_callback_mixed = next(item for item in module["functions"] if item["name"].endswith("::directCallbackMixed"))
-    assert direct_callback_mixed["param_count"] == 3, direct_callback_mixed
-    assert direct_callback_mixed["async_kind"] == "sync", direct_callback_mixed
-    assert direct_callback_mixed["code"].count(0x02) >= 3, direct_callback_mixed
-    assert 0x53 in direct_callback_mixed["code"], direct_callback_mixed
-    assert 0x42 in direct_callback_mixed["code"], direct_callback_mixed
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == ";named:suffix"
-        for constant in direct_callback_mixed["constants"]
-    ), direct_callback_mixed
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == " patched-mixed"
-        for constant in direct_callback_mixed["constants"]
-    ), direct_callback_mixed
-    async_direct_callback_mixed = next(item for item in module["functions"] if item["name"].endswith("::asyncDirectCallbackMixed"))
-    assert async_direct_callback_mixed["param_count"] == 3, async_direct_callback_mixed
-    assert async_direct_callback_mixed["async_kind"] == "async_future", async_direct_callback_mixed
-    assert async_direct_callback_mixed["code"].count(0x02) >= 3, async_direct_callback_mixed
-    assert 0x53 in async_direct_callback_mixed["code"], async_direct_callback_mixed
-    assert 0x42 in async_direct_callback_mixed["code"], async_direct_callback_mixed
-    assert 0x63 in async_direct_callback_mixed["code"], async_direct_callback_mixed
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == ";named:suffix"
-        for constant in async_direct_callback_mixed["constants"]
-    ), async_direct_callback_mixed
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == " patched-async-mixed"
-        for constant in async_direct_callback_mixed["constants"]
-    ), async_direct_callback_mixed
+    assert_callback_calls(module)
     escaping_greeting = next(item for item in module["functions"] if item["name"].endswith("::escapingGreeting"))
     assert escaping_greeting["param_count"] == 1, escaping_greeting
     assert 0x54 in escaping_greeting["code"], escaping_greeting
@@ -886,242 +997,4 @@ def assert_core_calls(module):
         constant.get("type") == "String" and constant.get("value") == "patched-boom"
         for constant in always_throw["constants"]
     ), always_throw
-    names = next(item for item in module["functions"] if item["name"].endswith("::names"))
-    assert names["param_count"] == 2, names
-    assert 0x40 in names["code"], names
-    assert 0x31 in names["code"], names
-    assert 0x30 in names["code"], names
-    assert names["code"].count(0x31) >= 2, names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched"
-        for constant in names["constants"]
-    ), names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "tail"
-        for constant in names["constants"]
-    ), names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "spread-a"
-        for constant in names["constants"]
-    ), names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "spread-b"
-        for constant in names["constants"]
-    ), names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "for-a"
-        for constant in names["constants"]
-    ), names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "for-b"
-        for constant in names["constants"]
-    ), names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "off"
-        for constant in names["constants"]
-    ), names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "pro"
-        for constant in names["constants"]
-    ), names
-    async_names = next(item for item in module["functions"] if item["name"].endswith("::asyncNames"))
-    assert async_names["async_kind"] == "async_future", async_names
-    assert async_names["param_count"] == 2, async_names
-    assert 0x40 in async_names["code"], async_names
-    assert 0x31 in async_names["code"], async_names
-    assert 0x30 in async_names["code"], async_names
-    assert 0x63 in async_names["code"], async_names
-    assert async_names["code"].count(0x31) >= 2, async_names
-    for value in [
-        "patched-async-static",
-        "async-spread-a",
-        "async-spread-b",
-        "async-for-a",
-        "async-for-b",
-        "async-off",
-        "async-pro",
-    ]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in async_names["constants"]
-        ), async_names
-    labels = next(item for item in module["functions"] if item["name"].endswith("::labels"))
-    assert labels["param_count"] == 2, labels
-    assert 0x41 in labels["code"], labels
-    assert 0x31 in labels["code"], labels
-    assert 0x30 in labels["code"], labels
-    assert labels["code"].count(0x31) >= 2, labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "mode"
-        for constant in labels["constants"]
-    ), labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "tail"
-        for constant in labels["constants"]
-    ), labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "spread"
-        for constant in labels["constants"]
-    ), labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "yes"
-        for constant in labels["constants"]
-    ), labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "for"
-        for constant in labels["constants"]
-    ), labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "off"
-        for constant in labels["constants"]
-    ), labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "tier"
-        for constant in labels["constants"]
-    ), labels
-    async_labels = next(item for item in module["functions"] if item["name"].endswith("::asyncLabels"))
-    assert async_labels["async_kind"] == "async_future", async_labels
-    assert async_labels["param_count"] == 2, async_labels
-    assert 0x41 in async_labels["code"], async_labels
-    assert 0x31 in async_labels["code"], async_labels
-    assert 0x30 in async_labels["code"], async_labels
-    assert 0x63 in async_labels["code"], async_labels
-    assert async_labels["code"].count(0x31) >= 2, async_labels
-    for value in [
-        "patched-async-static",
-        "async-spread",
-        "async-for",
-        "async-state",
-        "off",
-        "async-tier",
-    ]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in async_labels["constants"]
-        ), async_labels
-    dynamic_names = next(item for item in module["functions"] if item["name"].endswith("::dynamicNames"))
-    assert dynamic_names["param_count"] == 1, dynamic_names
-    assert 0x40 in dynamic_names["code"], dynamic_names
-    assert 0x51 in dynamic_names["code"], dynamic_names
-    assert 0x03 in dynamic_names["code"], dynamic_names
-    assert 0x04 in dynamic_names["code"], dynamic_names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "addAll"
-        for constant in dynamic_names["constants"]
-    ), dynamic_names
-    async_dynamic_names = next(item for item in module["functions"] if item["name"].endswith("::asyncDynamicNames"))
-    assert async_dynamic_names["async_kind"] == "async_future", async_dynamic_names
-    assert async_dynamic_names["param_count"] == 1, async_dynamic_names
-    assert 0x40 in async_dynamic_names["code"], async_dynamic_names
-    assert 0x51 in async_dynamic_names["code"], async_dynamic_names
-    assert 0x63 in async_dynamic_names["code"], async_dynamic_names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "addAll"
-        for constant in async_dynamic_names["constants"]
-    ), async_dynamic_names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-async"
-        for constant in async_dynamic_names["constants"]
-    ), async_dynamic_names
-    runtime_for_names = next(item for item in module["functions"] if item["name"].endswith("::runtimeForNames"))
-    assert runtime_for_names["param_count"] == 1, runtime_for_names
-    assert 0x40 in runtime_for_names["code"], runtime_for_names
-    assert 0x51 in runtime_for_names["code"], runtime_for_names
-    assert 0x03 in runtime_for_names["code"], runtime_for_names
-    assert 0x04 in runtime_for_names["code"], runtime_for_names
-    assert 0x31 in runtime_for_names["code"], runtime_for_names
-    assert 0x30 in runtime_for_names["code"], runtime_for_names
-    for value in ["get:iterator", "moveNext", "get:current", "add"]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in runtime_for_names["constants"]
-        ), runtime_for_names
-    async_runtime_for_names = next(item for item in module["functions"] if item["name"].endswith("::asyncRuntimeForNames"))
-    assert async_runtime_for_names["async_kind"] == "async_future", async_runtime_for_names
-    assert async_runtime_for_names["param_count"] == 1, async_runtime_for_names
-    assert 0x40 in async_runtime_for_names["code"], async_runtime_for_names
-    assert 0x51 in async_runtime_for_names["code"], async_runtime_for_names
-    assert 0x03 in async_runtime_for_names["code"], async_runtime_for_names
-    assert 0x04 in async_runtime_for_names["code"], async_runtime_for_names
-    assert 0x31 in async_runtime_for_names["code"], async_runtime_for_names
-    assert 0x30 in async_runtime_for_names["code"], async_runtime_for_names
-    assert 0x63 in async_runtime_for_names["code"], async_runtime_for_names
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-async-for"
-        for constant in async_runtime_for_names["constants"]
-    ), async_runtime_for_names
-    for value in ["get:iterator", "moveNext", "get:current", "add"]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in async_runtime_for_names["constants"]
-        ), async_runtime_for_names
-    dynamic_labels = next(item for item in module["functions"] if item["name"].endswith("::dynamicLabels"))
-    assert dynamic_labels["param_count"] == 1, dynamic_labels
-    assert 0x41 in dynamic_labels["code"], dynamic_labels
-    assert 0x51 in dynamic_labels["code"], dynamic_labels
-    assert 0x03 in dynamic_labels["code"], dynamic_labels
-    assert 0x04 in dynamic_labels["code"], dynamic_labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "addAll"
-        for constant in dynamic_labels["constants"]
-    ), dynamic_labels
-    async_dynamic_labels = next(item for item in module["functions"] if item["name"].endswith("::asyncDynamicLabels"))
-    assert async_dynamic_labels["async_kind"] == "async_future", async_dynamic_labels
-    assert async_dynamic_labels["param_count"] == 1, async_dynamic_labels
-    assert 0x41 in async_dynamic_labels["code"], async_dynamic_labels
-    assert 0x51 in async_dynamic_labels["code"], async_dynamic_labels
-    assert 0x03 in async_dynamic_labels["code"], async_dynamic_labels
-    assert 0x04 in async_dynamic_labels["code"], async_dynamic_labels
-    assert 0x63 in async_dynamic_labels["code"], async_dynamic_labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-async"
-        for constant in async_dynamic_labels["constants"]
-    ), async_dynamic_labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "addAll"
-        for constant in async_dynamic_labels["constants"]
-    ), async_dynamic_labels
-    runtime_for_labels = next(item for item in module["functions"] if item["name"].endswith("::runtimeForLabels"))
-    assert runtime_for_labels["param_count"] == 1, runtime_for_labels
-    assert 0x41 in runtime_for_labels["code"], runtime_for_labels
-    assert 0x51 in runtime_for_labels["code"], runtime_for_labels
-    assert 0x03 in runtime_for_labels["code"], runtime_for_labels
-    assert 0x04 in runtime_for_labels["code"], runtime_for_labels
-    assert 0x31 in runtime_for_labels["code"], runtime_for_labels
-    assert 0x30 in runtime_for_labels["code"], runtime_for_labels
-    for value in ["get:entries", "get:iterator", "moveNext", "get:current", "get:key", "get:value", "[]="]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in runtime_for_labels["constants"]
-        ), runtime_for_labels
-    async_runtime_for_labels = next(item for item in module["functions"] if item["name"].endswith("::asyncRuntimeForLabels"))
-    assert async_runtime_for_labels["async_kind"] == "async_future", async_runtime_for_labels
-    assert async_runtime_for_labels["param_count"] == 1, async_runtime_for_labels
-    assert 0x41 in async_runtime_for_labels["code"], async_runtime_for_labels
-    assert 0x51 in async_runtime_for_labels["code"], async_runtime_for_labels
-    assert 0x03 in async_runtime_for_labels["code"], async_runtime_for_labels
-    assert 0x04 in async_runtime_for_labels["code"], async_runtime_for_labels
-    assert 0x31 in async_runtime_for_labels["code"], async_runtime_for_labels
-    assert 0x30 in async_runtime_for_labels["code"], async_runtime_for_labels
-    assert 0x63 in async_runtime_for_labels["code"], async_runtime_for_labels
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-async-for"
-        for constant in async_runtime_for_labels["constants"]
-    ), async_runtime_for_labels
-    for value in ["get:entries", "get:iterator", "moveNext", "get:current", "get:key", "get:value", "[]="]:
-        assert any(
-            constant.get("type") == "String" and constant.get("value") == value
-            for constant in async_runtime_for_labels["constants"]
-        ), async_runtime_for_labels
-    choose_label = next(item for item in module["functions"] if item["name"].endswith("::chooseLabel"))
-    assert choose_label["param_count"] == 1, choose_label
-    assert 0x31 in choose_label["code"], choose_label
-    assert 0x30 in choose_label["code"], choose_label
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-live"
-        for constant in choose_label["constants"]
-    ), choose_label
-    assert any(
-        constant.get("type") == "String" and constant.get("value") == "patched-off"
-        for constant in choose_label["constants"]
-    ), choose_label
+    assert_collection_calls(module)

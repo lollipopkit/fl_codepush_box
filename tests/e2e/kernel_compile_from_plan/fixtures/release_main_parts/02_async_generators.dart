@@ -453,6 +453,18 @@ Stream<String> asyncGeneratedYieldStarTwoStreamsFinally(Stream<String> first, St
   yield 'base-stream-yield-star-two-streams-finally';
 }
 
+Stream<String> asyncGeneratedYieldStarStreamCatch(Stream<String> extra) async* {
+  yield 'base-stream-yield-star-stream-catch';
+}
+
+Stream<String> asyncGeneratedYieldStarStreamCatchFinally(Stream<String> extra) async* {
+  yield 'base-stream-yield-star-stream-catch-finally';
+}
+
+Stream<String> asyncGeneratedYieldStarTwoStreamsCatchFinally(Stream<String> first, Stream<String> second) async* {
+  yield 'base-stream-yield-star-two-streams-catch-finally';
+}
+
 Stream<String> asyncGeneratedAwaitFor(Stream<String> extra) async* {
   yield 'base-stream-await-for';
 }
@@ -471,6 +483,18 @@ Stream<String> asyncGeneratedAwaitForStreamBreak(Stream<String> extra) async* {
 
 Stream<String> asyncGeneratedAwaitForStreamContinueBreakFinally(Stream<String> extra) async* {
   yield 'base-stream-await-for-stream-continue-break-finally';
+}
+
+Stream<String> asyncGeneratedAwaitForStreamCatch(Stream<String> extra) async* {
+  yield 'base-stream-await-for-stream-catch';
+}
+
+Stream<String> asyncGeneratedAwaitForStreamCatchFinally(Stream<String> extra) async* {
+  yield 'base-stream-await-for-stream-catch-finally';
+}
+
+Stream<String> asyncGeneratedAwaitForTwoStreamsCatchFinally(Stream<String> first, Stream<String> second) async* {
+  yield 'base-stream-await-for-two-streams-catch-finally';
 }
 
 Stream<String> asyncGeneratedAwaitForNestedValueFinally(Stream<String> extra) async* {

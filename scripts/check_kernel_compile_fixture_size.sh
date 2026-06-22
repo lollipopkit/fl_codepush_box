@@ -9,10 +9,10 @@ usage() {
 Usage:
   scripts/check_kernel_compile_fixture_size.sh
 
-Checks that the Kernel compile-from-plan e2e stays split into maintainable
-files, and that Kernel reader/compiler tool files stay under the same
-per-file size budget. Override the per-file line limit with
-FCB_KERNEL_COMPILE_MAX_LINES.
+Checks that the Kernel compile-from-plan e2e and adjacent Phase E gate
+scripts stay split into maintainable files, and that Kernel reader/compiler
+tool files stay under the same per-file size budget. Override the per-file
+line limit with FCB_KERNEL_COMPILE_MAX_LINES.
 USAGE
 }
 
@@ -30,6 +30,12 @@ esac
 
 paths=(
   "$ROOT_DIR/tests/e2e/test_kernel_compile_from_plan.sh"
+  "$ROOT_DIR/scripts/fcb_vm_test_filters.sh"
+  "$ROOT_DIR/scripts/check_phase_e_host_evidence.sh"
+  "$ROOT_DIR/scripts/check_phase_e_completion.sh"
+  "$ROOT_DIR/scripts/test_vendor_vm_runtime.sh"
+  "$ROOT_DIR/tests/e2e/test_phase_e_host_evidence_gate.sh"
+  "$ROOT_DIR/tests/e2e/test_phase_e_completion_gate.sh"
 )
 
 for assert_file in "$ROOT_DIR"/tests/e2e/kernel_compile_from_plan/assert_*.py; do

@@ -6,7 +6,7 @@ from assert_module_core_calls import assert_core_calls
 
 module = json.load(open(sys.argv[1]))
 assert module["version"] == 3, module
-assert len(module["functions"]) == 263, module
+assert len(module["functions"]) == 389, module
 function = next(
     item for item in module["functions"] if item["name"].endswith("::mainValue")
 )

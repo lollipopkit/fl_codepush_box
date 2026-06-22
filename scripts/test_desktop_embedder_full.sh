@@ -57,6 +57,12 @@ mkdir -p "$OUT_DIR"
 
 case "$(uname -s)" in
   Darwin)
+    # Auto-detect MobileAsset Metal toolchain if TOOLCHAINS is not already set,
+    # so builds work even when the Xcode Metal component was not formally installed.
+    if [ -z "${TOOLCHAINS:-}" ]; then
+      _mtl_tc=$(ls -d /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain*/Metal.xctoolchain/usr/bin/metal 2>/dev/null | head -1)
+      [ -n "$_mtl_tc" ] && export TOOLCHAINS=Metal
+    fi
     "$METAL_CHECK" >"$OUT_DIR/macos-metal-toolchain.log" 2>&1 || {
       cat "$OUT_DIR/macos-metal-toolchain.log" >&2
       cat >"$SUMMARY" <<EOF

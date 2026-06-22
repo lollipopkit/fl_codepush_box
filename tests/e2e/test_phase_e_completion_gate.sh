@@ -101,5 +101,213 @@ run_case ratio_no_samples 1 "Android interpreter stats has no samples: 0/0/0.000
 run_case ratio_too_high 1 "Android interpreter ratio 0.020000 exceeds max 0.01" "2/100/0.020000"
 run_case ratio_missing 1 "Android interpreter stats missing in patch logcat" "unavailable"
 
+case_dir="$WORKDIR/android_acceptance_missing"
+android_summary="$case_dir/android-summary.txt"
+patch_logcat="$case_dir/patch/logcat.txt"
+desktop_summary="$case_dir/desktop-summary.txt"
+out_dir="$case_dir/out"
+host_check="$case_dir/host-check.sh"
+device_check="$case_dir/device-check.sh"
+mkdir -p "$case_dir" "$(dirname "$patch_logcat")"
+cat >"$host_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+cat >"$device_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$host_check" "$device_check"
+cat >"$android_summary" <<EOF
+FCB Android arm64 acceptance passed
+abi_mode: primary
+nopatch_observed: 1/8/7/base/baseline widget tree/base-field/10
+patch_setState_observed: true
+patch_logcat: $patch_logcat
+interpret_failure_summary: $WORKDIR/android/interpret-failure/summary.txt
+interpret_failure_FCB Android interpret-failure drill passed
+EOF
+echo "I/flutter: FCB interpreterStats result: 0/100/0.000000" >"$patch_logcat"
+echo "FCB desktop embedder full target validation passed" >"$desktop_summary"
+set +e
+FCB_PHASE_E_COMPLETION_DIR="$out_dir" \
+FCB_PHASE_E_HOST_EVIDENCE_CHECK="$host_check" \
+FCB_PHASE_E_ANDROID_DEVICE_CHECK="$device_check" \
+FCB_PHASE_E_ANDROID_SUMMARY="$android_summary" \
+FCB_PHASE_E_DESKTOP_SUMMARY="$desktop_summary" \
+FCB_PHASE_E_MAX_INTERPRETER_RATIO=0.01 \
+  "$SCRIPT" >"$case_dir/stdout.txt" 2>"$case_dir/stderr.txt"
+status=$?
+set -e
+[ "$status" -eq 1 ] || die "android_acceptance_missing exited $status, expected 1"
+require_line "$out_dir/summary.txt" "android_acceptance: fail"
+require_line "$out_dir/summary.txt" "Android acceptance summary missing required counter_app evidence:"
+
+case_dir="$WORKDIR/interpret_failure_missing"
+android_summary="$case_dir/android-summary.txt"
+patch_logcat="$case_dir/patch/logcat.txt"
+desktop_summary="$case_dir/desktop-summary.txt"
+out_dir="$case_dir/out"
+host_check="$case_dir/host-check.sh"
+device_check="$case_dir/device-check.sh"
+mkdir -p "$case_dir"
+cat >"$host_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+cat >"$device_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$host_check" "$device_check"
+write_common_evidence "$android_summary" "$patch_logcat" "$desktop_summary"
+grep -v '^interpret_failure_' "$android_summary" >"$case_dir/android-summary-filtered.txt"
+mv "$case_dir/android-summary-filtered.txt" "$android_summary"
+echo "I/flutter: FCB interpreterStats result: 0/100/0.000000" >"$patch_logcat"
+set +e
+FCB_PHASE_E_COMPLETION_DIR="$out_dir" \
+FCB_PHASE_E_HOST_EVIDENCE_CHECK="$host_check" \
+FCB_PHASE_E_ANDROID_DEVICE_CHECK="$device_check" \
+FCB_PHASE_E_ANDROID_SUMMARY="$android_summary" \
+FCB_PHASE_E_DESKTOP_SUMMARY="$desktop_summary" \
+FCB_PHASE_E_MAX_INTERPRETER_RATIO=0.01 \
+  "$SCRIPT" >"$case_dir/stdout.txt" 2>"$case_dir/stderr.txt"
+status=$?
+set -e
+[ "$status" -eq 1 ] || die "interpret_failure_missing exited $status, expected 1"
+require_line "$out_dir/summary.txt" "android_interpret_failure: fail"
+require_line "$out_dir/summary.txt" "Android interpret-failure fallback evidence missing:"
+
+case_dir="$WORKDIR/device_fail"
+android_summary="$case_dir/android-summary.txt"
+patch_logcat="$case_dir/patch/logcat.txt"
+desktop_summary="$case_dir/desktop-summary.txt"
+out_dir="$case_dir/out"
+host_check="$case_dir/host-check.sh"
+device_check="$case_dir/device-check.sh"
+mkdir -p "$case_dir"
+cat >"$host_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+cat >"$device_check" <<'SH'
+#!/usr/bin/env bash
+echo "error: adb command timed out" >&2
+exit 124
+SH
+chmod +x "$host_check" "$device_check"
+write_common_evidence "$android_summary" "$patch_logcat" "$desktop_summary"
+echo "I/flutter: FCB interpreterStats result: 0/100/0.000000" >"$patch_logcat"
+set +e
+FCB_PHASE_E_COMPLETION_DIR="$out_dir" \
+FCB_PHASE_E_HOST_EVIDENCE_CHECK="$host_check" \
+FCB_PHASE_E_ANDROID_DEVICE_CHECK="$device_check" \
+FCB_PHASE_E_ANDROID_SUMMARY="$android_summary" \
+FCB_PHASE_E_DESKTOP_SUMMARY="$desktop_summary" \
+FCB_PHASE_E_MAX_INTERPRETER_RATIO=0.01 \
+  "$SCRIPT" >"$case_dir/stdout.txt" 2>"$case_dir/stderr.txt"
+status=$?
+set -e
+[ "$status" -eq 1 ] || die "device_fail exited $status, expected 1"
+require_line "$out_dir/summary.txt" "android_device_preflight: fail"
+require_line "$out_dir/summary.txt" "Android device preflight failed:"
+
+case_dir="$WORKDIR/host_fail"
+android_summary="$case_dir/android-summary.txt"
+patch_logcat="$case_dir/patch/logcat.txt"
+desktop_summary="$case_dir/desktop-summary.txt"
+out_dir="$case_dir/out"
+host_check="$case_dir/host-check.sh"
+device_check="$case_dir/device-check.sh"
+mkdir -p "$case_dir"
+cat >"$host_check" <<'SH'
+#!/usr/bin/env bash
+echo "error: host evidence missing VM filter" >&2
+exit 1
+SH
+cat >"$device_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$host_check" "$device_check"
+write_common_evidence "$android_summary" "$patch_logcat" "$desktop_summary"
+echo "I/flutter: FCB interpreterStats result: 0/100/0.000000" >"$patch_logcat"
+set +e
+FCB_PHASE_E_COMPLETION_DIR="$out_dir" \
+FCB_PHASE_E_HOST_EVIDENCE_CHECK="$host_check" \
+FCB_PHASE_E_ANDROID_DEVICE_CHECK="$device_check" \
+FCB_PHASE_E_ANDROID_SUMMARY="$android_summary" \
+FCB_PHASE_E_DESKTOP_SUMMARY="$desktop_summary" \
+FCB_PHASE_E_MAX_INTERPRETER_RATIO=0.01 \
+  "$SCRIPT" >"$case_dir/stdout.txt" 2>"$case_dir/stderr.txt"
+status=$?
+set -e
+[ "$status" -eq 1 ] || die "host_fail exited $status, expected 1"
+require_line "$out_dir/summary.txt" "host_evidence: fail"
+require_line "$out_dir/summary.txt" "host evidence check failed:"
+
+case_dir="$WORKDIR/host_missing"
+android_summary="$case_dir/android-summary.txt"
+patch_logcat="$case_dir/patch/logcat.txt"
+desktop_summary="$case_dir/desktop-summary.txt"
+out_dir="$case_dir/out"
+host_check="$case_dir/missing-host-check.sh"
+device_check="$case_dir/device-check.sh"
+mkdir -p "$case_dir"
+cat >"$device_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$device_check"
+write_common_evidence "$android_summary" "$patch_logcat" "$desktop_summary"
+echo "I/flutter: FCB interpreterStats result: 0/100/0.000000" >"$patch_logcat"
+set +e
+FCB_PHASE_E_COMPLETION_DIR="$out_dir" \
+FCB_PHASE_E_HOST_EVIDENCE_CHECK="$host_check" \
+FCB_PHASE_E_ANDROID_DEVICE_CHECK="$device_check" \
+FCB_PHASE_E_ANDROID_SUMMARY="$android_summary" \
+FCB_PHASE_E_DESKTOP_SUMMARY="$desktop_summary" \
+FCB_PHASE_E_MAX_INTERPRETER_RATIO=0.01 \
+  "$SCRIPT" >"$case_dir/stdout.txt" 2>"$case_dir/stderr.txt"
+status=$?
+set -e
+[ "$status" -eq 1 ] || die "host_missing exited $status, expected 1"
+require_line "$out_dir/summary.txt" "host_evidence: fail"
+require_line "$out_dir/summary.txt" "missing host evidence check:"
+
+case_dir="$WORKDIR/desktop_fail"
+android_summary="$case_dir/android-summary.txt"
+patch_logcat="$case_dir/patch/logcat.txt"
+desktop_summary="$case_dir/desktop-summary.txt"
+out_dir="$case_dir/out"
+host_check="$case_dir/host-check.sh"
+device_check="$case_dir/device-check.sh"
+mkdir -p "$case_dir"
+cat >"$host_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+cat >"$device_check" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$host_check" "$device_check"
+write_common_evidence "$android_summary" "$patch_logcat" "$desktop_summary"
+echo "I/flutter: FCB interpreterStats result: 0/100/0.000000" >"$patch_logcat"
+echo "FCB desktop embedder full target validation failed" >"$desktop_summary"
+set +e
+FCB_PHASE_E_COMPLETION_DIR="$out_dir" \
+FCB_PHASE_E_HOST_EVIDENCE_CHECK="$host_check" \
+FCB_PHASE_E_ANDROID_DEVICE_CHECK="$device_check" \
+FCB_PHASE_E_ANDROID_SUMMARY="$android_summary" \
+FCB_PHASE_E_DESKTOP_SUMMARY="$desktop_summary" \
+FCB_PHASE_E_MAX_INTERPRETER_RATIO=0.01 \
+  "$SCRIPT" >"$case_dir/stdout.txt" 2>"$case_dir/stderr.txt"
+status=$?
+set -e
+[ "$status" -eq 1 ] || die "desktop_fail exited $status, expected 1"
+require_line "$out_dir/summary.txt" "desktop_embedder_full: fail"
+require_line "$out_dir/summary.txt" "desktop embedder full target evidence missing or failed:"
+
 echo "Phase E completion gate test passed"
 echo "workdir: $WORKDIR"

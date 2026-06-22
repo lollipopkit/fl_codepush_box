@@ -31,6 +31,10 @@ double helper() {
   return 2.5;
 }
 
+int combine(int left, int right) {
+  return left + right;
+}
+
 Object? maybeNull() {
   return null;
 }
@@ -39,8 +43,171 @@ Future<Object?> asyncNullableChoice(bool enabled) async {
   return enabled ? null : 'base-null';
 }
 
+Future<Object?> asyncAwaitThenNullableChoice(Future<bool> ready) async {
+  final enabled = await ready;
+  return enabled ? null : 'base-await-null';
+}
+
 String label(String name) {
   return 'hi $name';
+}
+
+String syncTryFinallyTail(String name) {
+  var out = 'base-sync-finally';
+  try {
+    out = '$out-body-$name';
+  } finally {
+    out = '$out-cleanup';
+  }
+  return out;
+}
+
+String syncTryCatchTail(String name) {
+  var out = 'base-sync-catch';
+  try {
+    out = '$out-ok-$name';
+  } catch (e) {
+    out = '$out-caught-$e';
+  }
+  return out;
+}
+
+String syncTryCatchLocalStatementTail(String name) {
+  var out = 'base-sync-catch-local-statement';
+  try {
+    label(name);
+  } catch (e) {
+    final message = 'base-sync-catch-local-message-$e';
+    out = message;
+  }
+  return out;
+}
+
+String syncTryCatchBodyLocalStatementTail(String name) {
+  var out = 'base-sync-catch-body-local-statement';
+  try {
+    final message = 'base-sync-catch-body-local-message-$name';
+    out = message;
+  } catch (e) {
+    label('base-sync-catch-body-local-caught-$e');
+  }
+  return out;
+}
+
+String syncTryCatchReturnValue(String name) {
+  try {
+    return 'base-catch-return-$name';
+  } catch (e) {
+    return 'base-caught-return-$e';
+  }
+}
+
+String syncTryCatchLocalReturnValue(String name) {
+  try {
+    return 'base-catch-local-return-$name';
+  } catch (e) {
+    final message = 'base-catch-local-caught-$e';
+    return message;
+  }
+}
+
+String syncTryCatchFinallyReturnValue(String name) {
+  try {
+    return 'base-catch-finally-return-$name';
+  } catch (e) {
+    return 'base-catch-finally-caught-$e';
+  } finally {
+    label('base-catch-finally-cleanup-$name');
+  }
+}
+
+String syncTryCatchStatementTail(String name) {
+  try {
+    label(name);
+  } catch (e) {
+    label('$e');
+  }
+  return 'base-sync-catch-statement-$name';
+}
+
+void syncTryCatchStatementVoid(String name) {
+  try {
+    label(name);
+  } catch (e) {
+    label('base-catch-void-$e');
+  }
+}
+
+String syncTryFinallyStatementTail(String name) {
+  try {
+    label(name);
+  } finally {
+    label('base-cleanup-$name');
+  }
+  return 'base-sync-finally-statement-$name';
+}
+
+String syncTryFinallyLocalStatementTail(String name) {
+  try {
+    label(name);
+  } finally {
+    final cleanup = 'base-cleanup-local-$name';
+    label(cleanup);
+  }
+  return 'base-sync-finally-local-statement-$name';
+}
+
+String syncTryFinallyBodyLocalStatementTail(String name) {
+  try {
+    final message = 'base-finally-body-local-$name';
+    label(message);
+  } finally {
+    label('base-finally-body-cleanup-$name');
+  }
+  return 'base-sync-finally-body-local-statement-$name';
+}
+
+void syncTryFinallyStatementVoid(String name) {
+  try {
+    label(name);
+  } finally {
+    label('base-void-cleanup-$name');
+  }
+}
+
+String syncTryFinallyReturnValue(String name) {
+  try {
+    return 'base-finally-return-$name';
+  } finally {
+    label('base-return-cleanup-$name');
+  }
+}
+
+String syncIfSideEffectTail(bool enabled, String name) {
+  if (enabled) {
+    label('base-if-side-effect-$name');
+  }
+  return 'base-if-tail-$name';
+}
+
+String syncIfElseSideEffectTail(bool enabled, String name) {
+  if (enabled) {
+    label('base-ifelse-side-effect-on-$name');
+  } else {
+    label('base-ifelse-side-effect-off-$name');
+  }
+  return 'base-ifelse-tail-$name';
+}
+
+String syncIfElseLocalSideEffectTail(bool enabled, String name) {
+  if (enabled) {
+    final message = 'base-ifelse-local-on-$name';
+    label(message);
+  } else {
+    final message = 'base-ifelse-local-off-$name';
+    label(message);
+  }
+  return 'base-ifelse-local-tail-$name';
 }
 
 String displayName(User user) {
@@ -64,12 +231,22 @@ Future<User> asyncMakeUser() async {
   return User('base-async', 'base-async-label');
 }
 
+Future<User> asyncAwaitThenMakeUser(Future<String> ready) async {
+  final label = await ready;
+  return User('base-await-user', label);
+}
+
 Config makeConfig() {
   return Config(name: 'base', label: 'base-label');
 }
 
 Future<Config> asyncMakeConfig() async {
   return Config(name: 'base-async', label: 'base-async-label');
+}
+
+Future<Config> asyncAwaitThenMakeConfig(Future<String> ready) async {
+  final label = await ready;
+  return Config(name: 'base-await-config', label: label);
 }
 
 String updateConfigLabel(Config config, String label) {
@@ -357,12 +534,22 @@ Future<String> asyncAlwaysThrow() async {
   return throw 'base-async-boom';
 }
 
+Future<String> asyncAwaitThenAlwaysThrow(Future<String> ready) async {
+  final value = await ready;
+  return throw 'base-await-throw:$value';
+}
+
 Future<String> asyncLabel() async {
   return 'base-async';
 }
 
 Future<String> asyncConcatLabel(String name) async {
   return 'base-async $name';
+}
+
+Future<String> asyncAwaitThenConcatLabel(Future<String> ready) async {
+  final value = await ready;
+  return 'base-await-concat $value';
 }
 
 Future<double> asyncStaticHelperValue() async {
@@ -372,6 +559,11 @@ Future<double> asyncStaticHelperValue() async {
 Future<double> asyncAwaitThenStaticHelperValue(Future<double> ready) async {
   final value = await ready;
   return value + 1.0;
+}
+
+Future<int> asyncAwaitThenStaticCombine(Future<int> ready, int right) async {
+  final left = await ready;
+  return combine(right, left);
 }
 
 Future<int> asyncArithmeticValue(int value) async {
@@ -405,7 +597,17 @@ Future<double> asyncDivideValue(int value) async {
   return value / 2;
 }
 
+Future<double> asyncAwaitThenDivideValue(Future<int> ready) async {
+  final value = await ready;
+  return value / 10;
+}
+
 Future<bool> asyncLogicalFlag(bool enabled, bool premium) async {
+  return enabled && premium || !enabled;
+}
+
+Future<bool> asyncAwaitThenLogicalFlag(Future<bool> ready, bool premium) async {
+  final enabled = await ready;
   return enabled && premium || !enabled;
 }
 
@@ -481,6 +683,32 @@ Future<String> awaitedCatchAwait(Future<String> ready) async {
   }
 }
 
+Future<String> awaitedCatchTail(Future<String> ready) async {
+  var out = 'base-catch-tail';
+  try {
+    final value = await ready;
+    out = '$out-ok-$value';
+  } catch (e) {
+    out = '$out-caught-$e';
+  }
+  return out;
+}
+
+Future<String> awaitedCatchAwaitTail(
+  Future<String> ready,
+  Future<String> recovery,
+) async {
+  var out = 'base-catch-await-tail';
+  try {
+    final value = await ready;
+    out = '$out-ok-$value';
+  } catch (e) {
+    final recovered = await recovery;
+    out = '$out-caught-$e-$recovered';
+  }
+  return out;
+}
+
 Future<String> awaitedFinallyLocal(Future<String> ready) async {
   try {
     final value = await ready;
@@ -502,6 +730,70 @@ Future<String> awaitedFinallyCleanup(
   }
 }
 
+Future<String> awaitedFinallyStatementTail(Future<String> ready) async {
+  var out = 'base-finally-tail';
+  try {
+    final value = await ready;
+    out = '$out-body-$value';
+  } finally {
+    final cleanup = 'base-finally-tail-cleanup';
+    out = '$out-$cleanup';
+  }
+  return '$out-done';
+}
+
+Future<String> awaitedFinallyAwaitCleanupTail(
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  var out = 'base-finally-await-tail';
+  try {
+    final value = await ready;
+    out = '$out-body-$value';
+  } finally {
+    final marker = await cleanup;
+    out = '$out-cleanup-$marker';
+  }
+  return '$out-done';
+}
+
+Future<String> awaitedCatchFinallyCleanup(
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  try {
+    try {
+      final value = await ready;
+      return 'base-catch-finally-ok-$value';
+    } catch (e) {
+      return 'base-catch-finally-caught-$e';
+    }
+  } finally {
+    await cleanup;
+  }
+}
+
+Future<String> awaitedCatchFinallyAwaitTail(
+  Future<String> ready,
+  Future<String> recovery,
+  Future<String> cleanup,
+) async {
+  var out = 'base-catch-finally-await-tail';
+  try {
+    try {
+      final value = await ready;
+      out = '$out-ok-$value';
+    } catch (e) {
+      final recovered = await recovery;
+      out = '$out-caught-$e-$recovered';
+    }
+  } finally {
+    final marker = await cleanup;
+    out = '$out-cleanup-$marker';
+  }
+  return out;
+}
+
 Future<String> asyncBranchLocal(bool enabled) async {
   if (enabled) {
     final status = 'base-branch-enabled';
@@ -510,6 +802,73 @@ Future<String> asyncBranchLocal(bool enabled) async {
     final status = 'base-branch-disabled';
     return status;
   }
+}
+
+Future<String> asyncIfTryFinallyAwaitTail(
+  bool enabled,
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  var out = 'base-if-try-finally-await-tail';
+  if (enabled) {
+    try {
+      final value = await ready;
+      out = '$out-on-$value';
+    } finally {
+      final marker = await cleanup;
+      out = '$out-cleanup-$marker';
+    }
+  } else {
+    out = '$out-off';
+  }
+  return out;
+}
+
+Future<String> asyncIfTryCatchAwaitTail(
+  bool enabled,
+  Future<String> ready,
+  Future<String> recovery,
+) async {
+  var out = 'base-if-try-catch-await-tail';
+  if (enabled) {
+    try {
+      final value = await ready;
+      out = '$out-on-$value';
+    } catch (e) {
+      final recovered = await recovery;
+      out = '$out-caught-$e-$recovered';
+    }
+  } else {
+    out = '$out-off';
+  }
+  return out;
+}
+
+Future<String> asyncIfElseTryFinallyCatchAwaitTail(
+  bool enabled,
+  Future<String> ready,
+  Future<String> recovery,
+  Future<String> cleanup,
+) async {
+  var out = 'base-ifelse-try-finally-catch-await-tail';
+  if (enabled) {
+    try {
+      final value = await ready;
+      out = '$out-on-$value';
+    } finally {
+      final marker = await cleanup;
+      out = '$out-cleanup-$marker';
+    }
+  } else {
+    try {
+      final value = await ready;
+      out = '$out-off-$value';
+    } catch (e) {
+      final recovered = await recovery;
+      out = '$out-caught-$e-$recovered';
+    }
+  }
+  return out;
 }
 
 Future<String> asyncNestedBranchLocal(bool enabled, bool premium) async {
@@ -718,6 +1077,27 @@ Future<String> asyncWhileAwaitCondition(Future<bool> keepGoing) async {
   return out;
 }
 
+Future<String> asyncWhileAwaitConditionContinueBreak(
+  Future<bool> keepGoing,
+  Future<bool> skip,
+  Future<bool> stop,
+) async {
+  var i = 0;
+  var out = 'base-while-await-condition-continue-break';
+  while (await keepGoing) {
+    out = '$out-before-$i';
+    if (await skip) {
+      i = i + 1;
+      continue;
+    }
+    out = '$out-middle-$i';
+    if (await stop) break;
+    out = '$out-after-$i';
+    i = i + 1;
+  }
+  return out;
+}
+
 Future<String> asyncWhileNestedAwaitBranchLocal(
   int limit,
   bool premium,
@@ -744,269 +1124,28 @@ Future<String> asyncWhileNestedAwaitBranchLocal(
   return out;
 }
 
-Future<String> asyncDoWhileLocal(int limit) async {
-  var i = 0;
-  var out = 'base-do-while';
-  do {
-    out = '$out-$i';
-    i = i + 1;
-  } while (limit > i);
-  return out;
-}
-
-Future<String> asyncDoWhileAwaitCondition(Future<bool> keepGoing) async {
-  var i = 0;
-  var out = 'base-do-while-await';
-  do {
-    out = '$out-$i';
-    i = i + 1;
-  } while (await keepGoing);
-  return out;
-}
-
-Future<String> asyncDoWhileBranchLocal(int limit) async {
-  var i = 0;
-  var out = 'base-do-while-branch';
-  do {
-    final segment = i == 0 ? 'first' : 'again';
-    out = '$out-$segment-$i';
-    i = i + 1;
-  } while (limit > i);
-  return out;
-}
-
-Future<String> asyncDoWhileBreak(int limit) async {
-  var i = 0;
-  var out = 'base-do-while-break';
-  do {
-    out = '$out-before-$i';
-    if (i == 1) break;
-    out = '$out-after-$i';
-    i = i + 1;
-  } while (limit > i);
-  return out;
-}
-
-Future<String> asyncDoWhileContinue(int limit) async {
-  var i = 0;
-  var out = 'base-do-while-continue';
-  do {
-    out = '$out-before-$i';
-    if (i == 1) {
-      i = i + 1;
-      continue;
-    }
-    out = '$out-after-$i';
-    i = i + 1;
-  } while (limit > i);
-  return out;
-}
-
-Future<String> asyncDoWhileContinueBreak(int limit) async {
-  var i = 0;
-  var out = 'base-do-while-continue-break';
-  do {
-    out = '$out-before-$i';
-    if (i == 1) {
-      i = i + 1;
-      continue;
-    }
-    out = '$out-middle-$i';
-    if (i == 2) break;
-    out = '$out-after-$i';
-    i = i + 1;
-  } while (limit > i);
-  return out;
-}
-
-Future<String> asyncDoWhileAwaitGuardContinueBreak(
-  int limit,
-  Future<bool> skip,
-  Future<bool> stop,
-) async {
-  var i = 0;
-  var out = 'base-do-while-await-guard-continue-break';
-  do {
-    out = '$out-before-$i';
-    if (await skip) {
-      i = i + 1;
-      continue;
-    }
-    out = '$out-middle-$i';
-    if (await stop) break;
-    out = '$out-after-$i';
-    i = i + 1;
-  } while (limit > i);
-  return out;
-}
-
-Future<String> asyncDoWhileAwaitGuardContinueBreakAwaitCondition(
+Future<String> asyncWhileAwaitConditionNestedAwaitBranchLocal(
   Future<bool> keepGoing,
-  Future<bool> skip,
-  Future<bool> stop,
+  bool premium,
+  Future<String> ready,
 ) async {
   var i = 0;
-  var out = 'base-do-while-await-guard-continue-break-await-condition';
-  do {
-    out = '$out-before-$i';
-    if (await skip) {
-      i = i + 1;
-      continue;
+  var out = 'base-while-await-condition-nested-branch';
+  while (await keepGoing) {
+    if (i == 0) {
+      final state = await ready;
+      if (premium) {
+        final tier = 'base-while-await-condition-nested-pro';
+        out = '$out-$state-$tier';
+      } else {
+        final tier = 'base-while-await-condition-nested-basic';
+        out = '$out-$state-$tier';
+      }
+    } else {
+      final state = 'base-while-await-condition-nested-tail';
+      out = '$out-$state-$i';
     }
-    out = '$out-middle-$i';
-    if (await stop) break;
-    out = '$out-after-$i';
     i = i + 1;
-  } while (await keepGoing);
-  return out;
-}
-
-Future<String> asyncForLocal(int limit) async {
-  var out = 'base-for';
-  for (var i = 0; limit > i; i = i + 1) {
-    out = '$out-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForContinue(int limit) async {
-  var out = 'base-for-continue';
-  for (var i = 0; limit > i; i = i + 1) {
-    out = '$out-before-$i';
-    if (i == 1) continue;
-    out = '$out-after-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForBreak(int limit) async {
-  var out = 'base-for-break';
-  for (var i = 0; limit > i; i = i + 1) {
-    out = '$out-before-$i';
-    if (i == 1) break;
-    out = '$out-after-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForContinueBreak(int limit) async {
-  var out = 'base-for-continue-break';
-  for (var i = 0; limit > i; i = i + 1) {
-    out = '$out-before-$i';
-    if (i == 1) continue;
-    out = '$out-mid-$i';
-    if (i == 2) break;
-    out = '$out-after-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForAwaitGuardContinueBreak(
-  int limit,
-  Future<bool> skip,
-  Future<bool> stop,
-) async {
-  var out = 'base-for-await-guard-continue-break';
-  for (var i = 0; limit > i; i = i + 1) {
-    out = '$out-before-$i';
-    if (await skip) continue;
-    out = '$out-mid-$i';
-    if (await stop) break;
-    out = '$out-after-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForAwaitGuardContinueBreakAwaitUpdate(
-  int limit,
-  Future<bool> skip,
-  Future<bool> stop,
-  Future<int> next,
-) async {
-  var out = 'base-for-await-guard-continue-break-await-update';
-  for (var i = 0; limit > i; i = await next) {
-    out = '$out-before-$i';
-    if (await skip) continue;
-    out = '$out-mid-$i';
-    if (await stop) break;
-    out = '$out-after-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForAwaitUpdate(int limit, Future<int> next) async {
-  var out = 'base-for-await-update';
-  for (var i = 0; limit > i; i = await next) {
-    out = '$out-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForAwaitUpdateBranchLocal(
-  int limit,
-  Future<int> next,
-) async {
-  var out = 'base-for-await-update-branch';
-  for (var i = 0; limit > i; i = await next) {
-    final segment = i == 1 ? 'one' : 'many';
-    out = '$out-$segment-$i';
-  }
-  return out;
-}
-
-Future<String> asyncForNestedAwaitBranchLocal(
-  int limit,
-  bool premium,
-  Future<String> ready,
-) async {
-  var out = 'base-for-nested-await-branch';
-  for (var i = 0; limit > i; i = i + 1) {
-    if (i == 0) {
-      final state = await ready;
-      if (premium) {
-        final tier = 'base-for-nested-pro';
-        out = '$out-$state-$tier';
-      } else {
-        final tier = 'base-for-nested-basic';
-        out = '$out-$state-$tier';
-      }
-    } else {
-      final state = 'base-for-nested-tail';
-      out = '$out-$state-$i';
-    }
-  }
-  return out;
-}
-
-Future<String> asyncForAwaitUpdateNestedBranchLocal(
-  int limit,
-  bool premium,
-  Future<String> ready,
-  Future<int> next,
-) async {
-  var out = 'base-for-await-update-nested-branch';
-  for (var i = 0; limit > i; i = await next) {
-    if (i == 0) {
-      final state = await ready;
-      if (premium) {
-        final tier = 'base-for-await-update-nested-pro';
-        out = '$out-$state-$tier';
-      } else {
-        final tier = 'base-for-await-update-nested-basic';
-        out = '$out-$state-$tier';
-      }
-    } else {
-      final state = 'base-for-await-update-nested-tail';
-      out = '$out-$state-$i';
-    }
-  }
-  return out;
-}
-
-Future<String> asyncForMultiUpdate(int limit) async {
-  var out = 'base-for-multi-update';
-  for (var i = 0, j = 0; limit > i; i = i + 1, j = j + 2) {
-    out = '$out-$i-$j';
   }
   return out;
 }

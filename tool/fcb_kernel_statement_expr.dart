@@ -20,19 +20,25 @@ Map<String, Object?>? _singleReturnExpr(
   if (statement != null && statement.expression != null) {
     return _expr(statement.expression!, params, libraryUri, locals, closures);
   }
-  return _letBodySourceExpr(body, params, libraryUri);
+  return _letBodySourceExpr(body, params, libraryUri, locals, closures);
 }
 
 Map<String, Object?>? _letBodySourceExpr(
   Statement? body,
   Set<String> params,
-  String libraryUri,
-) {
+  String libraryUri, [
+  Map<VariableDeclaration, int> baseLocals = const {},
+  Map<VariableDeclaration, FunctionExpression> baseClosures = const {},
+]) {
   if (body is! Block || body.statements.length < 2) return null;
   final locals = <Map<String, Object?>>[];
-  final localIds = <VariableDeclaration, int>{};
-  final closures = <VariableDeclaration, FunctionExpression>{};
+  final localIds = {...baseLocals};
+  final closures = {...baseClosures};
   var nextLocalId = 0;
+  for (final id in localIds.values) {
+    if (id >= nextLocalId) nextLocalId = id + 1;
+  }
+  final baseClosureCount = closures.length;
   var tailStart = 0;
   for (; tailStart < body.statements.length; tailStart++) {
     final statement = body.statements[tailStart];
@@ -55,7 +61,7 @@ Map<String, Object?>? _letBodySourceExpr(
       'value': value,
     });
   }
-  if (locals.isEmpty && closures.isEmpty) return null;
+  if (locals.isEmpty && closures.length == baseClosureCount) return null;
   final bodyExpr = _tailStatementsSourceExpr(
     body.statements.skip(tailStart).toList(),
     params,
@@ -76,28 +82,51 @@ Map<String, Object?>? _syncExpressionStatementSequenceExpr(
   String libraryUri,
 ) {
   if (body is! Block || body.statements.isEmpty) return null;
-  final items = <Map<String, Object?>>[];
-  for (var i = 0; i < body.statements.length; i++) {
-    final statement = body.statements[i];
-    if (statement is ReturnStatement &&
-        i == body.statements.length - 1 &&
-        statement.expression != null) {
-      final expr = _expr(statement.expression!, params, libraryUri);
-      if (expr == null) return null;
-      items.add(expr);
-      continue;
-    }
-    if (statement is! ExpressionStatement) {
-      return null;
-    }
-    final expr = _expr(statement.expression, params, libraryUri);
-    if (expr == null) return null;
-    items.add(expr);
-  }
-  if (body.statements.last is! ReturnStatement) {
-    items.add({'null': true});
-  }
+  final expr = _tailStatementsSourceExpr(
+    body.statements,
+    params,
+    libraryUri,
+    const {},
+    const {},
+  );
+  if (expr == null) return null;
+  if (body.statements.last is ReturnStatement) return expr;
+  final items = expr['seq'] is List
+      ? List<Object?>.from(expr['seq'] as List)
+      : [expr];
+  items.add({'null': true});
   return {'seq': items};
+}
+
+Map<String, Object?>? _tryFinallyBodySourceExpr(
+  Statement? body,
+  Set<String> params,
+  String libraryUri,
+) {
+  final tryFinally = body is TryFinally
+      ? body
+      : body is Block && body.statements.length == 1
+      ? body.statements.single
+      : null;
+  if (tryFinally is! TryFinally) return null;
+  final finalizerStatements = _syncStatementsFromBody(tryFinally.finalizer);
+  if (finalizerStatements.any((statement) => statement is ReturnStatement)) {
+    return null;
+  }
+  final bodyExpr =
+      _singleReturnExpr(tryFinally.body, params, libraryUri) ??
+      _tryCatchBodySourceExpr(tryFinally.body, params, libraryUri);
+  final finalizerExpr = _tailStatementsSourceExpr(
+    finalizerStatements,
+    params,
+    libraryUri,
+    const {},
+    const {},
+  );
+  if (bodyExpr == null || finalizerExpr == null) return null;
+  return {
+    'try_finally': {'body': bodyExpr, 'finally': finalizerExpr, 'value': true},
+  };
 }
 
 Map<String, Object?>? _tailStatementsSourceExpr(
@@ -112,7 +141,46 @@ Map<String, Object?>? _tailStatementsSourceExpr(
     if (only is ReturnStatement && only.expression != null) {
       return _expr(only.expression!, params, libraryUri, locals, closures);
     }
+    if (only is ExpressionStatement) {
+      return _expr(only.expression, params, libraryUri, locals, closures);
+    }
+    if (only is TryFinally || only is TryCatch) {
+      return _tailStatementSequenceExpr(
+        statements,
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+    }
     return _ifReturnBodySourceExpr(only, params, libraryUri, locals, closures);
+  }
+  final first = statements.first;
+  if (first is VariableDeclaration && first.initializer != null) {
+    final value = _expr(first.initializer!, params, libraryUri, locals, closures);
+    if (value == null) return null;
+    final id = _nextLocalId(locals);
+    final bodyExpr = _tailStatementsSourceExpr(
+      statements.skip(1).toList(growable: false),
+      params,
+      libraryUri,
+      {...locals, first: id},
+      closures,
+    );
+    if (bodyExpr == null) return null;
+    return {
+      'let': {
+        'locals': [
+          {
+            'id': id,
+            if (first.name != null && first.name!.isNotEmpty)
+              'name': first.name,
+            'value': value,
+          },
+        ],
+        'body': bodyExpr,
+      },
+    };
   }
   final ifReturn = statements.length == 2
       ? _ifReturnBodySourceExpr(
@@ -133,6 +201,14 @@ Map<String, Object?>? _tailStatementsSourceExpr(
   );
 }
 
+int _nextLocalId(Map<VariableDeclaration, int> locals) {
+  var nextLocalId = 0;
+  for (final id in locals.values) {
+    if (id >= nextLocalId) nextLocalId = id + 1;
+  }
+  return nextLocalId;
+}
+
 Map<String, Object?>? _tailStatementSequenceExpr(
   List<Statement> statements,
   Set<String> params,
@@ -140,7 +216,7 @@ Map<String, Object?>? _tailStatementSequenceExpr(
   Map<VariableDeclaration, int> locals,
   Map<VariableDeclaration, FunctionExpression> closures,
 ) {
-  if (statements.length < 2) return null;
+  if (statements.isEmpty) return null;
   final items = <Map<String, Object?>>[];
   for (var i = 0; i < statements.length; i++) {
     final statement = statements[i];
@@ -158,6 +234,94 @@ Map<String, Object?>? _tailStatementSequenceExpr(
       items.add(expr);
       continue;
     }
+    if (statement is TryFinally) {
+      final bodyExpr = _tailStatementsSourceExpr(
+        _syncStatementsFromBody(statement.body),
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      final finalizerExpr = _tailStatementsSourceExpr(
+        _syncStatementsFromBody(statement.finalizer),
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      if (bodyExpr == null || finalizerExpr == null) return null;
+      items.add({
+        'try_finally': {'body': bodyExpr, 'finally': finalizerExpr},
+      });
+      continue;
+    }
+    if (statement is TryCatch) {
+      if (statement.catches.length != 1) return null;
+      final catchClause = statement.catches.single;
+      if (catchClause.stackTrace != null || catchClause.exception == null) {
+        return null;
+      }
+      final catchLocalId = locals.length;
+      final bodyExpr = _tailStatementsSourceExpr(
+        _syncStatementsFromBody(statement.body),
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      final catchExpr = _tailStatementsSourceExpr(
+        _syncStatementsFromBody(catchClause.body),
+        params,
+        libraryUri,
+        {...locals, catchClause.exception!: catchLocalId},
+        closures,
+      );
+      if (bodyExpr == null || catchExpr == null) return null;
+      items.add({
+        'try_catch': {
+          'body': bodyExpr,
+          'catch_local': catchLocalId,
+          'catch': catchExpr,
+        },
+      });
+      continue;
+    }
+    if (statement is IfStatement) {
+      final condition = _expr(
+        statement.condition,
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      final thenExpr = _tailStatementsSourceExpr(
+        _syncStatementsFromBody(statement.then),
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      final elseExpr = statement.otherwise == null
+          ? {'null': true}
+          : _tailStatementsSourceExpr(
+              _syncStatementsFromBody(statement.otherwise!),
+              params,
+              libraryUri,
+              locals,
+              closures,
+            );
+      if (condition == null || thenExpr == null || elseExpr == null) {
+        return null;
+      }
+      items.add({
+        'conditional': {
+          'condition': condition,
+          'then': thenExpr,
+          'else': elseExpr,
+        },
+      });
+      continue;
+    }
     if (statement is! ExpressionStatement) return null;
     final expr = _expr(
       statement.expression,
@@ -170,6 +334,10 @@ Map<String, Object?>? _tailStatementSequenceExpr(
     items.add(expr);
   }
   return {'seq': items};
+}
+
+List<Statement> _syncStatementsFromBody(Statement statement) {
+  return statement is Block ? statement.statements : [statement];
 }
 
 Map<String, Object?>? _ifReturnBodySourceExpr(

@@ -223,11 +223,7 @@ class FcbCodePush {
 
   Future<InterpreterStats?> interpreterStats() async {
     try {
-      final lib = _library ??= _openLibrary();
-      final fn = lib.lookupFunction<
-          Int32 Function(Pointer<Uint64>, Pointer<Uint64>),
-          int Function(
-              Pointer<Uint64>, Pointer<Uint64>)>('fcb_get_interpreter_stats');
+      final fn = _lookupInterpreterStats();
       final interpreted = calloc<Uint64>();
       final aot = calloc<Uint64>();
       try {
@@ -246,6 +242,25 @@ class FcbCodePush {
       _debugLookupError('fcb_get_interpreter_stats', error, stack);
       return null;
     }
+  }
+
+  int Function(Pointer<Uint64>, Pointer<Uint64>) _lookupInterpreterStats() {
+    if (Platform.isAndroid) {
+      try {
+        return DynamicLibrary.process().lookupFunction<
+            Int32 Function(Pointer<Uint64>, Pointer<Uint64>),
+            int Function(Pointer<Uint64>, Pointer<Uint64>)>(
+          'fcb_engine_get_interpreter_stats',
+        );
+      } catch (_) {
+        // Older engines do not export the bridge; use the packaged updater.
+      }
+    }
+    final lib = _library ??= _openLibrary();
+    return lib.lookupFunction<
+        Int32 Function(Pointer<Uint64>, Pointer<Uint64>),
+        int Function(
+            Pointer<Uint64>, Pointer<Uint64>)>('fcb_get_interpreter_stats');
   }
 
   Future<void> cancelPendingOperations() async {
@@ -466,6 +481,17 @@ class FcbCodePush {
     // All its symbols are available in the current process image.
     if (Platform.isIOS) {
       return DynamicLibrary.process();
+    }
+    if (Platform.isAndroid) {
+      final process = DynamicLibrary.process();
+      try {
+        process.lookup<NativeFunction<Int32 Function()>>(
+          'fcb_current_patch_number',
+        );
+        return process;
+      } catch (_) {
+        // Stock Flutter apps load the packaged updater shared library below.
+      }
     }
     for (final path in _candidateLibraryPaths()) {
       try {

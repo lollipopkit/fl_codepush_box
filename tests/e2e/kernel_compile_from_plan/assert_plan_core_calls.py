@@ -1,6 +1,10 @@
 import json
 import sys
 
+from assert_plan_core_collection_names import assert_core_collection_name_sources
+from assert_plan_core_objects import assert_core_object_sources
+from assert_plan_core_ops import assert_core_op_sources
+
 patch = json.load(open(sys.argv[1]))
 patch_by_member = {f.get("member_name"): f for f in patch["functions"]}
 
@@ -16,6 +20,402 @@ def source_for(member):
         raise SystemExit(f"{member} should now be supported, got {function}")
     return source
 
+
+sync_try_finally_source = source_for("syncTryFinallyTail")
+sync_try_finally_let = sync_try_finally_source.get("body", {}).get("let", {})
+sync_try_finally_locals = sync_try_finally_let.get("locals", [])
+sync_try_finally_seq = sync_try_finally_let.get("body", {}).get("seq", [])
+sync_try_finally = sync_try_finally_seq[0].get("try_finally", {}) if sync_try_finally_seq else {}
+sync_try_finally_body_set = sync_try_finally.get("body", {}).get("set_local", {})
+sync_try_finally_finally_set = sync_try_finally.get("finally", {}).get("set_local", {})
+if (
+    sync_try_finally_source.get("params") != ["name"]
+    or sync_try_finally_source.get("return_type") != "String"
+    or len(sync_try_finally_locals) != 1
+    or sync_try_finally_locals[0].get("name") != "out"
+    or sync_try_finally_locals[0].get("value", {}).get("string") != "patched-sync-finally"
+    or sync_try_finally_body_set.get("id") != 0
+    or sync_try_finally_body_set.get("value", {}).get("concat", [{}, {}, {}])[2].get("arg") != "name"
+    or sync_try_finally_finally_set.get("id") != 0
+    or sync_try_finally_finally_set.get("value", {}).get("concat", [{}, {}])[1].get("string") != "-cleanup"
+    or sync_try_finally_seq[1].get("let_local") != 0
+):
+    raise SystemExit(f"expected syncTryFinallyTail sync try/finally statement + tail source, got {sync_try_finally_source}")
+
+sync_try_catch_source = source_for("syncTryCatchTail")
+sync_try_catch_let = sync_try_catch_source.get("body", {}).get("let", {})
+sync_try_catch_locals = sync_try_catch_let.get("locals", [])
+sync_try_catch_seq = sync_try_catch_let.get("body", {}).get("seq", [])
+sync_try_catch = sync_try_catch_seq[0].get("try_catch", {}) if sync_try_catch_seq else {}
+sync_try_catch_body_set = sync_try_catch.get("body", {}).get("set_local", {})
+sync_try_catch_catch_set = sync_try_catch.get("catch", {}).get("set_local", {})
+if (
+    sync_try_catch_source.get("params") != ["name"]
+    or sync_try_catch_source.get("return_type") != "String"
+    or len(sync_try_catch_locals) != 1
+    or sync_try_catch_locals[0].get("name") != "out"
+    or sync_try_catch_locals[0].get("value", {}).get("string") != "patched-sync-catch"
+    or sync_try_catch.get("catch_local") != 1
+    or sync_try_catch_body_set.get("id") != 0
+    or sync_try_catch_body_set.get("value", {}).get("concat", [{}, {}, {}])[2].get("arg") != "name"
+    or sync_try_catch_catch_set.get("id") != 0
+    or sync_try_catch_catch_set.get("value", {}).get("concat", [{}, {}, {}])[2].get("let_local") != 1
+    or sync_try_catch_seq[1].get("let_local") != 0
+):
+    raise SystemExit(f"expected syncTryCatchTail sync try/catch statement + tail source, got {sync_try_catch_source}")
+
+sync_try_catch_local_statement_source = source_for("syncTryCatchLocalStatementTail")
+sync_try_catch_local_statement_let = sync_try_catch_local_statement_source.get("body", {}).get("let", {})
+sync_try_catch_local_statement_seq = sync_try_catch_local_statement_let.get("body", {}).get("seq", [])
+sync_try_catch_local_statement_try = (
+    sync_try_catch_local_statement_seq[0].get("try_catch", {}) if sync_try_catch_local_statement_seq else {}
+)
+sync_try_catch_local_statement_catch_let = sync_try_catch_local_statement_try.get("catch", {}).get("let", {})
+sync_try_catch_local_statement_message = sync_try_catch_local_statement_catch_let.get("locals", [{}])[0]
+sync_try_catch_local_statement_set = sync_try_catch_local_statement_catch_let.get("body", {}).get("set_local", {})
+if (
+    sync_try_catch_local_statement_source.get("params") != ["name"]
+    or sync_try_catch_local_statement_source.get("return_type") != "String"
+    or sync_try_catch_local_statement_let.get("locals", [{}])[0].get("name") != "out"
+    or sync_try_catch_local_statement_try.get("catch_local") != 1
+    or not sync_try_catch_local_statement_try.get("body", {}).get("call_static", "").endswith("::label")
+    or sync_try_catch_local_statement_message.get("id") != 2
+    or sync_try_catch_local_statement_message.get("name") != "message"
+    or sync_try_catch_local_statement_message.get("value", {}).get("concat", [{}, {}])[1].get("let_local") != 1
+    or sync_try_catch_local_statement_set.get("id") != 0
+    or sync_try_catch_local_statement_set.get("value", {}).get("let_local") != 2
+    or sync_try_catch_local_statement_seq[1].get("let_local") != 0
+):
+    raise SystemExit(
+        f"expected syncTryCatchLocalStatementTail catch-local statement source, got {sync_try_catch_local_statement_source}"
+    )
+
+sync_try_catch_body_local_source = source_for("syncTryCatchBodyLocalStatementTail")
+sync_try_catch_body_local_let = sync_try_catch_body_local_source.get("body", {}).get("let", {})
+sync_try_catch_body_local_seq = sync_try_catch_body_local_let.get("body", {}).get("seq", [])
+sync_try_catch_body_local_try = (
+    sync_try_catch_body_local_seq[0].get("try_catch", {}) if sync_try_catch_body_local_seq else {}
+)
+sync_try_catch_body_local_try_let = sync_try_catch_body_local_try.get("body", {}).get("let", {})
+sync_try_catch_body_local_message = sync_try_catch_body_local_try_let.get("locals", [{}])[0]
+sync_try_catch_body_local_set = sync_try_catch_body_local_try_let.get("body", {}).get("set_local", {})
+sync_try_catch_body_local_catch = sync_try_catch_body_local_try.get("catch", {})
+if (
+    sync_try_catch_body_local_source.get("params") != ["name"]
+    or sync_try_catch_body_local_source.get("return_type") != "String"
+    or sync_try_catch_body_local_let.get("locals", [{}])[0].get("name") != "out"
+    or sync_try_catch_body_local_try.get("catch_local") != 1
+    or sync_try_catch_body_local_message.get("id") != 1
+    or sync_try_catch_body_local_message.get("name") != "message"
+    or sync_try_catch_body_local_message.get("value", {}).get("concat", [{}, {}])[0].get("string")
+    != "patched-sync-catch-body-local-message-"
+    or sync_try_catch_body_local_set.get("id") != 0
+    or sync_try_catch_body_local_set.get("value", {}).get("let_local") != 1
+    or not sync_try_catch_body_local_catch.get("call_static", "").endswith("::label")
+    or sync_try_catch_body_local_catch.get("args", [{}])[0].get("concat", [{}, {}])[1].get("let_local") != 1
+    or sync_try_catch_body_local_seq[1].get("let_local") != 0
+):
+    raise SystemExit(
+        f"expected syncTryCatchBodyLocalStatementTail try-body-local statement source, got {sync_try_catch_body_local_source}"
+    )
+
+sync_try_catch_return_source = source_for("syncTryCatchReturnValue")
+sync_try_catch_return = sync_try_catch_return_source.get("body", {}).get("try_catch", {})
+sync_try_catch_return_body = sync_try_catch_return.get("body", {}).get("concat", [])
+sync_try_catch_return_catch = sync_try_catch_return.get("catch", {}).get("concat", [])
+if (
+    sync_try_catch_return_source.get("params") != ["name"]
+    or sync_try_catch_return_source.get("return_type") != "String"
+    or sync_try_catch_return.get("catch_local") != 0
+    or sync_try_catch_return_body != [{"string": "patched-catch-return-"}, {"arg": "name"}]
+    or sync_try_catch_return_catch != [{"string": "patched-caught-return-"}, {"let_local": 0}]
+):
+    raise SystemExit(
+        f"expected syncTryCatchReturnValue sync try/catch value-preserving source, got {sync_try_catch_return_source}"
+    )
+
+sync_try_catch_local_return_source = source_for("syncTryCatchLocalReturnValue")
+sync_try_catch_local_return = sync_try_catch_local_return_source.get("body", {}).get("try_catch", {})
+sync_try_catch_local_catch_let = sync_try_catch_local_return.get("catch", {}).get("let", {})
+sync_try_catch_local_catch_locals = sync_try_catch_local_catch_let.get("locals", [])
+sync_try_catch_local_message = sync_try_catch_local_catch_locals[0] if sync_try_catch_local_catch_locals else {}
+sync_try_catch_local_message_value = sync_try_catch_local_message.get("value", {}).get("concat", [])
+if (
+    sync_try_catch_local_return_source.get("params") != ["name"]
+    or sync_try_catch_local_return_source.get("return_type") != "String"
+    or sync_try_catch_local_return.get("catch_local") != 0
+    or sync_try_catch_local_return.get("body", {}).get("concat", [])
+    != [{"string": "patched-catch-local-return-"}, {"arg": "name"}]
+    or sync_try_catch_local_message.get("id") != 1
+    or sync_try_catch_local_message.get("name") != "message"
+    or sync_try_catch_local_message_value != [{"string": "patched-catch-local-caught-"}, {"let_local": 0}]
+    or sync_try_catch_local_catch_let.get("body", {}).get("let_local") != 1
+):
+    raise SystemExit(
+        f"expected syncTryCatchLocalReturnValue catch-local let source, got {sync_try_catch_local_return_source}"
+    )
+
+sync_try_catch_finally_return_source = source_for("syncTryCatchFinallyReturnValue")
+sync_try_catch_finally_return = sync_try_catch_finally_return_source.get("body", {}).get("try_finally", {})
+sync_try_catch_finally_body = sync_try_catch_finally_return.get("body", {}).get("try_catch", {})
+sync_try_catch_finally_try = sync_try_catch_finally_body.get("body", {}).get("concat", [])
+sync_try_catch_finally_catch = sync_try_catch_finally_body.get("catch", {}).get("concat", [])
+sync_try_catch_finally_cleanup = sync_try_catch_finally_return.get("finally", {}).get("args", [{}])[0].get(
+    "concat",
+    [],
+)
+if (
+    sync_try_catch_finally_return_source.get("params") != ["name"]
+    or sync_try_catch_finally_return_source.get("return_type") != "String"
+    or sync_try_catch_finally_return.get("value") is not True
+    or sync_try_catch_finally_body.get("catch_local") != 0
+    or sync_try_catch_finally_try != [{"string": "patched-catch-finally-return-"}, {"arg": "name"}]
+    or sync_try_catch_finally_catch != [{"string": "patched-catch-finally-caught-"}, {"let_local": 0}]
+    or sync_try_catch_finally_cleanup != [{"string": "patched-catch-finally-cleanup-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        "expected syncTryCatchFinallyReturnValue nested try/catch/finally value-preserving source, "
+        f"got {sync_try_catch_finally_return_source}"
+    )
+
+sync_try_catch_statement_source = source_for("syncTryCatchStatementTail")
+sync_try_catch_statement_seq = sync_try_catch_statement_source.get("body", {}).get("seq", [])
+sync_try_catch_statement = (
+    sync_try_catch_statement_seq[0].get("try_catch", {}) if sync_try_catch_statement_seq else {}
+)
+sync_try_catch_statement_body = sync_try_catch_statement.get("body", {})
+sync_try_catch_statement_catch = sync_try_catch_statement.get("catch", {})
+sync_try_catch_statement_tail = sync_try_catch_statement_seq[1].get("concat", []) if len(sync_try_catch_statement_seq) > 1 else []
+if (
+    sync_try_catch_statement_source.get("params") != ["name"]
+    or sync_try_catch_statement_source.get("return_type") != "String"
+    or sync_try_catch_statement.get("catch_local") != 0
+    or not sync_try_catch_statement_body.get("call_static", "").endswith("::label")
+    or sync_try_catch_statement_body.get("args") != [{"arg": "name"}]
+    or not sync_try_catch_statement_catch.get("call_static", "").endswith("::label")
+    or sync_try_catch_statement_catch.get("args", [{}])[0].get("concat", [{}])[0].get("let_local") != 0
+    or sync_try_catch_statement_tail != [{"string": "patched-sync-catch-statement-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        f"expected syncTryCatchStatementTail sync try/catch expression statement + tail source, got {sync_try_catch_statement_source}"
+    )
+
+sync_try_catch_void_source = source_for("syncTryCatchStatementVoid")
+sync_try_catch_void_seq = sync_try_catch_void_source.get("body", {}).get("seq", [])
+sync_try_catch_void = sync_try_catch_void_seq[0].get("try_catch", {}) if sync_try_catch_void_seq else {}
+sync_try_catch_void_body = sync_try_catch_void.get("body", {})
+sync_try_catch_void_catch = sync_try_catch_void.get("catch", {})
+if (
+    sync_try_catch_void_source.get("params") != ["name"]
+    or sync_try_catch_void_source.get("return_type") is not None
+    or sync_try_catch_void.get("catch_local") != 0
+    or not sync_try_catch_void_body.get("call_static", "").endswith("::label")
+    or sync_try_catch_void_body.get("args") != [{"arg": "name"}]
+    or not sync_try_catch_void_catch.get("call_static", "").endswith("::label")
+    or sync_try_catch_void_catch.get("args", [{}])[0].get("concat", [{}, {}])[0].get("string")
+    != "patched-catch-void-"
+    or sync_try_catch_void_catch.get("args", [{}])[0].get("concat", [{}, {}])[1].get("let_local") != 0
+    or sync_try_catch_void_seq[1].get("null") is not True
+):
+    raise SystemExit(
+        f"expected syncTryCatchStatementVoid sync try/catch expression statement + implicit null source, got {sync_try_catch_void_source}"
+    )
+
+sync_try_finally_statement_source = source_for("syncTryFinallyStatementTail")
+sync_try_finally_statement_seq = sync_try_finally_statement_source.get("body", {}).get("seq", [])
+sync_try_finally_statement = (
+    sync_try_finally_statement_seq[0].get("try_finally", {}) if sync_try_finally_statement_seq else {}
+)
+sync_try_finally_statement_body = sync_try_finally_statement.get("body", {})
+sync_try_finally_statement_finally = sync_try_finally_statement.get("finally", {})
+sync_try_finally_statement_tail = (
+    sync_try_finally_statement_seq[1].get("concat", []) if len(sync_try_finally_statement_seq) > 1 else []
+)
+if (
+    sync_try_finally_statement_source.get("params") != ["name"]
+    or sync_try_finally_statement_source.get("return_type") != "String"
+    or not sync_try_finally_statement_body.get("call_static", "").endswith("::label")
+    or sync_try_finally_statement_body.get("args") != [{"arg": "name"}]
+    or not sync_try_finally_statement_finally.get("call_static", "").endswith("::label")
+    or sync_try_finally_statement_finally.get("args", [{}])[0].get("concat", [{}, {}])[0].get("string")
+    != "patched-cleanup-"
+    or sync_try_finally_statement_finally.get("args", [{}])[0].get("concat", [{}, {}])[1].get("arg") != "name"
+    or sync_try_finally_statement_tail != [{"string": "patched-sync-finally-statement-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        f"expected syncTryFinallyStatementTail sync try/finally expression statement + tail source, got {sync_try_finally_statement_source}"
+    )
+
+sync_try_finally_local_statement_source = source_for("syncTryFinallyLocalStatementTail")
+sync_try_finally_local_statement_seq = sync_try_finally_local_statement_source.get("body", {}).get("seq", [])
+sync_try_finally_local_statement = (
+    sync_try_finally_local_statement_seq[0].get("try_finally", {})
+    if sync_try_finally_local_statement_seq
+    else {}
+)
+sync_try_finally_local_finally = sync_try_finally_local_statement.get("finally", {}).get("let", {})
+sync_try_finally_local_cleanup = sync_try_finally_local_finally.get("locals", [{}])[0]
+sync_try_finally_local_tail = (
+    sync_try_finally_local_statement_seq[1].get("concat", [])
+    if len(sync_try_finally_local_statement_seq) > 1
+    else []
+)
+if (
+    sync_try_finally_local_statement_source.get("params") != ["name"]
+    or sync_try_finally_local_statement_source.get("return_type") != "String"
+    or not sync_try_finally_local_statement.get("body", {}).get("call_static", "").endswith("::label")
+    or sync_try_finally_local_cleanup.get("name") != "cleanup"
+    or sync_try_finally_local_cleanup.get("value", {}).get("concat", [{}, {}])[0].get("string")
+    != "patched-cleanup-local-"
+    or not sync_try_finally_local_finally.get("body", {}).get("call_static", "").endswith("::label")
+    or sync_try_finally_local_finally.get("body", {}).get("args", [{}])[0].get("let_local") != 0
+    or sync_try_finally_local_tail
+    != [{"string": "patched-sync-finally-local-statement-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        f"expected syncTryFinallyLocalStatementTail sync try/finally finalizer-local source, got {sync_try_finally_local_statement_source}"
+    )
+
+sync_try_finally_body_local_source = source_for("syncTryFinallyBodyLocalStatementTail")
+sync_try_finally_body_local_seq = sync_try_finally_body_local_source.get("body", {}).get("seq", [])
+sync_try_finally_body_local = (
+    sync_try_finally_body_local_seq[0].get("try_finally", {})
+    if sync_try_finally_body_local_seq
+    else {}
+)
+sync_try_finally_body_local_body = sync_try_finally_body_local.get("body", {}).get("let", {})
+sync_try_finally_body_local_message = sync_try_finally_body_local_body.get("locals", [{}])[0]
+sync_try_finally_body_local_finally = sync_try_finally_body_local.get("finally", {})
+sync_try_finally_body_local_tail = (
+    sync_try_finally_body_local_seq[1].get("concat", [])
+    if len(sync_try_finally_body_local_seq) > 1
+    else []
+)
+if (
+    sync_try_finally_body_local_source.get("params") != ["name"]
+    or sync_try_finally_body_local_source.get("return_type") != "String"
+    or sync_try_finally_body_local_message.get("name") != "message"
+    or sync_try_finally_body_local_message.get("value", {}).get("concat", [{}, {}])[0].get("string")
+    != "patched-finally-body-local-"
+    or not sync_try_finally_body_local_body.get("body", {}).get("call_static", "").endswith("::label")
+    or sync_try_finally_body_local_body.get("body", {}).get("args", [{}])[0].get("let_local") != 0
+    or not sync_try_finally_body_local_finally.get("call_static", "").endswith("::label")
+    or sync_try_finally_body_local_finally.get("args", [{}])[0].get("concat", [{}, {}])[0].get("string")
+    != "patched-finally-body-cleanup-"
+    or sync_try_finally_body_local_tail
+    != [{"string": "patched-sync-finally-body-local-statement-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        f"expected syncTryFinallyBodyLocalStatementTail sync try/finally body-local source, got {sync_try_finally_body_local_source}"
+    )
+
+sync_try_finally_void_source = source_for("syncTryFinallyStatementVoid")
+sync_try_finally_void_seq = sync_try_finally_void_source.get("body", {}).get("seq", [])
+sync_try_finally_void = sync_try_finally_void_seq[0].get("try_finally", {}) if sync_try_finally_void_seq else {}
+sync_try_finally_void_body = sync_try_finally_void.get("body", {})
+sync_try_finally_void_finally = sync_try_finally_void.get("finally", {})
+if (
+    sync_try_finally_void_source.get("params") != ["name"]
+    or sync_try_finally_void_source.get("return_type") is not None
+    or not sync_try_finally_void_body.get("call_static", "").endswith("::label")
+    or sync_try_finally_void_body.get("args") != [{"arg": "name"}]
+    or not sync_try_finally_void_finally.get("call_static", "").endswith("::label")
+    or sync_try_finally_void_finally.get("args", [{}])[0].get("concat", [{}, {}])[0].get("string")
+    != "patched-void-cleanup-"
+    or sync_try_finally_void_finally.get("args", [{}])[0].get("concat", [{}, {}])[1].get("arg") != "name"
+    or sync_try_finally_void_seq[1].get("null") is not True
+):
+    raise SystemExit(
+        f"expected syncTryFinallyStatementVoid sync try/finally expression statement + implicit null source, got {sync_try_finally_void_source}"
+    )
+
+sync_try_finally_return_source = source_for("syncTryFinallyReturnValue")
+sync_try_finally_return = sync_try_finally_return_source.get("body", {}).get("try_finally", {})
+sync_try_finally_return_body = sync_try_finally_return.get("body", {}).get("concat", [])
+sync_try_finally_return_finally = sync_try_finally_return.get("finally", {})
+sync_try_finally_return_cleanup = sync_try_finally_return_finally.get("args", [{}])[0].get("concat", [])
+if (
+    sync_try_finally_return_source.get("params") != ["name"]
+    or sync_try_finally_return_source.get("return_type") != "String"
+    or sync_try_finally_return.get("value") is not True
+    or sync_try_finally_return_body != [{"string": "patched-finally-return-"}, {"arg": "name"}]
+    or not sync_try_finally_return_finally.get("call_static", "").endswith("::label")
+    or sync_try_finally_return_cleanup != [{"string": "patched-return-cleanup-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        f"expected syncTryFinallyReturnValue sync try/finally value-preserving source, got {sync_try_finally_return_source}"
+    )
+
+sync_if_side_effect_source = source_for("syncIfSideEffectTail")
+sync_if_side_effect_seq = sync_if_side_effect_source.get("body", {}).get("seq", [])
+sync_if_side_effect_conditional = sync_if_side_effect_seq[0].get("conditional", {}) if sync_if_side_effect_seq else {}
+sync_if_side_effect_then = sync_if_side_effect_conditional.get("then", {})
+sync_if_side_effect_tail = sync_if_side_effect_seq[1].get("concat", []) if len(sync_if_side_effect_seq) > 1 else []
+if (
+    sync_if_side_effect_source.get("params") != ["enabled", "name"]
+    or sync_if_side_effect_source.get("return_type") != "String"
+    or sync_if_side_effect_conditional.get("condition", {}).get("arg") != "enabled"
+    or sync_if_side_effect_conditional.get("else", {}).get("null") is not True
+    or not sync_if_side_effect_then.get("call_static", "").endswith("::label")
+    or sync_if_side_effect_then.get("args", [{}])[0].get("concat", [{}, {}])[0].get("string")
+    != "patched-if-side-effect-"
+    or sync_if_side_effect_tail != [{"string": "patched-if-tail-"}, {"arg": "name"}]
+):
+    raise SystemExit(f"expected syncIfSideEffectTail sync if side-effect + tail source, got {sync_if_side_effect_source}")
+
+sync_ifelse_side_effect_source = source_for("syncIfElseSideEffectTail")
+sync_ifelse_side_effect_seq = sync_ifelse_side_effect_source.get("body", {}).get("seq", [])
+sync_ifelse_side_effect_conditional = (
+    sync_ifelse_side_effect_seq[0].get("conditional", {}) if sync_ifelse_side_effect_seq else {}
+)
+sync_ifelse_side_effect_then = sync_ifelse_side_effect_conditional.get("then", {})
+sync_ifelse_side_effect_else = sync_ifelse_side_effect_conditional.get("else", {})
+sync_ifelse_side_effect_tail = (
+    sync_ifelse_side_effect_seq[1].get("concat", []) if len(sync_ifelse_side_effect_seq) > 1 else []
+)
+if (
+    sync_ifelse_side_effect_source.get("params") != ["enabled", "name"]
+    or sync_ifelse_side_effect_source.get("return_type") != "String"
+    or sync_ifelse_side_effect_conditional.get("condition", {}).get("arg") != "enabled"
+    or not sync_ifelse_side_effect_then.get("call_static", "").endswith("::label")
+    or sync_ifelse_side_effect_then.get("args", [{}])[0].get("concat", [{}, {}])[0].get("string")
+    != "patched-ifelse-side-effect-on-"
+    or not sync_ifelse_side_effect_else.get("call_static", "").endswith("::label")
+    or sync_ifelse_side_effect_else.get("args", [{}])[0].get("concat", [{}, {}])[0].get("string")
+    != "patched-ifelse-side-effect-off-"
+    or sync_ifelse_side_effect_tail != [{"string": "patched-ifelse-tail-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        f"expected syncIfElseSideEffectTail sync if/else side-effect + tail source, got {sync_ifelse_side_effect_source}"
+    )
+
+sync_ifelse_local_source = source_for("syncIfElseLocalSideEffectTail")
+sync_ifelse_local_seq = sync_ifelse_local_source.get("body", {}).get("seq", [])
+sync_ifelse_local_conditional = sync_ifelse_local_seq[0].get("conditional", {}) if sync_ifelse_local_seq else {}
+sync_ifelse_local_then = sync_ifelse_local_conditional.get("then", {}).get("let", {})
+sync_ifelse_local_else = sync_ifelse_local_conditional.get("else", {}).get("let", {})
+sync_ifelse_local_then_local = sync_ifelse_local_then.get("locals", [{}])[0]
+sync_ifelse_local_else_local = sync_ifelse_local_else.get("locals", [{}])[0]
+sync_ifelse_local_tail = sync_ifelse_local_seq[1].get("concat", []) if len(sync_ifelse_local_seq) > 1 else []
+if (
+    sync_ifelse_local_source.get("params") != ["enabled", "name"]
+    or sync_ifelse_local_source.get("return_type") != "String"
+    or sync_ifelse_local_conditional.get("condition", {}).get("arg") != "enabled"
+    or sync_ifelse_local_then_local.get("name") != "message"
+    or sync_ifelse_local_then_local.get("value", {}).get("concat", [{}, {}])[0].get("string")
+    != "patched-ifelse-local-on-"
+    or not sync_ifelse_local_then.get("body", {}).get("call_static", "").endswith("::label")
+    or sync_ifelse_local_then.get("body", {}).get("args", [{}])[0].get("let_local") != 0
+    or sync_ifelse_local_else_local.get("name") != "message"
+    or sync_ifelse_local_else_local.get("value", {}).get("concat", [{}, {}])[0].get("string")
+    != "patched-ifelse-local-off-"
+    or not sync_ifelse_local_else.get("body", {}).get("call_static", "").endswith("::label")
+    or sync_ifelse_local_else.get("body", {}).get("args", [{}])[0].get("let_local") != 0
+    or sync_ifelse_local_tail != [{"string": "patched-ifelse-local-tail-"}, {"arg": "name"}]
+):
+    raise SystemExit(
+        f"expected syncIfElseLocalSideEffectTail sync if/else local side-effect + tail source, got {sync_ifelse_local_source}"
+    )
 
 update_config_source = source_for("updateConfigLabel")
 update_config_seq = update_config_source.get("body", {}).get("seq", [])
@@ -168,140 +568,6 @@ if (
 ):
     raise SystemExit(f"expected asyncAwaitThenSameObject await/call_original source, got {async_await_same_source}")
 
-async_arithmetic_source = source_for("asyncArithmeticValue")
-async_arithmetic_arg = async_arithmetic_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-if (
-    async_arithmetic_source.get("async_future") is not True
-    or async_arithmetic_source.get("body", {}).get("new_object", {}).get("type_args") != ["int"]
-    or async_arithmetic_arg.get("op") != "+"
-    or async_arithmetic_arg.get("left", {}).get("arg") != "value"
-    or async_arithmetic_arg.get("right", {}).get("int") != 2
-):
-    raise SystemExit(f"expected asyncArithmeticValue async binary op source, got {async_arithmetic_source}")
-
-async_await_arithmetic_source = source_for("asyncAwaitThenArithmeticValue")
-async_await_arithmetic_arg = async_await_arithmetic_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_await_arithmetic_let = async_await_arithmetic_arg.get("let", {})
-async_await_arithmetic_locals = async_await_arithmetic_let.get("locals", [])
-async_await_arithmetic_op = async_await_arithmetic_let.get("body", {})
-if (
-    async_await_arithmetic_source.get("async_future") is not True
-    or async_await_arithmetic_source.get("body", {}).get("new_object", {}).get("type_args") != ["int"]
-    or async_await_arithmetic_source.get("params") != ["ready"]
-    or len(async_await_arithmetic_locals) != 1
-    or async_await_arithmetic_locals[0].get("name") != "value"
-    or async_await_arithmetic_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
-    or async_await_arithmetic_op.get("op") != "+"
-    or async_await_arithmetic_op.get("left", {}).get("let_local") != 0
-    or async_await_arithmetic_op.get("right", {}).get("int") != 5
-):
-    raise SystemExit(
-        "expected asyncAwaitThenArithmeticValue await/binary op source, "
-        f"got {async_await_arithmetic_source}"
-    )
-
-async_subtract_source = source_for("asyncSubtractValue")
-async_subtract_arg = async_subtract_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-if (
-    async_subtract_source.get("async_future") is not True
-    or async_subtract_source.get("body", {}).get("new_object", {}).get("type_args") != ["int"]
-    or async_subtract_arg.get("op") != "-"
-    or async_subtract_arg.get("left", {}).get("arg") != "value"
-    or async_subtract_arg.get("right", {}).get("int") != 3
-):
-    raise SystemExit(f"expected asyncSubtractValue async binary op source, got {async_subtract_source}")
-
-async_await_subtract_source = source_for("asyncAwaitThenSubtractValue")
-async_await_subtract_arg = async_await_subtract_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_await_subtract_let = async_await_subtract_arg.get("let", {})
-async_await_subtract_locals = async_await_subtract_let.get("locals", [])
-async_await_subtract_op = async_await_subtract_let.get("body", {})
-if (
-    async_await_subtract_source.get("async_future") is not True
-    or async_await_subtract_source.get("body", {}).get("new_object", {}).get("type_args") != ["int"]
-    or async_await_subtract_source.get("params") != ["ready"]
-    or len(async_await_subtract_locals) != 1
-    or async_await_subtract_locals[0].get("name") != "value"
-    or async_await_subtract_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
-    or async_await_subtract_op.get("op") != "-"
-    or async_await_subtract_op.get("left", {}).get("let_local") != 0
-    or async_await_subtract_op.get("right", {}).get("int") != 7
-):
-    raise SystemExit(
-        "expected asyncAwaitThenSubtractValue await/binary op source, "
-        f"got {async_await_subtract_source}"
-    )
-
-async_multiply_source = source_for("asyncMultiplyValue")
-async_multiply_arg = async_multiply_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-if (
-    async_multiply_source.get("async_future") is not True
-    or async_multiply_source.get("body", {}).get("new_object", {}).get("type_args") != ["int"]
-    or async_multiply_arg.get("op") != "*"
-    or async_multiply_arg.get("left", {}).get("arg") != "value"
-    or async_multiply_arg.get("right", {}).get("int") != 3
-):
-    raise SystemExit(f"expected asyncMultiplyValue async binary op source, got {async_multiply_source}")
-
-async_await_multiply_source = source_for("asyncAwaitThenMultiplyValue")
-async_await_multiply_arg = async_await_multiply_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_await_multiply_let = async_await_multiply_arg.get("let", {})
-async_await_multiply_locals = async_await_multiply_let.get("locals", [])
-async_await_multiply_op = async_await_multiply_let.get("body", {})
-if (
-    async_await_multiply_source.get("async_future") is not True
-    or async_await_multiply_source.get("body", {}).get("new_object", {}).get("type_args") != ["int"]
-    or async_await_multiply_source.get("params") != ["ready"]
-    or len(async_await_multiply_locals) != 1
-    or async_await_multiply_locals[0].get("name") != "value"
-    or async_await_multiply_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
-    or async_await_multiply_op.get("op") != "*"
-    or async_await_multiply_op.get("left", {}).get("let_local") != 0
-    or async_await_multiply_op.get("right", {}).get("int") != 9
-):
-    raise SystemExit(
-        "expected asyncAwaitThenMultiplyValue await/binary op source, "
-        f"got {async_await_multiply_source}"
-    )
-
-async_divide_source = source_for("asyncDivideValue")
-async_divide_arg = async_divide_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-if (
-    async_divide_source.get("async_future") is not True
-    or async_divide_source.get("body", {}).get("new_object", {}).get("type_args") != ["double"]
-    or async_divide_arg.get("op") != "/"
-    or async_divide_arg.get("left", {}).get("arg") != "value"
-    or async_divide_arg.get("right", {}).get("int") != 4
-):
-    raise SystemExit(f"expected asyncDivideValue async binary op source, got {async_divide_source}")
-
-async_logical_source = source_for("asyncLogicalFlag")
-async_logical_arg = async_logical_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_logical_condition = async_logical_arg.get("conditional", {})
-async_logical_and = async_logical_condition.get("condition", {}).get("conditional", {})
-async_logical_not = async_logical_and.get("then", {}).get("conditional", {})
-if (
-    async_logical_source.get("async_future") is not True
-    or async_logical_source.get("body", {}).get("new_object", {}).get("type_args") != ["bool"]
-    or async_logical_condition.get("then", {}).get("bool") is not True
-    or async_logical_condition.get("else", {}).get("arg") != "premium"
-    or async_logical_and.get("condition", {}).get("arg") != "enabled"
-    or async_logical_and.get("else", {}).get("bool") is not False
-    or async_logical_not.get("condition", {}).get("arg") != "premium"
-    or async_logical_not.get("then", {}).get("bool") is not False
-    or async_logical_not.get("else", {}).get("bool") is not True
-):
-    raise SystemExit(f"expected asyncLogicalFlag async logical source, got {async_logical_source}")
-
-async_always_throw_source = source_for("asyncAlwaysThrow")
-async_always_throw_arg = async_always_throw_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-if (
-    async_always_throw_source.get("async_future") is not True
-    or async_always_throw_source.get("body", {}).get("new_object", {}).get("type_args") != ["String"]
-    or async_always_throw_arg.get("throw", {}).get("string") != "patched-async-boom"
-):
-    raise SystemExit(f"expected asyncAlwaysThrow async throw source, got {async_always_throw_source}")
-
 async_static_helper_source = source_for("asyncStaticHelperValue")
 async_static_helper_arg = async_static_helper_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
 async_static_helper_call = async_static_helper_arg.get("left", {})
@@ -335,6 +601,28 @@ if (
 ):
     raise SystemExit(f"expected asyncAwaitThenStaticHelperValue await/call_static source, got {async_await_static_source}")
 
+async_await_static_combine_source = source_for("asyncAwaitThenStaticCombine")
+async_await_static_combine_arg = async_await_static_combine_source.get("body", {}).get("new_object", {}).get(
+    "args", [{}]
+)[0]
+async_await_static_combine_let = async_await_static_combine_arg.get("let", {})
+async_await_static_combine_locals = async_await_static_combine_let.get("locals", [])
+async_await_static_combine_call = async_await_static_combine_let.get("body", {})
+if (
+    async_await_static_combine_source.get("async_future") is not True
+    or async_await_static_combine_source.get("body", {}).get("new_object", {}).get("type_args") != ["int"]
+    or async_await_static_combine_source.get("params") != ["ready", "right"]
+    or len(async_await_static_combine_locals) != 1
+    or async_await_static_combine_locals[0].get("name") != "left"
+    or async_await_static_combine_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_static_combine_call.get("call_static", "").endswith("::combine") is not True
+    or async_await_static_combine_call.get("args") != [{"let_local": 0}, {"arg": "right"}]
+):
+    raise SystemExit(
+        "expected asyncAwaitThenStaticCombine await/call_static args source, "
+        f"got {async_await_static_combine_source}"
+    )
+
 async_concat_source = source_for("asyncConcatLabel")
 async_concat_arg = async_concat_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
 async_concat_items = async_concat_arg.get("concat", [])
@@ -347,6 +635,28 @@ if (
 ):
     raise SystemExit(f"expected asyncConcatLabel async concat source, got {async_concat_source}")
 
+async_await_concat_source = source_for("asyncAwaitThenConcatLabel")
+async_await_concat_arg = async_await_concat_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_concat_let = async_await_concat_arg.get("let", {})
+async_await_concat_locals = async_await_concat_let.get("locals", [])
+async_await_concat_items = async_await_concat_let.get("body", {}).get("concat", [])
+if (
+    async_await_concat_source.get("async_future") is not True
+    or async_await_concat_source.get("body", {}).get("new_object", {}).get("type_args") != ["String"]
+    or async_await_concat_source.get("params") != ["ready"]
+    or len(async_await_concat_locals) != 1
+    or async_await_concat_locals[0].get("name") != "value"
+    or async_await_concat_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_concat_items != [
+        {"string": "patched-await-concat "},
+        {"let_local": 0},
+    ]
+):
+    raise SystemExit(
+        "expected asyncAwaitThenConcatLabel await/concat source, "
+        f"got {async_await_concat_source}"
+    )
+
 async_nullable_source = source_for("asyncNullableChoice")
 async_nullable_arg = async_nullable_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
 async_nullable_conditional = async_nullable_arg.get("conditional", {})
@@ -358,6 +668,48 @@ if (
     or async_nullable_conditional.get("else", {}).get("string") != "patched-null"
 ):
     raise SystemExit(f"expected asyncNullableChoice async null conditional source, got {async_nullable_source}")
+
+async_await_nullable_source = source_for("asyncAwaitThenNullableChoice")
+async_await_nullable_arg = async_await_nullable_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_nullable_let = async_await_nullable_arg.get("let", {})
+async_await_nullable_locals = async_await_nullable_let.get("locals", [])
+async_await_nullable_conditional = async_await_nullable_let.get("body", {}).get("conditional", {})
+if (
+    async_await_nullable_source.get("async_future") is not True
+    or async_await_nullable_source.get("body", {}).get("new_object", {}).get("type_args") != ["Object"]
+    or async_await_nullable_source.get("params") != ["ready"]
+    or len(async_await_nullable_locals) != 1
+    or async_await_nullable_locals[0].get("name") != "enabled"
+    or async_await_nullable_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_nullable_conditional.get("condition", {}).get("let_local") != 0
+    or async_await_nullable_conditional.get("then", {}).get("null") is not True
+    or async_await_nullable_conditional.get("else", {}).get("string") != "patched-await-null"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenNullableChoice await/null conditional source, "
+        f"got {async_await_nullable_source}"
+    )
+
+async_await_choose_label_source = source_for("asyncAwaitThenChooseLabel")
+async_await_choose_label_arg = async_await_choose_label_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_choose_label_let = async_await_choose_label_arg.get("let", {})
+async_await_choose_label_locals = async_await_choose_label_let.get("locals", [])
+async_await_choose_label_conditional = async_await_choose_label_let.get("body", {}).get("conditional", {})
+if (
+    async_await_choose_label_source.get("async_future") is not True
+    or async_await_choose_label_source.get("body", {}).get("new_object", {}).get("type_args") != ["String"]
+    or async_await_choose_label_source.get("params") != ["ready"]
+    or len(async_await_choose_label_locals) != 1
+    or async_await_choose_label_locals[0].get("name") != "enabled"
+    or async_await_choose_label_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_choose_label_conditional.get("condition", {}).get("let_local") != 0
+    or async_await_choose_label_conditional.get("then", {}).get("string") != "patched-await-live"
+    or async_await_choose_label_conditional.get("else", {}).get("string") != "patched-await-off"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenChooseLabel await/conditional source, "
+        f"got {async_await_choose_label_source}"
+    )
 
 async_display_source = source_for("asyncDisplayName")
 async_display_arg = async_display_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
@@ -391,150 +743,9 @@ if (
 ):
     raise SystemExit(f"expected asyncAwaitThenReadField await/get_field concat source, got {async_await_field_source}")
 
-async_make_user_source = source_for("asyncMakeUser")
-async_make_user_object = async_make_user_source.get("body", {}).get("new_object", {})
-async_make_user_arg = async_make_user_object.get("args", [{}])[0].get("new_object", {})
-if (
-    async_make_user_source.get("async_future") is not True
-    or async_make_user_object.get("type_args") != ["User"]
-    or not async_make_user_arg.get("constructor", "").endswith("::class:User.")
-    or async_make_user_arg.get("args") != [
-        {"string": "patched-async"},
-        {"string": "patched-async-label"},
-    ]
-):
-    raise SystemExit(f"expected asyncMakeUser async new_object source, got {async_make_user_source}")
-
-async_make_config_source = source_for("asyncMakeConfig")
-async_make_config_object = async_make_config_source.get("body", {}).get("new_object", {})
-async_make_config_arg = async_make_config_object.get("args", [{}])[0].get("new_object", {})
-if (
-    async_make_config_source.get("async_future") is not True
-    or async_make_config_object.get("type_args") != ["Config"]
-    or not async_make_config_arg.get("constructor", "").endswith("::class:Config.")
-    or async_make_config_arg.get("named_args") != [
-        {"name": "name", "value": {"string": "patched-async"}},
-        {"name": "label", "value": {"string": "patched-async-label"}},
-    ]
-):
-    raise SystemExit(f"expected asyncMakeConfig async named new_object source, got {async_make_config_source}")
-
-async_make_box_source = source_for("asyncMakeStringBox")
-async_make_box_object = async_make_box_source.get("body", {}).get("new_object", {})
-async_make_box_arg = async_make_box_object.get("args", [{}])[0].get("new_object", {})
-if (
-    async_make_box_source.get("async_future") is not True
-    or async_make_box_object.get("type_args") != ["Box<String>"]
-    or not async_make_box_arg.get("constructor", "").endswith("::class:Box.")
-    or async_make_box_arg.get("type_args") != ["String"]
-    or async_make_box_arg.get("args") != [{"string": "patched-async-box"}]
-):
-    raise SystemExit(f"expected asyncMakeStringBox async generic new_object source, got {async_make_box_source}")
-
-async_await_box_source = source_for("asyncAwaitThenMakeStringBox")
-async_await_box_object = async_await_box_source.get("body", {}).get("new_object", {})
-async_await_box_let = async_await_box_object.get("args", [{}])[0].get("let", {})
-async_await_box_locals = async_await_box_let.get("locals", [])
-async_await_box_inner = async_await_box_let.get("body", {}).get("new_object", {})
-async_await_box_concat = async_await_box_inner.get("args", [{}])[0].get("concat", [])
-if (
-    async_await_box_source.get("async_future") is not True
-    or async_await_box_object.get("type_args") != ["Box<String>"]
-    or async_await_box_source.get("params") != ["ready"]
-    or len(async_await_box_locals) != 1
-    or async_await_box_locals[0].get("name") != "value"
-    or async_await_box_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
-    or not async_await_box_inner.get("constructor", "").endswith("::class:Box.")
-    or async_await_box_inner.get("type_args") != ["String"]
-    or async_await_box_concat != [{"string": "patched-await-box:"}, {"let_local": 0}]
-):
-    raise SystemExit(f"expected asyncAwaitThenMakeStringBox await/generic new_object source, got {async_await_box_source}")
-
-async_is_string_list_source = source_for("asyncIsStringList")
-async_is_string_list_arg = async_is_string_list_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_is_type = async_is_string_list_arg.get("is_type", {})
-if (
-    async_is_string_list_source.get("async_future") is not True
-    or async_is_string_list_source.get("body", {}).get("new_object", {}).get("type_args") != ["bool"]
-    or async_is_type.get("value", {}).get("arg") != "value"
-    or async_is_type.get("type") != "List<String>"
-):
-    raise SystemExit(f"expected asyncIsStringList async is_type source, got {async_is_string_list_source}")
-
-async_as_string_list_source = source_for("asyncAsStringList")
-async_as_string_list_arg = async_as_string_list_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_as_type = async_as_string_list_arg.get("as_type", {})
-if (
-    async_as_string_list_source.get("async_future") is not True
-    or async_as_string_list_source.get("body", {}).get("new_object", {}).get("type_args") != ["Object"]
-    or async_as_type.get("value", {}).get("arg") != "value"
-    or async_as_type.get("type") != "List<String>"
-):
-    raise SystemExit(f"expected asyncAsStringList async as_type source, got {async_as_string_list_source}")
-
-async_await_is_source = source_for("asyncAwaitThenIsString")
-async_await_is_arg = async_await_is_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_await_is_let = async_await_is_arg.get("let", {})
-async_await_is_locals = async_await_is_let.get("locals", [])
-async_await_is_type = async_await_is_let.get("body", {}).get("is_type", {})
-if (
-    async_await_is_source.get("async_future") is not True
-    or async_await_is_source.get("body", {}).get("new_object", {}).get("type_args") != ["bool"]
-    or async_await_is_source.get("params") != ["ready"]
-    or len(async_await_is_locals) != 1
-    or async_await_is_locals[0].get("name") != "value"
-    or async_await_is_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
-    or async_await_is_type.get("value", {}).get("let_local") != 0
-    or async_await_is_type.get("type") != "String"
-):
-    raise SystemExit(f"expected asyncAwaitThenIsString await/is_type source, got {async_await_is_source}")
-
-async_await_as_source = source_for("asyncAwaitThenAsStringList")
-async_await_as_arg = async_await_as_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_await_as_let = async_await_as_arg.get("let", {})
-async_await_as_locals = async_await_as_let.get("locals", [])
-async_await_as_type = async_await_as_let.get("body", {}).get("as_type", {})
-if (
-    async_await_as_source.get("async_future") is not True
-    or async_await_as_source.get("body", {}).get("new_object", {}).get("type_args") != ["Object"]
-    or async_await_as_source.get("params") != ["ready"]
-    or len(async_await_as_locals) != 1
-    or async_await_as_locals[0].get("name") != "value"
-    or async_await_as_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
-    or async_await_as_type.get("value", {}).get("let_local") != 0
-    or async_await_as_type.get("type") != "List<String>"
-):
-    raise SystemExit(f"expected asyncAwaitThenAsStringList await/as_type source, got {async_await_as_source}")
-
-async_dynamic_names_source = source_for("asyncDynamicNames")
-async_dynamic_names_arg = async_dynamic_names_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_dynamic_names_add_all = async_dynamic_names_arg.get("list_add_all", {})
-if (
-    async_dynamic_names_source.get("async_future") is not True
-    or async_dynamic_names_source.get("body", {}).get("new_object", {}).get("type_args") != ["List<String>"]
-    or async_dynamic_names_add_all.get("receiver", {}).get("list", [{}])[0].get("string") != "patched-async"
-    or async_dynamic_names_add_all.get("spread", {}).get("arg") != "extra"
-):
-    raise SystemExit(f"expected asyncDynamicNames async list_add_all source, got {async_dynamic_names_source}")
-
-async_names_source = source_for("asyncNames")
-async_names_arg = async_names_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
-async_names_premium = async_names_arg.get("conditional", {})
-async_names_premium_then = async_names_premium.get("then", {}).get("conditional", {}).get("then", {}).get("list", [])
-async_names_premium_else = async_names_premium.get("else", {}).get("conditional", {}).get("else", {}).get("list", [])
-if (
-    async_names_source.get("async_future") is not True
-    or async_names_source.get("body", {}).get("new_object", {}).get("type_args") != ["List<String>"]
-    or async_names_premium.get("condition", {}).get("arg") != "premium"
-    or len(async_names_premium_then) != 8
-    or async_names_premium_then[0].get("string") != "patched-async-static"
-    or async_names_premium_then[3].get("string") != "async-for-a"
-    or async_names_premium_then[5].get("string") != "async-live"
-    or async_names_premium_then[6].get("string") != "async-pro"
-    or len(async_names_premium_else) != 7
-    or async_names_premium_else[5].get("string") != "async-off"
-):
-    raise SystemExit(f"expected asyncNames async static collection source, got {async_names_source}")
+assert_core_object_sources(source_for)
+assert_core_op_sources(source_for)
+assert_core_collection_name_sources(source_for)
 
 async_dynamic_labels_source = source_for("asyncDynamicLabels")
 async_dynamic_labels_arg = async_dynamic_labels_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
@@ -547,6 +758,28 @@ if (
     or async_dynamic_labels_add_all.get("spread", {}).get("arg") != "extra"
 ):
     raise SystemExit(f"expected asyncDynamicLabels async map_add_all source, got {async_dynamic_labels_source}")
+
+async_await_dynamic_labels_source = source_for("asyncAwaitThenDynamicLabels")
+async_await_dynamic_labels_arg = async_await_dynamic_labels_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_dynamic_labels_let = async_await_dynamic_labels_arg.get("let", {})
+async_await_dynamic_labels_locals = async_await_dynamic_labels_let.get("locals", [])
+async_await_dynamic_labels_add_all = async_await_dynamic_labels_let.get("body", {}).get("map_add_all", {})
+async_await_dynamic_labels_receiver = async_await_dynamic_labels_add_all.get("receiver", {}).get("map", [])
+if (
+    async_await_dynamic_labels_source.get("async_future") is not True
+    or async_await_dynamic_labels_source.get("body", {}).get("new_object", {}).get("type_args") != ["Map<String,String>"]
+    or async_await_dynamic_labels_source.get("params") != ["ready", "extra"]
+    or len(async_await_dynamic_labels_locals) != 1
+    or async_await_dynamic_labels_locals[0].get("name") != "value"
+    or async_await_dynamic_labels_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_dynamic_labels_receiver
+    != [{"key": {"string": "mode"}, "value": {"string": "patched-await-dynamic-map"}}]
+    or async_await_dynamic_labels_add_all.get("spread", {}).get("arg") != "extra"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenDynamicLabels await/map_add_all source, "
+        f"got {async_await_dynamic_labels_source}"
+    )
 
 async_labels_source = source_for("asyncLabels")
 async_labels_arg = async_labels_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
@@ -567,6 +800,239 @@ if (
 ):
     raise SystemExit(f"expected asyncLabels async static map source, got {async_labels_source}")
 
+async_await_labels_source = source_for("asyncAwaitThenLabels")
+async_await_labels_arg = async_await_labels_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_labels_let = async_await_labels_arg.get("let", {})
+async_await_labels_locals = async_await_labels_let.get("locals", [])
+async_await_labels_map = async_await_labels_let.get("body", {}).get("map", [])
+if (
+    async_await_labels_source.get("async_future") is not True
+    or async_await_labels_source.get("body", {}).get("new_object", {}).get("type_args") != ["Map<String,String>"]
+    or async_await_labels_source.get("params") != ["ready"]
+    or len(async_await_labels_locals) != 1
+    or async_await_labels_locals[0].get("name") != "value"
+    or async_await_labels_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_labels_map != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-map"}},
+        {"key": {"string": "value"}, "value": {"let_local": 0}},
+    ]
+):
+    raise SystemExit(
+        "expected asyncAwaitThenLabels await/static map source, "
+        f"got {async_await_labels_source}"
+    )
+
+async_await_conditional_labels_source = source_for("asyncAwaitThenConditionalLabels")
+async_await_conditional_labels_arg = async_await_conditional_labels_source.get("body", {}).get("new_object", {}).get(
+    "args", [{}]
+)[0]
+async_await_conditional_labels_let = async_await_conditional_labels_arg.get("let", {})
+async_await_conditional_labels_locals = async_await_conditional_labels_let.get("locals", [])
+async_await_conditional_labels_conditional = async_await_conditional_labels_let.get("body", {}).get("conditional", {})
+async_await_conditional_labels_then = async_await_conditional_labels_conditional.get("then", {}).get("map", [])
+async_await_conditional_labels_else = async_await_conditional_labels_conditional.get("else", {}).get("map", [])
+if (
+    async_await_conditional_labels_source.get("async_future") is not True
+    or async_await_conditional_labels_source.get("body", {}).get("new_object", {}).get("type_args")
+    != ["Map<String,String>"]
+    or async_await_conditional_labels_source.get("params") != ["ready"]
+    or len(async_await_conditional_labels_locals) != 1
+    or async_await_conditional_labels_locals[0].get("name") != "enabled"
+    or async_await_conditional_labels_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_conditional_labels_conditional.get("condition", {}).get("let_local") != 0
+    or async_await_conditional_labels_then != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-if-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-if-live"}},
+        {"key": {"string": "tail"}, "value": {"string": "patched-await-if-tail"}},
+    ]
+    or async_await_conditional_labels_else != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-if-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-if-off"}},
+        {"key": {"string": "tail"}, "value": {"string": "patched-await-if-tail"}},
+    ]
+):
+    raise SystemExit(
+        "expected asyncAwaitThenConditionalLabels await/collection-if map source, "
+        f"got {async_await_conditional_labels_source}"
+    )
+
+async_await_conditional_dynamic_labels_source = source_for("asyncAwaitThenConditionalDynamicLabels")
+async_await_conditional_dynamic_labels_arg = async_await_conditional_dynamic_labels_source.get("body", {}).get(
+    "new_object", {}
+).get("args", [{}])[0]
+async_await_conditional_dynamic_labels_let = async_await_conditional_dynamic_labels_arg.get("let", {})
+async_await_conditional_dynamic_labels_locals = async_await_conditional_dynamic_labels_let.get("locals", [])
+async_await_conditional_dynamic_labels_conditional = async_await_conditional_dynamic_labels_let.get("body", {}).get(
+    "conditional", {}
+)
+async_await_conditional_dynamic_labels_then = async_await_conditional_dynamic_labels_conditional.get("then", {}).get(
+    "map_add_all", {}
+)
+async_await_conditional_dynamic_labels_else = async_await_conditional_dynamic_labels_conditional.get("else", {}).get(
+    "map_add_all", {}
+)
+if (
+    async_await_conditional_dynamic_labels_source.get("async_future") is not True
+    or async_await_conditional_dynamic_labels_source.get("body", {}).get("new_object", {}).get("type_args")
+    != ["Map<String,String>"]
+    or async_await_conditional_dynamic_labels_source.get("params") != ["ready", "extra"]
+    or len(async_await_conditional_dynamic_labels_locals) != 1
+    or async_await_conditional_dynamic_labels_locals[0].get("name") != "enabled"
+    or async_await_conditional_dynamic_labels_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_conditional_dynamic_labels_conditional.get("condition", {}).get("let_local") != 0
+    or async_await_conditional_dynamic_labels_then.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-if-dynamic-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-if-dynamic-live"}},
+    ]
+    or async_await_conditional_dynamic_labels_then.get("spread", {}).get("arg") != "extra"
+    or async_await_conditional_dynamic_labels_else.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-if-dynamic-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-if-dynamic-off"}},
+    ]
+    or async_await_conditional_dynamic_labels_else.get("spread", {}).get("arg") != "extra"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenConditionalDynamicLabels await/collection-if/map_add_all source, "
+        f"got {async_await_conditional_dynamic_labels_source}"
+    )
+
+async_await_conditional_runtime_labels_source = source_for("asyncAwaitThenConditionalRuntimeLabels")
+async_await_conditional_runtime_labels_arg = async_await_conditional_runtime_labels_source.get("body", {}).get(
+    "new_object", {}
+).get("args", [{}])[0]
+async_await_conditional_runtime_labels_let = async_await_conditional_runtime_labels_arg.get("let", {})
+async_await_conditional_runtime_labels_locals = async_await_conditional_runtime_labels_let.get("locals", [])
+async_await_conditional_runtime_labels_conditional = async_await_conditional_runtime_labels_let.get("body", {}).get(
+    "conditional", {}
+)
+async_await_conditional_runtime_labels_then = async_await_conditional_runtime_labels_conditional.get("then", {}).get(
+    "map_for_in", {}
+)
+async_await_conditional_runtime_labels_else = async_await_conditional_runtime_labels_conditional.get("else", {}).get(
+    "map_for_in", {}
+)
+if (
+    async_await_conditional_runtime_labels_source.get("async_future") is not True
+    or async_await_conditional_runtime_labels_source.get("body", {}).get("new_object", {}).get("type_args")
+    != ["Map<String,String>"]
+    or async_await_conditional_runtime_labels_source.get("params") != ["ready", "extra"]
+    or len(async_await_conditional_runtime_labels_locals) != 1
+    or async_await_conditional_runtime_labels_locals[0].get("name") != "enabled"
+    or async_await_conditional_runtime_labels_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_conditional_runtime_labels_conditional.get("condition", {}).get("let_local") != 0
+    or async_await_conditional_runtime_labels_then.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-if-runtime-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-if-runtime-live"}},
+    ]
+    or async_await_conditional_runtime_labels_then.get("source", {}).get("call_dynamic", {}).get("method")
+    != "get:entries"
+    or async_await_conditional_runtime_labels_else.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-if-runtime-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-if-runtime-off"}},
+    ]
+    or async_await_conditional_runtime_labels_else.get("source", {}).get("call_dynamic", {}).get("method")
+    != "get:entries"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenConditionalRuntimeLabels await/collection-if/map_for_in source, "
+        f"got {async_await_conditional_runtime_labels_source}"
+    )
+
+async_await_condition_labels_source = source_for("asyncAwaitConditionLabels")
+async_await_condition_labels_arg = async_await_condition_labels_source.get("body", {}).get("new_object", {}).get(
+    "args", [{}]
+)[0]
+async_await_condition_labels_conditional = async_await_condition_labels_arg.get("conditional", {})
+async_await_condition_labels_then = async_await_condition_labels_conditional.get("then", {}).get("map", [])
+async_await_condition_labels_else = async_await_condition_labels_conditional.get("else", {}).get("map", [])
+if (
+    async_await_condition_labels_source.get("async_future") is not True
+    or async_await_condition_labels_source.get("body", {}).get("new_object", {}).get("type_args")
+    != ["Map<String,String>"]
+    or async_await_condition_labels_source.get("params") != ["ready"]
+    or async_await_condition_labels_conditional.get("condition", {}).get("await", {}).get("arg") != "ready"
+    or async_await_condition_labels_then != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-condition-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-condition-live"}},
+    ]
+    or async_await_condition_labels_else != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-condition-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-condition-off"}},
+    ]
+):
+    raise SystemExit(
+        "expected asyncAwaitConditionLabels collection-if direct await source, "
+        f"got {async_await_condition_labels_source}"
+    )
+
+async_await_condition_dynamic_labels_source = source_for("asyncAwaitConditionDynamicLabels")
+async_await_condition_dynamic_labels_arg = async_await_condition_dynamic_labels_source.get("body", {}).get(
+    "new_object", {}
+).get("args", [{}])[0]
+async_await_condition_dynamic_labels_conditional = async_await_condition_dynamic_labels_arg.get("conditional", {})
+async_await_condition_dynamic_labels_then = async_await_condition_dynamic_labels_conditional.get("then", {}).get(
+    "map_add_all", {}
+)
+async_await_condition_dynamic_labels_else = async_await_condition_dynamic_labels_conditional.get("else", {}).get(
+    "map_add_all", {}
+)
+if (
+    async_await_condition_dynamic_labels_source.get("async_future") is not True
+    or async_await_condition_dynamic_labels_source.get("body", {}).get("new_object", {}).get("type_args")
+    != ["Map<String,String>"]
+    or async_await_condition_dynamic_labels_source.get("params") != ["ready", "extra"]
+    or async_await_condition_dynamic_labels_conditional.get("condition", {}).get("await", {}).get("arg") != "ready"
+    or async_await_condition_dynamic_labels_then.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-condition-dynamic-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-condition-dynamic-live"}},
+    ]
+    or async_await_condition_dynamic_labels_then.get("spread", {}).get("arg") != "extra"
+    or async_await_condition_dynamic_labels_else.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-condition-dynamic-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-condition-dynamic-off"}},
+    ]
+    or async_await_condition_dynamic_labels_else.get("spread", {}).get("arg") != "extra"
+):
+    raise SystemExit(
+        "expected asyncAwaitConditionDynamicLabels collection-if direct await/map_add_all source, "
+        f"got {async_await_condition_dynamic_labels_source}"
+    )
+
+async_await_condition_runtime_labels_source = source_for("asyncAwaitConditionRuntimeLabels")
+async_await_condition_runtime_labels_arg = async_await_condition_runtime_labels_source.get("body", {}).get(
+    "new_object", {}
+).get("args", [{}])[0]
+async_await_condition_runtime_labels_conditional = async_await_condition_runtime_labels_arg.get("conditional", {})
+async_await_condition_runtime_labels_then = async_await_condition_runtime_labels_conditional.get("then", {}).get(
+    "map_for_in", {}
+)
+async_await_condition_runtime_labels_else = async_await_condition_runtime_labels_conditional.get("else", {}).get(
+    "map_for_in", {}
+)
+if (
+    async_await_condition_runtime_labels_source.get("async_future") is not True
+    or async_await_condition_runtime_labels_source.get("body", {}).get("new_object", {}).get("type_args")
+    != ["Map<String,String>"]
+    or async_await_condition_runtime_labels_source.get("params") != ["ready", "extra"]
+    or async_await_condition_runtime_labels_conditional.get("condition", {}).get("await", {}).get("arg") != "ready"
+    or async_await_condition_runtime_labels_then.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-condition-runtime-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-condition-runtime-live"}},
+    ]
+    or async_await_condition_runtime_labels_then.get("source", {}).get("call_dynamic", {}).get("method")
+    != "get:entries"
+    or async_await_condition_runtime_labels_else.get("receiver", {}).get("map") != [
+        {"key": {"string": "mode"}, "value": {"string": "patched-await-condition-runtime-map"}},
+        {"key": {"string": "state"}, "value": {"string": "patched-await-condition-runtime-off"}},
+    ]
+    or async_await_condition_runtime_labels_else.get("source", {}).get("call_dynamic", {}).get("method")
+    != "get:entries"
+):
+    raise SystemExit(
+        "expected asyncAwaitConditionRuntimeLabels collection-if direct await/map_for_in source, "
+        f"got {async_await_condition_runtime_labels_source}"
+    )
+
 async_runtime_for_names_source = source_for("asyncRuntimeForNames")
 async_runtime_for_names_arg = async_runtime_for_names_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
 async_runtime_for_names_for = async_runtime_for_names_arg.get("list_for_in", {})
@@ -577,6 +1043,26 @@ if (
     or async_runtime_for_names_for.get("source", {}).get("arg") != "extra"
 ):
     raise SystemExit(f"expected asyncRuntimeForNames async list_for_in source, got {async_runtime_for_names_source}")
+
+async_await_runtime_for_names_source = source_for("asyncAwaitThenRuntimeForNames")
+async_await_runtime_for_names_arg = async_await_runtime_for_names_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_runtime_for_names_let = async_await_runtime_for_names_arg.get("let", {})
+async_await_runtime_for_names_locals = async_await_runtime_for_names_let.get("locals", [])
+async_await_runtime_for_names_for = async_await_runtime_for_names_let.get("body", {}).get("list_for_in", {})
+if (
+    async_await_runtime_for_names_source.get("async_future") is not True
+    or async_await_runtime_for_names_source.get("body", {}).get("new_object", {}).get("type_args") != ["List<String>"]
+    or async_await_runtime_for_names_source.get("params") != ["ready", "extra"]
+    or len(async_await_runtime_for_names_locals) != 1
+    or async_await_runtime_for_names_locals[0].get("name") != "value"
+    or async_await_runtime_for_names_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_runtime_for_names_for.get("receiver", {}).get("list", [{}])[0].get("string") != "patched-await-runtime-for"
+    or async_await_runtime_for_names_for.get("source", {}).get("arg") != "extra"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenRuntimeForNames await/list_for_in source, "
+        f"got {async_await_runtime_for_names_source}"
+    )
 
 async_runtime_for_labels_source = source_for("asyncRuntimeForLabels")
 async_runtime_for_labels_arg = async_runtime_for_labels_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
@@ -590,3 +1076,25 @@ if (
     or async_runtime_for_labels_for.get("source", {}).get("call_dynamic", {}).get("receiver", {}).get("arg") != "extra"
 ):
     raise SystemExit(f"expected asyncRuntimeForLabels async map_for_in source, got {async_runtime_for_labels_source}")
+
+async_await_runtime_for_labels_source = source_for("asyncAwaitThenRuntimeForLabels")
+async_await_runtime_for_labels_arg = async_await_runtime_for_labels_source.get("body", {}).get("new_object", {}).get("args", [{}])[0]
+async_await_runtime_for_labels_let = async_await_runtime_for_labels_arg.get("let", {})
+async_await_runtime_for_labels_locals = async_await_runtime_for_labels_let.get("locals", [])
+async_await_runtime_for_labels_for = async_await_runtime_for_labels_let.get("body", {}).get("map_for_in", {})
+if (
+    async_await_runtime_for_labels_source.get("async_future") is not True
+    or async_await_runtime_for_labels_source.get("body", {}).get("new_object", {}).get("type_args") != ["Map<String,String>"]
+    or async_await_runtime_for_labels_source.get("params") != ["ready", "extra"]
+    or len(async_await_runtime_for_labels_locals) != 1
+    or async_await_runtime_for_labels_locals[0].get("name") != "value"
+    or async_await_runtime_for_labels_locals[0].get("value", {}).get("await", {}).get("arg") != "ready"
+    or async_await_runtime_for_labels_for.get("receiver", {}).get("map", [{}])[0].get("key", {}).get("string") != "mode"
+    or async_await_runtime_for_labels_for.get("receiver", {}).get("map", [{}])[0].get("value", {}).get("string") != "patched-await-runtime-for"
+    or async_await_runtime_for_labels_for.get("source", {}).get("call_dynamic", {}).get("method") != "get:entries"
+    or async_await_runtime_for_labels_for.get("source", {}).get("call_dynamic", {}).get("receiver", {}).get("arg") != "extra"
+):
+    raise SystemExit(
+        "expected asyncAwaitThenRuntimeForLabels await/map_for_in source, "
+        f"got {async_await_runtime_for_labels_source}"
+    )

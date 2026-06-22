@@ -14,9 +14,9 @@ Map<String, Object?>? _asyncFutureValueSource(
   final expr =
       _asyncReturnedValueExpr(statement?.expression, paramsSet, libraryUri) ??
       _asyncImmediateAwaitLocalExpr(function.body, paramsSet, libraryUri) ??
-      _asyncStatementSequenceExpr(function.body, paramsSet, libraryUri) ??
       _asyncTryFinallyBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _asyncTryCatchBodySourceExpr(function.body, paramsSet, libraryUri) ??
+      _asyncStatementSequenceExpr(function.body, paramsSet, libraryUri) ??
       _asyncIfReturnBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _letBodySourceExpr(function.body, paramsSet, libraryUri) ??
       _tryCatchBodySourceExpr(function.body, paramsSet, libraryUri) ??
@@ -348,6 +348,80 @@ Map<String, Object?>? _asyncTailStatementsSourceExpr(
     if (branch != null) return branch;
   }
 
+  if (first is TryFinally) {
+    final bodyExpr = _asyncTailStatementsSourceExpr(
+      _asyncStatementsFromBody(first.body),
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    final finalizerExpr = _asyncTailStatementsSourceExpr(
+      _asyncStatementsFromBody(first.finalizer),
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    final tail = _asyncTailStatementsSourceExpr(
+      rest,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (bodyExpr == null || finalizerExpr == null || tail == null) {
+      return null;
+    }
+    return {
+      'seq': [
+        {
+          'try_finally': {'body': bodyExpr, 'finally': finalizerExpr},
+        },
+        tail,
+      ],
+    };
+  }
+
+  if (first is TryCatch) {
+    if (first.catches.length != 1) return null;
+    final catchClause = first.catches.single;
+    if (catchClause.stackTrace != null || catchClause.exception == null) {
+      return null;
+    }
+    final catchLocalId = locals.length;
+    final bodyExpr = _asyncTailStatementsSourceExpr(
+      _asyncStatementsFromBody(first.body),
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    final catchExpr = _asyncTailStatementsSourceExpr(
+      _asyncStatementsFromBody(catchClause.body),
+      paramsSet,
+      libraryUri,
+      {...locals, catchClause.exception!: catchLocalId},
+    );
+    final tail = _asyncTailStatementsSourceExpr(
+      rest,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (bodyExpr == null || catchExpr == null || tail == null) {
+      return null;
+    }
+    return {
+      'seq': [
+        {
+          'try_catch': {
+            'body': bodyExpr,
+            'catch_local': catchLocalId,
+            'catch': catchExpr,
+          },
+        },
+        tail,
+      ],
+    };
+  }
+
   if (first is WhileStatement ||
       first is LabeledStatement && first.body is WhileStatement) {
     final loop = first is LabeledStatement
@@ -618,11 +692,9 @@ Map<String, Object?>? _asyncTryFinallyBodySourceExpr(
       ? body.statements.single
       : null;
   if (tryFinally is! TryFinally) return null;
-  final bodyExpr = _asyncSingleReturnExpr(
-    tryFinally.body,
-    paramsSet,
-    libraryUri,
-  );
+  final bodyExpr =
+      _asyncTryCatchBodySourceExpr(tryFinally.body, paramsSet, libraryUri) ??
+      _asyncSingleReturnExpr(tryFinally.body, paramsSet, libraryUri);
   final finalizer = _asyncTailStatementsSourceExpr(
     tryFinally.finalizer is Block
         ? (tryFinally.finalizer as Block).statements

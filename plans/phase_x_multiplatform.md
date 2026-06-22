@@ -55,7 +55,7 @@
 - ⏳ 剩余(需桌面构建环境):用 gn 参数构建 FCB 桌面引擎(mac/win/linux 各一次)、
   `flutter create --platforms=macos,linux,windows examples/counter_app` 生成 runner、放置 dylib + 设
   `FCB_CACHE_DIR`、跑 baseline→patch→restart→rollback。FFI 路径不需要插件桌面 native 代码
-  (直接 `DynamicLibrary.open`,桌面不走 MethodChannel)。
+(直接 `DynamicLibrary.open`,桌面不走 MethodChannel)。
 
 
 **任务（每平台一份,照抄 Android/iOS 的 `fcb/`）**

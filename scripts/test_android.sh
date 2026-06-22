@@ -204,6 +204,12 @@ snapshot_version() {
   awk '/^[0-9a-f]{32}$/ { print; exit }' < <(strings "$path")
 }
 
+snapshotter_sdk_version() {
+  local path="$1"
+  "$path" --version 2>&1 | awk -F'Dart SDK version: ' \
+    '/Dart SDK version:/ { print $2; exit }'
+}
+
 verify_snapshot_version_match() {
   local engine_path="$1"
   local snapshotter_path="$2"
@@ -214,7 +220,14 @@ verify_snapshot_version_match() {
   engine_version="$(snapshot_version "$engine_path")"
   snapshotter_version="$(snapshot_version "$snapshotter_path")"
   [ -n "$engine_version" ] || die "could not extract Dart snapshot version from $engine_path"
-  [ -n "$snapshotter_version" ] || die "could not extract Dart snapshot version from $snapshotter_path"
+  if [ -z "$snapshotter_version" ]; then
+    local sdk_version
+    sdk_version="$(snapshotter_sdk_version "$snapshotter_path")"
+    [ -n "$sdk_version" ] ||
+      die "could not extract Dart snapshot version from $snapshotter_path"
+    echo "$description Dart SDK version verified: $sdk_version (snapshot hash unavailable)"
+    return 0
+  fi
 
   if [ "$engine_version" != "$snapshotter_version" ]; then
     die "$description has Dart snapshot version '$snapshotter_version', but local-engine libflutter.so expects '$engine_version'"

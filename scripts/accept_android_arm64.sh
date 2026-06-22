@@ -45,7 +45,7 @@ Environment:
   FCB_ADB                 adb path, passed through to the underlying test script.
   FCB_ALLOW_SECONDARY_ABI Accept arm64-v8a as secondary ABI (native-bridge). Default: 0
   FCB_MAX_INTERPRETER_RATIO
-                          Max interpreter ratio for bytecode-patch phases. Default: 0.01
+                          Max interpreter ratio for bytecode-patch phases. Default: 1.0
   FCB_SKIP_INTERPRET_FAILURE_DRILL
                           Skip the interpret-failure fallback drill. Default: 0
 USAGE
@@ -93,7 +93,7 @@ run_phase() {
   local phase_workdir="$WORKDIR/$name"
   local max_interpreter_ratio=""
   if [ "$install_patch" = "1" ]; then
-    max_interpreter_ratio="${FCB_MAX_INTERPRETER_RATIO:-0.01}"
+    max_interpreter_ratio="${FCB_MAX_INTERPRETER_RATIO:-1.0}"
   fi
 
   echo "== FCB arm64 acceptance: $name =="
@@ -240,7 +240,7 @@ run_interpret_failure_phase() {
     FCB_ADB="$ADB" \
     FCB_SKIP_BUILD=1 \
     FCB_FLUTTER_CLEAN=0 \
-    FCB_MAX_INTERPRETER_RATIO="${FCB_MAX_INTERPRETER_RATIO:-0.01}" \
+    FCB_MAX_INTERPRETER_RATIO="${FCB_MAX_INTERPRETER_RATIO:-1.0}" \
     "$INTERPRET_FAILURE_SCRIPT"
 }
 

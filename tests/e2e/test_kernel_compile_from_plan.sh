@@ -84,6 +84,8 @@ python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_inventory.py" 
   "$WORKDIR/release_inventory.json" "$WORKDIR/patch_inventory.json" "$WORKDIR/plan.json"
 python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_core_calls.py" \
   "$WORKDIR/patch_inventory.json"
+python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_collection_chains.py" \
+  "$WORKDIR/patch_inventory.json"
 python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_async_control.py" \
   "$WORKDIR/patch_inventory.json"
 python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_generator_sources.py" \
@@ -108,6 +110,22 @@ python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_module.py" "$WORKDI
 
 python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_binary.py" "$WORKDIR/module.bin"
 
+INTERPRETED_COUNT="$(
+  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["interpret"]))' "$WORKDIR/plan.json"
+)"
+REJECT_COUNT="$(
+  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["reject"]))' "$WORKDIR/plan.json"
+)"
+UNCHANGED_COUNT="$(
+  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["unchanged"]))' "$WORKDIR/plan.json"
+)"
+MODULE_FUNCTION_COUNT="$(
+  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["functions"]))' "$WORKDIR/module.fcbm"
+)"
+BINARY_FUNCTION_COUNT="$(
+  python3 -c 'import struct, sys; data = open(sys.argv[1], "rb").read(10); print(struct.unpack(">H", data[8:10])[0])' "$WORKDIR/module.bin"
+)"
+
 if [ -x "$FCB_RUN_VM_TESTS" ]; then
   FCB_SOURCE_ASYNC_STAR_MODULE="$WORKDIR/module.bin" \
     "$FCB_RUN_VM_TESTS" FcbPatchRuntimeAsyncStarSourceModuleStreamListen
@@ -123,9 +141,11 @@ fi
   echo "workdir_kept: ${FCB_KEEP_KERNEL_COMPILE_TEST:-0}"
   echo "dart_bin: $DART_BIN"
   echo "run_vm_tests: $FCB_RUN_VM_TESTS"
-  echo "interpreted_count: 248"
-  echo "module_function_count: 263"
-  echo "binary_function_count: 263"
+  echo "interpreted_count: $INTERPRETED_COUNT"
+  echo "reject_count: $REJECT_COUNT"
+  echo "unchanged_count: $UNCHANGED_COUNT"
+  echo "module_function_count: $MODULE_FUNCTION_COUNT"
+  echo "binary_function_count: $BINARY_FUNCTION_COUNT"
   echo "source_runtime_filters: FcbPatchRuntimeAsyncStarSourceModuleStreamListen FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor"
   echo "triple_nested_runtime_cases: normal cancel outer-error middle-error inner-error"
 } >"$SUMMARY"

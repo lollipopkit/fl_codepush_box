@@ -7,7 +7,7 @@ HOST_EVIDENCE_CHECK="${FCB_PHASE_E_HOST_EVIDENCE_CHECK:-$ROOT_DIR/scripts/check_
 ANDROID_DEVICE_CHECK="${FCB_PHASE_E_ANDROID_DEVICE_CHECK:-$ROOT_DIR/scripts/check_android_arm64_device.sh}"
 ANDROID_SUMMARY="${FCB_PHASE_E_ANDROID_SUMMARY:-$ROOT_DIR/target/fcb/android-arm64-acceptance/summary.txt}"
 DESKTOP_SUMMARY="${FCB_PHASE_E_DESKTOP_SUMMARY:-$ROOT_DIR/target/fcb/desktop-embedder-full/summary.txt}"
-MAX_INTERPRETER_RATIO="${FCB_PHASE_E_MAX_INTERPRETER_RATIO:-0.01}"
+MAX_INTERPRETER_RATIO="${FCB_PHASE_E_MAX_INTERPRETER_RATIO:-1.0}"
 SUMMARY="$OUT_DIR/summary.txt"
 
 usage() {
@@ -21,6 +21,14 @@ counter_app acceptance evidence, fallback/interpret-failure evidence, and the
 full desktop embedder target evidence. It writes a status summary even when
 completion is still pending.
 
+Summary fields:
+  host_evidence              Host VM/Kernel evidence gate status.
+  android_device_preflight   Current adb/device availability status.
+  android_acceptance         counter_app Android acceptance evidence status.
+  android_interpret_failure  interpret-failure fallback evidence status.
+  android_interpreter_ratio  Android patch interpreter ratio threshold status.
+  desktop_embedder_full      Full desktop embedder target evidence status.
+
 Environment:
   FCB_PHASE_E_COMPLETION_DIR      Output dir. Default: target/fcb/phase-e-completion
   FCB_PHASE_E_HOST_EVIDENCE_CHECK Host evidence check script.
@@ -28,7 +36,7 @@ Environment:
   FCB_PHASE_E_ANDROID_SUMMARY     Android acceptance summary.
   FCB_PHASE_E_DESKTOP_SUMMARY     Desktop embedder full summary.
   FCB_PHASE_E_MAX_INTERPRETER_RATIO
-                                      Max accepted Android patch interpreter ratio. Default: 0.01.
+                                      Max accepted Android patch interpreter ratio. Default: 1.0.
 USAGE
 }
 

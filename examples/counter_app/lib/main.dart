@@ -29,23 +29,24 @@ void main() {
 }
 
 @pragma('vm:never-inline')
-int _phaseDInitialCounterValue(int seed) => 42;
+int _phaseDInitialCounterValue() => direct_source.initialCounterValue();
 
 @pragma('vm:never-inline')
 int _phaseDAdjustedInput() => 5;
 
 @pragma('vm:never-inline')
-int _phaseDAdjustedCounterValue() => 42;
+int _phaseDAdjustedCounterValue() =>
+    direct_source.adjustedCounterValue(_phaseDAdjustedInput());
 
 @pragma('vm:never-inline')
-int _phaseDStaticCounterValue(int seed) => 42;
+int _phaseDStaticCounterValue() =>
+    direct_source.PricingEngine.staticCounterValue();
 
 @pragma('vm:never-inline')
-String _phaseDStatusLabel(direct_source.PricingOffer offer) => offer.patchLabel;
+String _phaseDStatusLabel() => direct_source.statusLabel();
 
 @pragma('vm:never-inline')
-String _phaseDWidgetTreeLabel(direct_source.PricingOffer offer) =>
-    offer.patchLabel;
+String _phaseDWidgetTreeLabel() => direct_source.widgetTreeLabel();
 
 @pragma('vm:never-inline')
 String _phaseDFieldStatusLabel(direct_source.PricingOffer offer) =>
@@ -55,7 +56,12 @@ String _phaseDFieldStatusLabel(direct_source.PricingOffer offer) =>
 int _phaseDQuadInput(int value) => value;
 
 @pragma('vm:never-inline')
-int _phaseDQuadCounterValue() => 42;
+int _phaseDQuadCounterValue() => direct_source.quadCounterValue(
+      _phaseDQuadInput(1),
+      _phaseDQuadInput(2),
+      _phaseDQuadInput(3),
+      _phaseDQuadInput(4),
+    );
 
 class CounterApp extends StatefulWidget {
   const CounterApp({super.key});
@@ -121,11 +127,11 @@ class _CounterAppState extends State<CounterApp> {
         );
         debugPrint('FCB configured result: $_configured');
       }
-      _counter = _phaseDInitialCounterValue(1);
+      _counter = _phaseDInitialCounterValue();
       _adjustedCounter = _phaseDAdjustedCounterValue();
-      _staticMethodValue = _phaseDStaticCounterValue(4);
-      _statusLabel = _phaseDStatusLabel(_statusOffer);
-      _widgetTreeLabel = _phaseDWidgetTreeLabel(_widgetOffer);
+      _staticMethodValue = _phaseDStaticCounterValue();
+      _statusLabel = _phaseDStatusLabel();
+      _widgetTreeLabel = _phaseDWidgetTreeLabel();
       _fieldStatusLabel = _phaseDFieldStatusLabel(_pricingOffer);
       _quadCounter = _phaseDQuadCounterValue();
       debugPrint('FCB initialCounterValue result: $_counter');

@@ -1,90 +1,44 @@
 **目标**
-继续 Phase E:在保持 SDK delta 独立、reader/audit fail-closed 的前提下,把 host 侧已验证能力推进到
-Android/counter_app 与 desktop embedder 的完整退出验收。当前不能标记 Phase E complete。
+继续 Phase E Kernel 前端追平,保持 VM/Android arm64 AOT patch 已闭合状态不回退,逐步补真实 Dart source -> IR 的长尾覆盖。
 
 **硬约束**
-- 中文输出/文档;专业名词可保留英文。
-- 工作树很脏且可能有并行 agent;不要回退或清理无关改动。
-- FCB 改动尽量隔离在自有 helper/native/test/tool;`async_patch.dart` 不应带 FCB delta。
-- reader 没产出 `bytecode_source` 时 audit 必 reject,不能误放行。
-- 单源码/断言文件目标 1500 行以内,继续用 `make check-kernel-compile-fixture-size` 守。
+- 工作树很脏且疑似并行 agent;不要 reset/checkout/revert/清理无关改动。
+- SDK delta 继续隔离在 FCB flag/path 下,避免影响官方 Dart SDK 默认路径。
+- reader 支持的 Kernel node 必须有 fixture + plan/module/binary 断言;reader 不支持的 node 必须 fail-closed reject。
+- 单源码/测试文件继续守住 1500 行限制,用 `make check-kernel-compile-fixture-size` 验证。
 
 **已完成**
-- Host 侧 Phase E 证据仍通过;VM summary、Kernel compile summary、SDK delta audit 都被
-  `make check-phase-e-host-evidence` 覆盖。
-- Kernel 前端 P1/P2/P3 当前是“子集/核心闭合,继续扩长尾”:普通 async control-flow、pending
-  `await`、collection spread/for/if、runtime collection-for、type-test/cast、mixed callback、
-  generator/stream/await-for/yield* 等已有 source/module/binary 或 runtime 覆盖。
-- `asyncSubtractValue` / `asyncMultiplyValue` / `asyncDivideValue` 已补普通 async direct binary
-  `-` / `*` / `/` → `Sub(0x11)` / `Mul(0x12)` / `Div(0x13)` source/module/binary 覆盖。
-- `asyncLogicalFlag` 已补普通 async `&&` / `||` / `!` → conditional IR source/module/binary 覆盖。
-- `asyncAlwaysThrow` 已补普通 async direct `throw` expression → `Throw(0x60)` source/module/binary 覆盖。
-- `asyncStaticHelperValue` 已补普通 async project `call_static` → `CallStatic(0x50)` source/module/binary 覆盖。
-- `asyncConcatLabel` 已补普通 async direct string concat → `StringConcat(0x42)` source/module/binary 覆盖。
-- `asyncNullableChoice` 已补普通 async conditional `null` literal → `Null` constant source/module/binary 覆盖。
-- `asyncMakeStringBox` 已补普通 async generic `new_object` `Box<String>` → `NewObject(0x55)` source/module/binary 覆盖。
-- `asyncAwaitThenReadField` 已补普通 async pending `await` local + `GetField(0x43)` +
-  `StringConcat(0x42)` source/module/binary 覆盖。
-- `asyncAwaitThenDynamicCall` 已补普通 async pending `await` local + dynamic named
-  `CallDynamic(0x51)` source/module/binary 覆盖。
-- `asyncAwaitThenMakeStringBox` 已补普通 async pending `await` local + generic
-  `NewObject(0x55)` source/module/binary 覆盖。
-- `asyncAwaitThenIsString` 已补普通 async pending `await` local + `IsType(0x45)`
-  source/module/binary 覆盖。
-- `asyncAwaitThenAsStringList` 已补普通 async pending `await` local + `AsType(0x46)`
-  source/module/binary 覆盖。
-- `asyncAwaitThenSameObject` 已补普通 async pending `await` local +
-  `CallOriginal(0x52)` source/module/binary 覆盖。
-- `asyncAwaitThenStaticHelperValue` 已补普通 async pending `await` local +
-  `CallStatic(0x50)` source/module/binary 覆盖。
-- `asyncAwaitThenDirectCallbackMixed` 已补普通 async pending `await` local +
-  `CallClosure(0x53)` source/module/binary 覆盖。
-- `asyncAwaitThenUpdateConfigLabel` 已补普通 async pending `await` local +
-  `SetField(0x44)`/`GetField(0x43)` source/module/binary 覆盖。
-- `asyncAwaitThenLocalMutation` 已补普通 async pending `await` local +
-  `StoreLocal(0x04)`/`LoadLocal(0x03)` source/module/binary 覆盖。
-- `asyncAwaitThenArithmeticValue` 已补普通 async pending `await` local +
-  plain `Add(0x10)` source/module/binary 覆盖。
-- `asyncAwaitThenSubtractValue` 已补普通 async pending `await` local +
-  plain `Sub(0x11)` source/module/binary 覆盖。
-- `asyncAwaitThenMultiplyValue` 已补普通 async pending `await` local +
-  plain `Mul(0x12)` source/module/binary 覆盖。
-- `target/fcb/kernel-compile-from-plan/summary.txt` 当前计数是 `248/263/263`。
-- Android acceptance 旧证据显示 `emulator-5554` 上 nopatch/patch 业务值通过,但不能替代当前设备
-  preflight。
+- 本轮新增 6 个普通 `async` loop + `try` 交叉覆盖:
+  - `asyncWhileAwaitConditionTryCatchAwaitGuard`
+  - `asyncWhileAwaitConditionTryFinallyAwaitGuard`
+  - `asyncDoWhileAwaitConditionTryCatchAwaitGuard`
+  - `asyncDoWhileAwaitConditionTryFinallyAwaitGuard`
+  - `asyncForAwaitConditionTryFinallyAwaitGuardAwaitUpdate`
+  - `asyncForAwaitConditionTryCatchAwaitGuardAwaitUpdate`
+- 相关 fixture 在 `tests/e2e/kernel_compile_from_plan/fixtures/{release_main_parts,patch_main_parts}/01b_core_async_loops.dart`。
+- 相关断言已覆盖 `assert_plan_async_loop_sources.py`、`assert_module_async_loops.py`、`assert_binary.py`、`assert_plan_inventory.py`、host evidence gate scripts。
+- compile-from-plan 计数更新为 interpreted 374、reject 2、unchanged 11、module/binary function 389;reject 集合仍为 `isCallable:function_type_unsupported` 与 `isRecord:record_type_unsupported`。
 
-**最近已验证**
-- `dart format tests/e2e/kernel_compile_from_plan/fixtures/release_main_parts/01_core_async.dart tests/e2e/kernel_compile_from_plan/fixtures/patch_main_parts/01_core_async.dart`:通过。
-- `python3 -m py_compile tests/e2e/kernel_compile_from_plan/assert_*.py`:通过。
+**已验证**
+- `tests/e2e/test_kernel_compile_from_plan.sh`:通过;两个 source async* VM filters 均 `Done`;summary 写入 374/2/11/389/389。
+- `scripts/audit_vendor_dart_sdk_delta.sh`:通过,`fcb_or_allowed_delta_count: 6`。
+- `make test-phase-e-host-evidence-gate`:通过。
 - `make check-kernel-compile-fixture-size`:通过。
-- `FCB_KEEP_KERNEL_COMPILE_TEST=1 tests/e2e/test_kernel_compile_from_plan.sh`:通过,summary 为 `248/263/263`。
 - `make check-phase-e-host-evidence`:通过。
-- `scripts/audit_vendor_dart_sdk_delta.sh`:通过,`fcb_or_allowed_delta_count: 28`。
+- `make check-phase-e-completion`:通过。
 - `git diff --check`:通过。
-- `git -C vendor/flutter/engine/src/flutter/third_party/dart diff --check`:通过。
-- `FCB_ADB_TIMEOUT_SECONDS=5 make check-phase-e-completion`:仍 pending,原因是 Android device
-  preflight、interpret-failure evidence、interpreter stats 样本、desktop embedder full。
 
-**本轮核对的产物**
-- `target/fcb/kernel-compile-from-plan/summary.txt`:仍为 `248/263/263`,Kernel compile-from-plan passed。
-- `target/fcb/vendor-vm-test/summary.txt`:standalone FCB runtime passed,SDK pin `0faa95f739c`。
-- `target/fcb/phase-e-completion/host-evidence.log`:host evidence passed。
-- `target/fcb/phase-e-completion/summary.txt`:仍 pending;host_evidence/pass,
-  android_device_preflight/fail,android_acceptance/pass,android_interpret_failure/fail,
-  android_interpreter_ratio/fail(`0/0/0.000000`),desktop_embedder_full/fail。
-
-**当前阻塞**
-- Android device preflight 失败:`adb wait-for-device` 5s timeout。
-- Android interpret-failure fallback evidence 缺失。
-- Android interpreter stats 无样本:`0/0/0.000000`,因此 ratio gate fail。
-- desktop embedder full 失败在 macOS Metal Toolchain preflight;summary 提示需
-  `xcodebuild -downloadComponent MetalToolchain` 后复跑。之前提权安装请求被策略拒绝。
+**当前状态**
+- 顶层仍有大量 staged/unstaged/untracked 改动,包含并行 agent 的 `tool/`、测试、脚本和 plan 文件;提交前必须分离责任范围。
+- `target/fcb/kernel-compile-from-plan/summary.txt` 已刷新到 374/2/11/389/389。
+- 文件规模风险暂可控:`assert_plan_async_loop_sources.py` 1251/1500,`assert_module_async_loops.py` 886/1500,release/patch `01b_core_async_loops.dart` 均 625/1500。
 
 **下一步**
-1. 接入可用 Android 真机/模拟器后跑 `make check-android-arm64-device` 与
-   `make test-android-arm64-acceptance`,补齐当前设备、fallback、interpreter ratio 样本。
-2. Metal Toolchain 安装/修复后跑 `make check-macos-metal-toolchain` 与
-   `make test-desktop-embedder-full`。
-3. 最后跑 `FCB_ADB_TIMEOUT_SECONDS=5 make check-phase-e-completion`,直到 summary 不再 pending。
-4. 非阻塞长尾:继续扩 Kernel 前端组合覆盖,例如更复杂 `while`/`for` update、
-   branch-local/await 与 stream/generator cross-product。
+1. 继续补 P1/P2/P3 前端长尾,优先选择一组同主题缺口,避免每轮只补单个 case。
+2. 每组缺口至少跑 `tests/e2e/test_kernel_compile_from_plan.sh`;触及 evidence 计数时同步跑 host evidence gate/check。
+3. 若后续要 commit,先按责任拆分 VM/gate、Kernel 前端、并行 agent 改动,避免混入无关文件。
+
+**完整计划仍缺**
+- 更复杂 loop update/嵌套 branch-local 组合。
+- 更多 async*/await-for cancel/error/finally cross-product。
+- IDE debugger parked async/generator frame 后续独立阶段。

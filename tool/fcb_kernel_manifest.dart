@@ -5,6 +5,7 @@ import 'fcb_binary_module_writer.dart';
 import 'fcb_kernel_reader_bundle.dart';
 
 part 'fcb_kernel_manifest_compiler.dart';
+part 'fcb_kernel_manifest_control_compiler.dart';
 
 Future<void> main(List<String> args) async {
   final project = _arg(args, '--project') ?? '.';

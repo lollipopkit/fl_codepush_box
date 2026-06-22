@@ -43,6 +43,16 @@ esac
 command -v xcrun >/dev/null 2>&1 || die "missing xcrun"
 command -v xcodebuild >/dev/null 2>&1 || die "missing xcodebuild"
 
+# If TOOLCHAINS is not set, try to auto-detect the MobileAsset Metal toolchain
+# so that `xcrun -sdk macosx metal` resolves even when the Xcode internal Metal
+# component has not been formally downloaded via `xcodebuild -downloadComponent`.
+if [ -z "${TOOLCHAINS:-}" ]; then
+  _mtl_tc=$(ls -d /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain*/Metal.xctoolchain/usr/bin/metal 2>/dev/null | head -1)
+  if [ -n "$_mtl_tc" ]; then
+    export TOOLCHAINS=Metal
+  fi
+fi
+
 mkdir -p "$OUT_DIR"
 
 {
@@ -51,6 +61,8 @@ mkdir -p "$OUT_DIR"
   echo
   echo "developer_dir:"
   xcode-select -p
+  echo
+  echo "TOOLCHAINS: ${TOOLCHAINS:-<unset>}"
   echo
   echo "sdk_path:"
   xcrun -sdk "$SDK" --show-sdk-path
@@ -69,7 +81,8 @@ mkdir -p "$OUT_DIR"
 FCB macOS Metal Toolchain preflight failed
 sdk: $SDK
 log: $LOG
-hint: run xcodebuild -downloadComponent MetalToolchain, then retry this check.
+hint: set TOOLCHAINS=Metal if the MobileAsset toolchain is available, or run
+      xcodebuild -downloadComponent MetalToolchain, then retry this check.
 EOF
   cat "$SUMMARY" >&2
   exit 1

@@ -159,6 +159,7 @@ else
   skip_step vendor-vm-runtime "set FCB_LOCAL_CI_VENDOR_VM=1 to run vendor Dart SDK delta + VM gate"
 fi
 
+run_step phase-e-host-evidence-gate make test-phase-e-host-evidence-gate
 run_step phase-e-completion-gate make test-phase-e-completion-gate
 
 if enabled "$RUN_PHASE_E_HOST_EVIDENCE"; then

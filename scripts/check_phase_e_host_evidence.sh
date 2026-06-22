@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VM_SUMMARY="${FCB_PHASE_E_VM_SUMMARY:-$ROOT_DIR/target/fcb/vendor-vm-test/summary.txt}"
 KERNEL_SUMMARY="${FCB_PHASE_E_KERNEL_SUMMARY:-$ROOT_DIR/target/fcb/kernel-compile-from-plan/summary.txt}"
 
+. "$ROOT_DIR/scripts/fcb_vm_test_filters.sh"
+
 usage() {
   cat <<USAGE
 Usage:
@@ -12,9 +14,14 @@ Usage:
 
 Checks the host-side Phase E evidence that does not require a real Android
 device or a complete macOS Metal Toolchain:
-  - vendor Dart SDK delta + VM runtime gate summary
+  - vendor Dart SDK delta + VM runtime gate summary with rebuild_run_vm_tests: 1
+  - every release/debug VM filter from scripts/fcb_vm_test_filters.sh
+    listed in the VM summary and completed in its run_vm_tests log
   - Kernel compile-from-plan summary
   - Kernel compile-from-plan fixture/check file size gate
+
+Regression coverage:
+  make test-phase-e-host-evidence-gate
 
 Environment:
   FCB_PHASE_E_VM_SUMMARY      VM gate summary. Default: target/fcb/vendor-vm-test/summary.txt
@@ -48,6 +55,14 @@ summary_value() {
   printf '%s\n' "${line#"$key: "}"
 }
 
+require_filter_log() {
+  local mode="$1"
+  local filter="$2"
+  require_line "$VM_SUMMARY" "$filter"
+  require_file "$FILTER_LOG_DIR/$mode-$filter.log"
+  require_line "$FILTER_LOG_DIR/$mode-$filter.log" "Done: $filter"
+}
+
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   usage
   exit 0
@@ -61,30 +76,27 @@ require_file "$KERNEL_SUMMARY"
 require_line "$VM_SUMMARY" "standalone FcbPatchRuntime passed"
 require_line "$VM_SUMMARY" "sdk_delta_audit:"
 require_line "$VM_SUMMARY" "rebuild_run_vm_tests: 1"
-require_line "$VM_SUMMARY" "FcbPatchRuntimeAsyncStarSourceModuleStreamListen"
-require_line "$VM_SUMMARY" "FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor"
-require_line "$VM_SUMMARY" "FcbPatchRuntimeBusinessStreamSourceE2e"
-require_line "$VM_SUMMARY" "FcbPatchRuntimeGcStress"
 
 SDK_DELTA_AUDIT_LOG="$(summary_value "$VM_SUMMARY" "sdk_delta_audit")"
 FILTER_LOG_DIR="$(summary_value "$VM_SUMMARY" "run_vm_test_filter_logs")"
 require_file "$SDK_DELTA_AUDIT_LOG"
-require_file "$FILTER_LOG_DIR/release-FcbPatchRuntimeAsyncStarSourceModuleStreamListen.log"
-require_file "$FILTER_LOG_DIR/release-FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor.log"
-require_file "$FILTER_LOG_DIR/release-FcbPatchRuntimeBusinessStreamSourceE2e.log"
 require_line "$SDK_DELTA_AUDIT_LOG" "vendor Dart SDK delta audit passed"
-require_line "$SDK_DELTA_AUDIT_LOG" "fcb_or_allowed_delta_count: 28"
-require_line "$FILTER_LOG_DIR/release-FcbPatchRuntimeAsyncStarSourceModuleStreamListen.log" \
-  "Done: FcbPatchRuntimeAsyncStarSourceModuleStreamListen"
-require_line "$FILTER_LOG_DIR/release-FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor.log" \
-  "Done: FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor"
-require_line "$FILTER_LOG_DIR/release-FcbPatchRuntimeBusinessStreamSourceE2e.log" \
-  "Done: FcbPatchRuntimeBusinessStreamSourceE2e"
+require_line "$SDK_DELTA_AUDIT_LOG" "fcb_or_allowed_delta_count:"
+
+for filter in "${COMMON_VM_TEST_FILTERS[@]}"; do
+  require_filter_log release "$filter"
+done
+
+for filter in "${DEBUG_VM_TEST_FILTERS[@]}"; do
+  require_filter_log debug "$filter"
+done
 
 require_line "$KERNEL_SUMMARY" "kernel_compile_from_plan passed"
-require_line "$KERNEL_SUMMARY" "interpreted_count: 248"
-require_line "$KERNEL_SUMMARY" "module_function_count: 263"
-require_line "$KERNEL_SUMMARY" "binary_function_count: 263"
+require_line "$KERNEL_SUMMARY" "interpreted_count: 374"
+require_line "$KERNEL_SUMMARY" "reject_count: 2"
+require_line "$KERNEL_SUMMARY" "unchanged_count: 11"
+require_line "$KERNEL_SUMMARY" "module_function_count: 389"
+require_line "$KERNEL_SUMMARY" "binary_function_count: 389"
 require_line "$KERNEL_SUMMARY" "FcbPatchRuntimeAsyncStarSourceModuleStreamListen"
 require_line "$KERNEL_SUMMARY" "FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor"
 require_line "$KERNEL_SUMMARY" "triple_nested_runtime_cases: normal cancel outer-error middle-error inner-error"
