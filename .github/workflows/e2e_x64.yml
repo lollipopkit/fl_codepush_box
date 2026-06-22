@@ -57,4 +57,5 @@ jobs:
           FCB_BIN="$PWD/target/debug/fcb" \
           SERVER_BIN="$PWD/target/debug/fcb_server" \
           DART_BIN="$(command -v dart)" \
+          FCB_ACK_STORE_POLICY=1 \
           bash tests/e2e/test_e2e.sh
