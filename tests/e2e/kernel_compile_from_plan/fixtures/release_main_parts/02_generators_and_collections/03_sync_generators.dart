@@ -1,0 +1,398 @@
+Iterable<String> syncGenerated() sync* {
+  yield 'base-iterable';
+}
+
+Iterable<String> syncGeneratedMany(bool enabled) sync* {
+  final prefix = 'base-iterable';
+  yield '$prefix-a';
+  if (enabled) yield '$prefix-live';
+  yield '$prefix-tail';
+}
+
+Iterable<String> syncGeneratedWhile() sync* {
+  var i = 0;
+  while (2 > i) {
+    yield 'base-iterable-while-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileBreak() sync* {
+  var i = 0;
+  while (4 > i) {
+    yield 'base-iterable-while-break-before-$i';
+    if (i == 2) break;
+    yield 'base-iterable-while-break-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileContinue() sync* {
+  var i = 0;
+  while (3 > i) {
+    yield 'base-iterable-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedWhileContinueBreak() sync* {
+  var i = 0;
+  while (4 > i) {
+    yield 'base-iterable-while-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-while-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-iterable-while-continue-after-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedDoWhile() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-$i';
+    i = i + 1;
+  } while (2 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileBreak() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-break-before-$i';
+    if (i == 1) break;
+    yield 'base-iterable-do-break-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileContinue() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-do-continue-after-$i';
+    i = i + 1;
+  } while (3 > i);
+}
+
+Iterable<String> syncGeneratedDoWhileContinueBreak() sync* {
+  var i = 0;
+  do {
+    yield 'base-iterable-do-continue-before-$i';
+    if (i == 1) {
+      i = i + 1;
+      continue;
+    }
+    yield 'base-iterable-do-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-iterable-do-continue-after-$i';
+    i = i + 1;
+  } while (4 > i);
+}
+
+Iterable<String> syncGeneratedForLoop() sync* {
+  for (var i = 0; 2 > i; i = i + 1) {
+    yield 'base-iterable-for-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopPostIncrement() sync* {
+  for (var i = 0; 2 > i; i++) {
+    yield 'base-iterable-for-postinc-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopMultiUpdate() sync* {
+  for (var i = 0, j = 10; 2 > i; i = i + 1, j = j + 1) {
+    yield 'base-iterable-for-multi-$i-$j';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopExternalLocal() sync* {
+  var i = 0;
+  for (; 2 > i; i = i + 1) {
+    yield 'base-iterable-for-external-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopBodyUpdate() sync* {
+  var i = 0;
+  for (; 2 > i;) {
+    yield 'base-iterable-for-body-update-$i';
+    i = i + 1;
+  }
+}
+
+Iterable<String> syncGeneratedForLoopContinue() sync* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'base-iterable-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'base-iterable-for-continue-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopContinueBreak() sync* {
+  for (var i = 0; 4 > i; i = i + 1) {
+    yield 'base-iterable-for-continue-before-$i';
+    if (i == 1) continue;
+    yield 'base-iterable-for-continue-mid-$i';
+    if (i == 2) break;
+    yield 'base-iterable-for-continue-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForLoopBreak() sync* {
+  for (var i = 0; 3 > i; i = i + 1) {
+    yield 'base-iterable-for-break-before-$i';
+    if (i == 1) break;
+    yield 'base-iterable-for-break-after-$i';
+  }
+}
+
+Iterable<String> syncGeneratedForIn() sync* {
+  for (final value in ['base-iterable-a', 'base-iterable-b']) {
+    yield value;
+  }
+}
+
+Iterable<String> syncGeneratedForInBreak() sync* {
+  final prefix = 'base-iterable-static-break';
+  for (final value in ['a', 'stop', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInBreakFirst() sync* {
+  final prefix = 'base-iterable-static-break-first';
+  for (final value in ['a', 'stop', 'tail']) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInContinue() sync* {
+  final prefix = 'base-iterable-static-continue';
+  for (final value in ['a', 'skip', 'tail']) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedForInContinueAfterYield() sync* {
+  final prefix = 'base-iterable-static-continue-after-yield';
+  for (final value in ['a', 'skip', 'tail']) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForIn(List<String> extra) sync* {
+  for (final value in extra) {
+    yield value;
+  }
+  yield 'base-iterable-dynamic-tail';
+}
+
+Iterable<String> syncGeneratedDynamicForInMapped(List<String> extra) sync* {
+  final prefix = 'base-iterable-map';
+  for (final value in extra) {
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInMany(List<String> extra) sync* {
+  final prefix = 'base-iterable-many';
+  for (final value in extra) {
+    yield '$prefix-a-$value';
+    yield '$prefix-b-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInIf(List<String> extra) sync* {
+  final prefix = 'base-iterable-if';
+  for (final value in extra) {
+    if (value == 'live') yield '$prefix-hit-$value';
+    yield '$prefix-tail-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInIfElse(List<String> extra) sync* {
+  final prefix = 'base-iterable-ifelse';
+  for (final value in extra) {
+    if (value == 'live') {
+      yield '$prefix-hit-$value';
+    } else {
+      yield '$prefix-miss-$value';
+    }
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInLocal(List<String> extra) sync* {
+  final prefix = 'base-iterable-local';
+  for (final value in extra) {
+    final marker = '$prefix-$value';
+    yield marker;
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinue(List<String> extra) sync* {
+  final prefix = 'base-iterable-continue';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueAfterYield(
+  List<String> extra,
+) sync* {
+  final prefix = 'base-iterable-continue-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'skip') continue;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreak(List<String> extra) sync* {
+  final prefix = 'base-iterable-break';
+  for (final value in extra) {
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreakAfterYield(
+  List<String> extra,
+) sync* {
+  final prefix = 'base-iterable-break-after-yield';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInBreakAtEnd(List<String> extra) sync* {
+  final prefix = 'base-iterable-break-at-end';
+  for (final value in extra) {
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueThenBreak(
+  List<String> extra,
+) sync* {
+  final prefix = 'base-iterable-continue-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    if (value == 'stop') break;
+    yield '$prefix-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInContinueYieldBreak(
+  List<String> extra,
+) sync* {
+  final prefix = 'base-iterable-continue-yield-break';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    yield '$prefix-before-$value';
+    if (value == 'stop') break;
+    yield '$prefix-after-$value';
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInNested(
+  List<String> extra,
+  List<String> suffixes,
+) sync* {
+  final prefix = 'base-iterable-nested';
+  for (final value in extra) {
+    for (final suffix in suffixes) {
+      yield '$prefix-$value-$suffix';
+    }
+  }
+}
+
+Iterable<String> syncGeneratedDynamicForInNestedBreakContinue(
+  List<String> extra,
+  List<String> suffixes,
+) sync* {
+  final prefix = 'base-iterable-nested-control';
+  for (final value in extra) {
+    if (value == 'skip') continue;
+    for (final suffix in suffixes) {
+      if (suffix == 'skip') continue;
+      yield '$prefix-$value-$suffix';
+      if (suffix == 'stop') break;
+    }
+    if (value == 'stop') break;
+  }
+}
+
+Iterable<String> syncGeneratedYieldStar() sync* {
+  yield* ['base-yield-star-a', 'base-yield-star-b'];
+}
+
+Iterable<String> syncGeneratedYieldStarDynamic(List<String> extra) sync* {
+  yield* extra;
+  yield 'base-yield-star-dynamic-tail';
+}
+
+Iterable<String> syncGeneratedSwitchOrPatternExpr(String tier) sync* {
+  yield tier == 'gold'
+      ? 'base-iterable-switch-or-premium'
+      : 'base-iterable-switch-or-other';
+}
+
+Iterable<String> syncGeneratedSwitchOrPatternStatement(String tier) sync* {
+  if (tier == 'gold' || tier == 'vip') {
+    yield 'base-iterable-switch-stmt-or-premium';
+  } else {
+    yield 'base-iterable-switch-stmt-or-other';
+  }
+}
+
+Iterable<String> syncGeneratedGuardedSwitchExpr(
+  String tier,
+  bool enabled,
+) sync* {
+  yield enabled
+      ? 'base-iterable-guarded-switch-$tier'
+      : 'base-iterable-guarded-switch-other';
+}
+
+Iterable<String> syncGeneratedGuardedSwitchStatement(
+  String tier,
+  bool enabled,
+) sync* {
+  if (enabled && tier == 'gold') {
+    yield 'base-iterable-guarded-switch-stmt-gold';
+  } else {
+    yield 'base-iterable-guarded-switch-stmt-other';
+  }
+}
+
+Iterable<String> syncGeneratedWhileSwitchOrPatternStatement() sync* {
+  yield 'base-iterable-while-switch-or';
+}
+
+Iterable<String> syncGeneratedForSwitchOrPatternStatement() sync* {
+  yield 'base-iterable-for-switch-or';
+}

@@ -107,6 +107,22 @@ Map<String, Object?>? _asyncCompletedExpr(
       locals,
     );
   }
+  if (expression is Not) {
+    final operand = _asyncConditionExpr(
+      expression.operand,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (operand == null) return null;
+    return {
+      'conditional': {
+        'condition': operand,
+        'then': {'bool': false},
+        'else': {'bool': true},
+      },
+    };
+  }
   if (expression is StringConcatenation) {
     if (expression.expressions.isEmpty) return {'string': ''};
     final parts = <Map<String, Object?>>[];
@@ -118,6 +134,37 @@ Map<String, Object?>? _asyncCompletedExpr(
       parts.add(compiled);
     }
     return {'concat': parts};
+  }
+  if (expression is LogicalExpression) {
+    final left = _asyncConditionExpr(
+      expression.left,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    final right = _asyncConditionExpr(
+      expression.right,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (left == null || right == null) return null;
+    return switch (expression.operatorEnum) {
+      LogicalExpressionOperator.AND => {
+        'conditional': {
+          'condition': left,
+          'then': right,
+          'else': {'bool': false},
+        },
+      },
+      LogicalExpressionOperator.OR => {
+        'conditional': {
+          'condition': left,
+          'then': {'bool': true},
+          'else': right,
+        },
+      },
+    };
   }
   if (expression is ConditionalExpression) {
     final condition = _asyncConditionExpr(
@@ -148,6 +195,64 @@ Map<String, Object?>? _asyncCompletedExpr(
       },
     };
   }
+  if (expression is StaticInvocation) {
+    final loweredList = _asyncLoweredDartListLiteralExpr(
+      expression,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (loweredList != null) return loweredList;
+  }
+  if (expression is BlockExpression) {
+    return _blockCollectionExpr(
+          expression,
+          paramsSet,
+          libraryUri,
+          locals,
+          {},
+        ) ??
+        _asyncLoweredSwitchBlockExpressionExpr(
+          expression,
+          paramsSet,
+          libraryUri,
+          locals,
+        );
+  }
+  if (expression is ListLiteral) {
+    final items = <Map<String, Object?>>[];
+    for (final item in expression.expressions) {
+      final compiled =
+          _asyncCompletedExpr(item, paramsSet, libraryUri, locals) ??
+          _expr(item, paramsSet, libraryUri, locals);
+      if (compiled == null) return null;
+      items.add(compiled);
+    }
+    return {'list': items};
+  }
+  if (expression is MapLiteral) {
+    final entries = <Map<String, Object?>>[];
+    for (final entry in expression.entries) {
+      if (entry is! MapLiteralEntry) return null;
+      final key =
+          _asyncCompletedExpr(entry.key, paramsSet, libraryUri, locals) ??
+          _expr(entry.key, paramsSet, libraryUri, locals);
+      final value =
+          _asyncCompletedExpr(entry.value, paramsSet, libraryUri, locals) ??
+          _expr(entry.value, paramsSet, libraryUri, locals);
+      if (key == null || value == null) return null;
+      entries.add({'key': key, 'value': value});
+    }
+    return {'map': entries};
+  }
+  if (expression is SwitchExpression) {
+    return _asyncSwitchExpressionExpr(
+      expression,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+  }
   if (expression is VariableSet) {
     final id = locals[expression.variable];
     if (id == null) return null;
@@ -160,6 +265,231 @@ Map<String, Object?>? _asyncCompletedExpr(
     };
   }
   return null;
+}
+
+Map<String, Object?>? _asyncLoweredDartListLiteralExpr(
+  StaticInvocation expression,
+  Set<String> paramsSet,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+) {
+  if (expression.arguments.named.isNotEmpty) return null;
+  final args = <Map<String, Object?>>[];
+  for (final arg in expression.arguments.positional) {
+    final compiled =
+        _asyncCompletedExpr(arg, paramsSet, libraryUri, locals) ??
+        _expr(arg, paramsSet, libraryUri, locals);
+    if (compiled == null) return null;
+    args.add(compiled);
+  }
+  try {
+    return _loweredDartListLiteralExpr(
+      expression,
+      paramsSet,
+      libraryUri,
+      locals,
+      const {},
+      target: expression.target,
+      compiledArgs: args,
+    );
+  } catch (error) {
+    return _loweredDartListLiteralExpr(
+      expression,
+      paramsSet,
+      libraryUri,
+      locals,
+      const {},
+      compiledArgs: args,
+      fallbackText: error.toString(),
+    );
+  }
+}
+
+Map<String, Object?>? _asyncSwitchExpressionExpr(
+  SwitchExpression expression,
+  Set<String> paramsSet,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+) {
+  final scrutinee =
+      _asyncCompletedExpr(
+        expression.expression,
+        paramsSet,
+        libraryUri,
+        locals,
+      ) ??
+      _expr(expression.expression, paramsSet, libraryUri, locals);
+  if (scrutinee == null || expression.cases.length < 2) return null;
+
+  Map<String, Object?>? otherwise;
+  final branches = <_FcbSwitchExpressionBranch>[];
+  for (final switchCase in expression.cases) {
+    final patternGuard = switchCase.patternGuard;
+    final guard = patternGuard.guard == null
+        ? null
+        : _asyncConditionExpr(
+            patternGuard.guard!,
+            paramsSet,
+            libraryUri,
+            locals,
+          );
+    if (patternGuard.guard != null && guard == null) return null;
+    final body =
+        _asyncCompletedExpr(
+          switchCase.expression,
+          paramsSet,
+          libraryUri,
+          locals,
+        ) ??
+        _expr(switchCase.expression, paramsSet, libraryUri, locals);
+    if (body == null) return null;
+
+    final pattern = patternGuard.pattern;
+    if (pattern is WildcardPattern) {
+      if (otherwise != null || switchCase != expression.cases.last) return null;
+      otherwise = body;
+      continue;
+    }
+    if (otherwise != null) return null;
+    final constants = _switchPatternConstants(
+      pattern,
+      paramsSet,
+      libraryUri,
+      locals,
+      const {},
+    );
+    if (constants == null || constants.isEmpty) return null;
+    for (final constant in constants) {
+      branches.add(_FcbSwitchExpressionBranch(constant, body, guard: guard));
+    }
+  }
+  if (otherwise == null || branches.isEmpty) return null;
+
+  return _switchBranchesToConditional(scrutinee, branches, otherwise);
+}
+
+Map<String, Object?>? _asyncLoweredSwitchBlockExpressionExpr(
+  BlockExpression expression,
+  Set<String> paramsSet,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+) {
+  final value = expression.value;
+  if (value is! VariableGet) return null;
+  final resultVariable = value.variable;
+  final statements = expression.body.statements;
+  if (statements.length < 3 ||
+      statements.first is! VariableDeclaration ||
+      statements.first != resultVariable ||
+      resultVariable.initializer != null) {
+    return null;
+  }
+
+  VariableDeclaration? scrutineeVariable;
+  Map<String, Object?>? scrutinee;
+  final constants = <VariableDeclaration, Map<String, Object?>>{};
+  LabeledStatement? label;
+  for (final statement in statements.skip(1)) {
+    if (statement is LabeledStatement) {
+      label = statement;
+      break;
+    }
+    if (statement is! VariableDeclaration || statement.initializer == null) {
+      return null;
+    }
+    if (scrutineeVariable == null) {
+      final compiled =
+          _asyncCompletedExpr(
+            statement.initializer!,
+            paramsSet,
+            libraryUri,
+            locals,
+          ) ??
+          _expr(statement.initializer!, paramsSet, libraryUri, locals);
+      if (compiled == null) return null;
+      scrutineeVariable = statement;
+      scrutinee = compiled;
+    } else {
+      final compiled = _switchConstantExpr(
+        statement.initializer!,
+        constants,
+        paramsSet,
+        libraryUri,
+        locals,
+        const {},
+      );
+      if (compiled == null) return null;
+      constants[statement] = compiled;
+    }
+  }
+  if (scrutineeVariable == null || scrutinee == null || label == null) {
+    return null;
+  }
+
+  final labelBody = label.body;
+  if (labelBody is! Block || labelBody.statements.length < 2) return null;
+  final branches = <_FcbSwitchExpressionBranch>[];
+  Map<String, Object?>? otherwise;
+  for (final statement in labelBody.statements) {
+    final ifStatement = _loweredSwitchIfStatement(statement);
+    if (ifStatement == null || ifStatement.otherwise != null) return null;
+    final caseBody = _asyncLoweredSwitchAssignedValue(
+      ifStatement.then,
+      label,
+      resultVariable,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    if (caseBody == null) return null;
+    final condition = ifStatement.condition;
+    if (condition is BoolLiteral && condition.value) {
+      if (otherwise != null || statement != labelBody.statements.last) {
+        return null;
+      }
+      otherwise = caseBody;
+      continue;
+    }
+    if (otherwise != null) return null;
+    final caseBranches = _loweredSwitchCaseBranches(
+      condition,
+      scrutineeVariable,
+      constants,
+      caseBody,
+      paramsSet,
+      libraryUri,
+      locals,
+      const {},
+    );
+    if (caseBranches == null || caseBranches.isEmpty) return null;
+    branches.addAll(caseBranches);
+  }
+  if (otherwise == null || branches.isEmpty) return null;
+
+  return _switchBranchesToConditional(scrutinee, branches, otherwise);
+}
+
+Map<String, Object?>? _asyncLoweredSwitchAssignedValue(
+  Statement statement,
+  LabeledStatement label,
+  VariableDeclaration resultVariable,
+  Set<String> paramsSet,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+) {
+  final statements = statement is Block ? statement.statements : [statement];
+  if (statements.length != 2 || statements.last is! BreakStatement) {
+    return null;
+  }
+  if ((statements.last as BreakStatement).target != label) return null;
+  final first = statements.first;
+  if (first is! ExpressionStatement || first.expression is! VariableSet) {
+    return null;
+  }
+  final set = first.expression as VariableSet;
+  if (set.variable != resultVariable) return null;
+  return _asyncCompletedExpr(set.value, paramsSet, libraryUri, locals) ??
+      _expr(set.value, paramsSet, libraryUri, locals);
 }
 
 Map<String, Object?>? _asyncConditionExpr(

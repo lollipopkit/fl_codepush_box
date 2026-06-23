@@ -1,0 +1,471 @@
+import json
+import sys
+
+patch = json.load(open(sys.argv[1]))
+patch_by_member = {f.get("member_name"): f for f in patch["functions"]}
+
+
+def assert_generator_collection(
+    name,
+    constants,
+    *,
+    async_kind,
+    min_lists=0,
+    min_maps=0,
+    min_conditionals=0,
+    min_for_in=0,
+    min_list_add_all=0,
+    min_map_add_all=0,
+    min_awaits=0,
+    has_try_catch=False,
+    has_try_finally=False,
+):
+    function = patch_by_member.get(name)
+    if function is None:
+        raise SystemExit(f"missing inventory entry for {name}")
+    source = function.get("bytecode_source")
+    source_json = json.dumps(source)
+    if (
+        function.get("unsupported_reasons") != []
+        or not isinstance(source, dict)
+        or source.get("async_kind") != async_kind
+        or source_json.count('"list"') < min_lists
+        or source_json.count('"map"') < min_maps
+        or source_json.count('"conditional"') < min_conditionals
+        or source_json.count('"list_for_in"') + source_json.count('"map_for_in"') < min_for_in
+        or source_json.count('"list_add_all"') < min_list_add_all
+        or source_json.count('"map_add_all"') < min_map_add_all
+        or source_json.count('"await"') < min_awaits
+        or (has_try_catch and '"try_catch"' not in source_json)
+        or (has_try_finally and '"try_finally"' not in source_json)
+        or any(f'"string": "{constant}"' not in source_json for constant in constants)
+    ):
+        raise SystemExit(f"expected {name} generator collection source, got {function}")
+
+
+assert_generator_collection(
+    "syncGeneratedCollectionSwitchList",
+    [
+        "patched-iterable-collection-switch-head",
+        "patched-iterable-collection-switch-premium",
+        "patched-iterable-collection-switch-for-",
+    ],
+    async_kind="sync_star",
+    min_lists=3,
+    min_conditionals=2,
+    min_for_in=1,
+)
+assert_generator_collection(
+    "asyncGeneratedCollectionSwitchList",
+    [
+        "patched-stream-collection-switch-head",
+        "patched-stream-collection-switch-premium",
+        "patched-stream-collection-switch-for-",
+    ],
+    async_kind="async_star",
+    min_lists=3,
+    min_conditionals=2,
+    min_for_in=1,
+)
+assert_generator_collection(
+    "asyncGeneratedAwaitCollectionTryFinallyList",
+    [
+        "patched-stream-await-collection-try-finally-head",
+        "patched-stream-await-collection-try-finally-for-",
+        "patched-stream-await-collection-try-finally-cleanup-",
+    ],
+    async_kind="async_star",
+    min_lists=3,
+    min_conditionals=1,
+    min_for_in=1,
+    min_awaits=2,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "asyncGeneratedCollectionSwitchTryCatchMap",
+    [
+        "patched-stream-collection-switch-map-head",
+        "patched-stream-collection-switch-map-premium",
+        "patched-stream-collection-switch-map-for-",
+        "patched-stream-collection-switch-map-caught-",
+    ],
+    async_kind="async_star",
+    min_maps=3,
+    min_conditionals=2,
+    min_for_in=1,
+    min_awaits=1,
+    has_try_catch=True,
+)
+assert_generator_collection(
+    "syncGeneratedGuardedCollectionSwitchMap",
+    [
+        "patched-iterable-guarded-collection-switch-map-head",
+        "patched-iterable-guarded-collection-switch-map-premium",
+        "patched-iterable-guarded-collection-switch-map-for-",
+    ],
+    async_kind="sync_star",
+    min_maps=3,
+    min_conditionals=2,
+    min_for_in=1,
+)
+assert_generator_collection(
+    "syncGeneratedNestedCollectionForSwitchList",
+    [
+        "patched-iterable-nested-collection-switch-head",
+        "patched-iterable-nested-collection-switch-premium",
+        "patched-iterable-nested-collection-switch-for-",
+    ],
+    async_kind="sync_star",
+    min_lists=1,
+    min_conditionals=2,
+    min_for_in=2,
+)
+assert_generator_collection(
+    "asyncGeneratedAwaitThenCollectionSwitchMap",
+    [
+        "patched-stream-await-then-collection-switch-map-head",
+        "patched-stream-await-then-collection-switch-map-premium",
+        "patched-stream-await-then-collection-switch-map-for-",
+    ],
+    async_kind="async_star",
+    min_maps=3,
+    min_conditionals=2,
+    min_for_in=1,
+    min_awaits=2,
+)
+assert_generator_collection(
+    "asyncGeneratedDoubleAwaitGuardedCollectionList",
+    [
+        "patched-stream-double-await-guarded-collection-head",
+        "patched-stream-double-await-guarded-collection-premium",
+        "patched-stream-double-await-guarded-collection-for-",
+    ],
+    async_kind="async_star",
+    min_lists=3,
+    min_conditionals=2,
+    min_for_in=1,
+    min_awaits=2,
+)
+assert_generator_collection(
+    "asyncGeneratedCollectionSwitchTryCatchFinallyList",
+    [
+        "patched-stream-collection-switch-list-head",
+        "patched-stream-collection-switch-list-premium",
+        "patched-stream-collection-switch-list-caught-",
+        "patched-stream-collection-switch-list-cleanup-",
+    ],
+    async_kind="async_star",
+    min_lists=5,
+    min_conditionals=2,
+    min_for_in=1,
+    min_awaits=2,
+    has_try_catch=True,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "asyncGeneratedCollectionSwitchMapTryCatchFinallyAwait",
+    [
+        "patched-stream-collection-switch-map-finally-head",
+        "patched-stream-collection-switch-map-finally-premium",
+        "patched-stream-collection-switch-map-finally-caught-",
+        "patched-stream-collection-switch-map-finally-cleanup-",
+    ],
+    async_kind="async_star",
+    min_maps=6,
+    min_conditionals=2,
+    min_for_in=1,
+    min_awaits=3,
+    has_try_catch=True,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "syncGeneratedNestedGuardedCollectionForList",
+    [
+        "patched-iterable-nested-guarded-collection-list-head",
+        "patched-iterable-nested-guarded-collection-list-premium",
+        "patched-iterable-nested-guarded-collection-list-for-",
+    ],
+    async_kind="sync_star",
+    min_lists=1,
+    min_conditionals=2,
+    min_for_in=2,
+)
+assert_generator_collection(
+    "asyncGeneratedAwaitThenNestedCollectionForSwitchList",
+    [
+        "patched-stream-await-then-nested-collection-list-head",
+        "patched-stream-await-then-nested-collection-list-premium",
+        "patched-stream-await-then-nested-collection-list-for-",
+    ],
+    async_kind="async_star",
+    min_lists=1,
+    min_conditionals=2,
+    min_for_in=2,
+    min_awaits=2,
+)
+assert_generator_collection(
+    "asyncGeneratedCollectionDynamicSpreadTryCatchFinallyList",
+    [
+        "patched-stream-collection-dynamic-spread-list-head",
+        "patched-stream-collection-dynamic-spread-list-for-",
+        "patched-stream-collection-dynamic-spread-list-caught-",
+        "patched-stream-collection-dynamic-spread-list-cleanup-",
+    ],
+    async_kind="async_star",
+    min_lists=3,
+    min_for_in=1,
+    min_list_add_all=1,
+    min_awaits=3,
+    has_try_catch=True,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "asyncGeneratedCollectionDynamicSpreadTryCatchFinallyMap",
+    [
+        "patched-stream-collection-dynamic-spread-map-head",
+        "patched-stream-collection-dynamic-spread-map-for-",
+        "patched-stream-collection-dynamic-spread-map-caught-",
+        "patched-stream-collection-dynamic-spread-map-cleanup-",
+    ],
+    async_kind="async_star",
+    min_maps=3,
+    min_for_in=1,
+    min_map_add_all=1,
+    min_awaits=3,
+    has_try_catch=True,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "syncGeneratedDynamicSpreadSwitchList",
+    [
+        "patched-iterable-dynamic-spread-switch-list-head",
+        "patched-iterable-dynamic-spread-switch-list-premium",
+        "patched-iterable-dynamic-spread-switch-list-for-",
+    ],
+    async_kind="sync_star",
+    min_lists=4,
+    min_conditionals=2,
+    min_for_in=1,
+    min_list_add_all=2,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadSwitchList",
+    [
+        "patched-stream-dynamic-spread-switch-list-head",
+        "patched-stream-dynamic-spread-switch-list-premium",
+        "patched-stream-dynamic-spread-switch-list-for-",
+    ],
+    async_kind="async_star",
+    min_lists=4,
+    min_conditionals=2,
+    min_for_in=1,
+    min_list_add_all=2,
+    min_awaits=1,
+)
+assert_generator_collection(
+    "syncGeneratedDynamicSpreadSwitchMap",
+    [
+        "patched-iterable-dynamic-spread-switch-map-head",
+        "patched-iterable-dynamic-spread-switch-map-premium",
+        "patched-iterable-dynamic-spread-switch-map-for-",
+    ],
+    async_kind="sync_star",
+    min_maps=4,
+    min_conditionals=2,
+    min_for_in=1,
+    min_map_add_all=2,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadSwitchMap",
+    [
+        "patched-stream-dynamic-spread-switch-map-head",
+        "patched-stream-dynamic-spread-switch-map-premium",
+        "patched-stream-dynamic-spread-switch-map-for-",
+    ],
+    async_kind="async_star",
+    min_maps=4,
+    min_conditionals=2,
+    min_for_in=1,
+    min_map_add_all=2,
+    min_awaits=1,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadSwitchTryFinallyList",
+    [
+        "patched-stream-dynamic-spread-switch-try-finally-list-head",
+        "patched-stream-dynamic-spread-switch-try-finally-list-premium",
+        "patched-stream-dynamic-spread-switch-try-finally-list-for-",
+        "patched-stream-dynamic-spread-switch-try-finally-list-cleanup-",
+    ],
+    async_kind="async_star",
+    min_lists=5,
+    min_conditionals=2,
+    min_for_in=1,
+    min_list_add_all=2,
+    min_awaits=2,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadSwitchTryCatchFinallyMap",
+    [
+        "patched-stream-dynamic-spread-switch-try-catch-finally-map-head",
+        "patched-stream-dynamic-spread-switch-try-catch-finally-map-premium",
+        "patched-stream-dynamic-spread-switch-try-catch-finally-map-for-",
+        "patched-stream-dynamic-spread-switch-try-catch-finally-map-caught-",
+        "patched-stream-dynamic-spread-switch-try-catch-finally-map-cleanup-",
+    ],
+    async_kind="async_star",
+    min_maps=6,
+    min_conditionals=2,
+    min_for_in=1,
+    min_map_add_all=2,
+    min_awaits=4,
+    has_try_catch=True,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "syncGeneratedDynamicSpreadNestedSwitchList",
+    [
+        "patched-iterable-dynamic-spread-nested-switch-list-head",
+        "patched-iterable-dynamic-spread-nested-switch-list-premium",
+        "patched-iterable-dynamic-spread-nested-switch-list-for-",
+    ],
+    async_kind="sync_star",
+    min_lists=1,
+    min_conditionals=2,
+    min_for_in=2,
+    min_list_add_all=1,
+)
+assert_generator_collection(
+    "syncGeneratedDynamicSpreadNestedForList",
+    [
+        "patched-iterable-dynamic-spread-nested-for-list-head",
+        "patched-iterable-dynamic-spread-nested-for-list-tier-",
+        "patched-iterable-dynamic-spread-nested-for-list-extra-",
+    ],
+    async_kind="sync_star",
+    min_lists=1,
+    min_for_in=2,
+    min_list_add_all=1,
+)
+assert_generator_collection(
+    "syncGeneratedDynamicSpreadNestedSwitchMap",
+    [
+        "patched-iterable-dynamic-spread-nested-switch-map-head",
+        "patched-iterable-dynamic-spread-nested-switch-map-premium",
+        "patched-iterable-dynamic-spread-nested-switch-map-extra-",
+    ],
+    async_kind="sync_star",
+    min_maps=1,
+    min_conditionals=2,
+    min_for_in=2,
+    min_map_add_all=1,
+)
+assert_generator_collection(
+    "asyncGeneratedAwaitDynamicSpreadNestedSwitchList",
+    [
+        "patched-stream-await-dynamic-spread-nested-switch-list-head",
+        "patched-stream-await-dynamic-spread-nested-switch-list-premium",
+        "patched-stream-await-dynamic-spread-nested-switch-list-for-",
+    ],
+    async_kind="async_star",
+    min_lists=1,
+    min_conditionals=2,
+    min_for_in=2,
+    min_list_add_all=1,
+    min_awaits=2,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadSwitchTryFinallyDoubleCleanupList",
+    [
+        "patched-stream-dynamic-spread-switch-double-cleanup-list-head",
+        "patched-stream-dynamic-spread-switch-double-cleanup-list-premium",
+        "patched-stream-dynamic-spread-switch-double-cleanup-list-for-",
+        "patched-stream-dynamic-spread-switch-double-cleanup-list-cleanup-",
+    ],
+    async_kind="async_star",
+    min_lists=5,
+    min_conditionals=2,
+    min_for_in=1,
+    min_list_add_all=2,
+    min_awaits=3,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadSwitchTryCatchFinallyDoubleAwaitMap",
+    [
+        "patched-stream-dynamic-spread-switch-double-await-map-head",
+        "patched-stream-dynamic-spread-switch-double-await-map-premium",
+        "patched-stream-dynamic-spread-switch-double-await-map-for-",
+        "patched-stream-dynamic-spread-switch-double-await-map-caught-",
+        "patched-stream-dynamic-spread-switch-double-await-map-cleanup-",
+    ],
+    async_kind="async_star",
+    min_maps=6,
+    min_conditionals=2,
+    min_for_in=1,
+    min_map_add_all=2,
+    min_awaits=5,
+    has_try_catch=True,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "asyncGeneratedAwaitThenDynamicSpreadRuntimeMap",
+    [
+        "patched-stream-await-then-dynamic-spread-runtime-map-head",
+        "patched-stream-await-then-dynamic-spread-runtime-map-for-",
+    ],
+    async_kind="async_star",
+    min_maps=1,
+    min_for_in=1,
+    min_map_add_all=1,
+    min_awaits=2,
+)
+assert_generator_collection(
+    "asyncGeneratedAwaitDynamicSpreadNestedSwitchMap",
+    [
+        "patched-stream-await-dynamic-spread-nested-switch-map-head",
+        "patched-stream-await-dynamic-spread-nested-switch-map-premium",
+        "patched-stream-await-dynamic-spread-nested-switch-map-extra-",
+    ],
+    async_kind="async_star",
+    min_maps=1,
+    min_conditionals=2,
+    min_for_in=2,
+    min_map_add_all=1,
+    min_awaits=2,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadNestedSwitchMapTryFinallyDoubleCleanup",
+    [
+        "patched-stream-dynamic-spread-nested-switch-map-double-cleanup-head",
+        "patched-stream-dynamic-spread-nested-switch-map-double-cleanup-premium",
+        "patched-stream-dynamic-spread-nested-switch-map-double-cleanup-extra-",
+        "patched-stream-dynamic-spread-nested-switch-map-double-cleanup-",
+    ],
+    async_kind="async_star",
+    min_maps=2,
+    min_conditionals=2,
+    min_for_in=2,
+    min_map_add_all=1,
+    min_awaits=3,
+    has_try_finally=True,
+)
+assert_generator_collection(
+    "asyncGeneratedDynamicSpreadNestedSwitchMapTryCatchFinallyDoubleAwait",
+    [
+        "patched-stream-dynamic-spread-nested-switch-map-catch-head",
+        "patched-stream-dynamic-spread-nested-switch-map-catch-premium",
+        "patched-stream-dynamic-spread-nested-switch-map-catch-extra-",
+        "patched-stream-dynamic-spread-nested-switch-map-catch-caught-",
+        "patched-stream-dynamic-spread-nested-switch-map-catch-cleanup-",
+    ],
+    async_kind="async_star",
+    min_maps=3,
+    min_conditionals=2,
+    min_for_in=2,
+    min_map_add_all=1,
+    min_awaits=4,
+    has_try_catch=True,
+    has_try_finally=True,
+)

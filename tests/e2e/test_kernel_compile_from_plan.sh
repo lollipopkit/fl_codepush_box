@@ -11,6 +11,7 @@ FCB_RUN_VM_TESTS="${FCB_RUN_VM_TESTS:-$ROOT_DIR/vendor/flutter/engine/src/out/ho
 EVIDENCE_DIR="${FCB_KERNEL_COMPILE_EVIDENCE_DIR:-$ROOT_DIR/target/fcb/kernel-compile-from-plan}"
 SUMMARY="$EVIDENCE_DIR/summary.txt"
 WORKDIR="$(mktemp -d /tmp/fcb_kernel_compile_from_plan_XXXXXX)"
+ASSERT_DIR="$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assertions"
 
 cleanup() {
   if [ "${FCB_KEEP_KERNEL_COMPILE_TEST:-0}" = "1" ]; then
@@ -28,14 +29,16 @@ compose_fixture() {
   local output="$2"
   : >"$output"
   local part
-  for part in "$source_dir"/*.dart; do
-    [ -f "$part" ] || {
-      echo "missing Kernel compile fixture part in $source_dir" >&2
-      exit 1
-    }
+  local found=0
+  while IFS= read -r part; do
     cat "$part" >>"$output"
     printf '\n' >>"$output"
-  done
+    found=1
+  done < <(find "$source_dir" -type f -name '*.dart' | sort)
+  [ "$found" -eq 1 ] || {
+    echo "missing Kernel compile fixture part in $source_dir" >&2
+    exit 1
+  }
 }
 
 cat >"$WORKDIR/project/pubspec.yaml" <<'YAML'
@@ -80,21 +83,37 @@ DART
   --dill "$WORKDIR/patch.dill" \
   >"$WORKDIR/patch_inventory.json"
 
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_inventory.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_inventory.py" \
   "$WORKDIR/release_inventory.json" "$WORKDIR/patch_inventory.json" "$WORKDIR/plan.json"
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_core_calls.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_core_calls.py" \
   "$WORKDIR/patch_inventory.json"
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_collection_chains.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_collection_chains.py" \
   "$WORKDIR/patch_inventory.json"
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_collection_switch_sources.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_collection_switch_sources.py" \
   "$WORKDIR/patch_inventory.json"
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_switch_expr_sources.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_switch_expr_sources.py" \
   "$WORKDIR/patch_inventory.json"
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_switch_statement_sources.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_switch_statement_sources.py" \
   "$WORKDIR/patch_inventory.json"
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_plan_async_control.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_async_control.py" \
   "$WORKDIR/patch_inventory.json"
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_generator_sources.py" \
+python3 "$ASSERT_DIR/plan/assert_plan_async_loop_finalizer_guards.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/plan/assert_plan_async_collection_chains.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/plan/assert_plan_async_object_generator_chains.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/generator/assert_generator_sources.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/generator/assert_generator_stream_chains.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/generator/assert_generator_collection_chains.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/generator/assert_generator_finalizer_chains.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/generator/assert_generator_object_sync_chains.py" \
+  "$WORKDIR/patch_inventory.json"
+python3 "$ASSERT_DIR/generator/assert_generator_async_chains.py" \
   "$WORKDIR/patch_inventory.json"
 
 "$DART_BIN" "$ROOT_DIR/tool/fcb_kernel_manifest.dart" \
@@ -112,25 +131,9 @@ python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_generator_sources.p
   --format binary \
   -o "$WORKDIR/module.bin"
 
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_module.py" "$WORKDIR/module.fcbm"
+python3 "$ASSERT_DIR/module/assert_module.py" "$WORKDIR/module.fcbm"
 
-python3 "$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assert_binary.py" "$WORKDIR/module.bin"
-
-INTERPRETED_COUNT="$(
-  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["interpret"]))' "$WORKDIR/plan.json"
-)"
-REJECT_COUNT="$(
-  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["reject"]))' "$WORKDIR/plan.json"
-)"
-UNCHANGED_COUNT="$(
-  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["unchanged"]))' "$WORKDIR/plan.json"
-)"
-MODULE_FUNCTION_COUNT="$(
-  python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))["functions"]))' "$WORKDIR/module.fcbm"
-)"
-BINARY_FUNCTION_COUNT="$(
-  python3 -c 'import struct, sys; data = open(sys.argv[1], "rb").read(10); print(struct.unpack(">H", data[8:10])[0])' "$WORKDIR/module.bin"
-)"
+python3 "$ASSERT_DIR/binary/assert_binary.py" "$WORKDIR/module.bin"
 
 if [ -x "$FCB_RUN_VM_TESTS" ]; then
   FCB_SOURCE_ASYNC_STAR_MODULE="$WORKDIR/module.bin" \
@@ -147,11 +150,6 @@ fi
   echo "workdir_kept: ${FCB_KEEP_KERNEL_COMPILE_TEST:-0}"
   echo "dart_bin: $DART_BIN"
   echo "run_vm_tests: $FCB_RUN_VM_TESTS"
-  echo "interpreted_count: $INTERPRETED_COUNT"
-  echo "reject_count: $REJECT_COUNT"
-  echo "unchanged_count: $UNCHANGED_COUNT"
-  echo "module_function_count: $MODULE_FUNCTION_COUNT"
-  echo "binary_function_count: $BINARY_FUNCTION_COUNT"
   echo "source_runtime_filters: FcbPatchRuntimeAsyncStarSourceModuleStreamListen FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor"
   echo "triple_nested_runtime_cases: normal cancel outer-error middle-error inner-error"
 } >"$SUMMARY"

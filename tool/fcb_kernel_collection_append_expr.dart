@@ -260,7 +260,7 @@ Map<String, Object?>? _dynamicListSpread(
   final expression = statement.expression;
   if (!_isCollectionCall(expression, variable, 'addAll', 1)) return null;
   final call = expression as InstanceInvocationExpression;
-  final spread = _expr(
+  final spread = _collectionValueExpr(
     call.arguments.positional.single,
     params,
     libraryUri,
@@ -283,7 +283,7 @@ Map<String, Object?>? _dynamicMapSpread(
   final expression = statement.expression;
   if (!_isCollectionCall(expression, variable, 'addAll', 1)) return null;
   final call = expression as InstanceInvocationExpression;
-  final spread = _expr(
+  final spread = _collectionValueExpr(
     call.arguments.positional.single,
     params,
     libraryUri,
@@ -306,7 +306,7 @@ Map<String, Object?>? _staticListAppendSpread(
   final expression = statement.expression;
   if (_isCollectionCall(expression, variable, 'addAll', 1)) {
     final call = expression as InstanceInvocationExpression;
-    final spread = _expr(
+    final spread = _collectionValueExpr(
       call.arguments.positional.single,
       params,
       libraryUri,
@@ -319,7 +319,7 @@ Map<String, Object?>? _staticListAppendSpread(
   }
   if (!_isCollectionCall(expression, variable, 'add', 1)) return null;
   final call = expression as InstanceInvocationExpression;
-  final item = _expr(
+  final item = _collectionValueExpr(
     call.arguments.positional.single,
     params,
     libraryUri,
@@ -344,7 +344,7 @@ Map<String, Object?>? _staticMapAppendSpread(
   final expression = statement.expression;
   if (_isCollectionCall(expression, variable, 'addAll', 1)) {
     final call = expression as InstanceInvocationExpression;
-    final spread = _expr(
+    final spread = _collectionValueExpr(
       call.arguments.positional.single,
       params,
       libraryUri,
@@ -357,14 +357,14 @@ Map<String, Object?>? _staticMapAppendSpread(
   }
   if (!_isCollectionCall(expression, variable, '[]=', 2)) return null;
   final call = expression as InstanceInvocationExpression;
-  final key = _expr(
+  final key = _collectionValueExpr(
     call.arguments.positional[0],
     params,
     libraryUri,
     locals,
     closures,
   );
-  final value = _expr(
+  final value = _collectionValueExpr(
     call.arguments.positional[1],
     params,
     libraryUri,
@@ -403,10 +403,13 @@ Map<String, Object?>? _runtimeListForExpr(
   final call = addExpression as InstanceInvocationExpression;
   if (!_isVariableGet(call.arguments.positional.single, parsed.loopVariable)) {
     final localId = _nextLocalId(locals);
-    final item = _expr(call.arguments.positional.single, params, libraryUri, {
-      ...locals,
-      parsed.loopVariable: localId,
-    }, closures);
+    final item = _collectionValueExpr(
+      call.arguments.positional.single,
+      params,
+      libraryUri,
+      {...locals, parsed.loopVariable: localId},
+      closures,
+    );
     if (item == null) return null;
     return {
       'list_for_in': {
@@ -443,7 +446,7 @@ Map<String, Object?>? _runtimeMapForExpr(
     locals,
     closures,
   );
-  if (parsed == null || parsed.kind != _RuntimeCollectionForKind.map) {
+  if (parsed == null) {
     return null;
   }
   final addExpression = parsed.addExpression;
@@ -451,12 +454,19 @@ Map<String, Object?>? _runtimeMapForExpr(
   final call = addExpression as InstanceInvocationExpression;
   final key = call.arguments.positional[0];
   final value = call.arguments.positional[1];
-  if (!_isVariableFieldGet(key, parsed.loopVariable, 'key') ||
+  if (parsed.kind != _RuntimeCollectionForKind.map ||
+      !_isVariableFieldGet(key, parsed.loopVariable, 'key') ||
       !_isVariableFieldGet(value, parsed.loopVariable, 'value')) {
     final localId = _nextLocalId(locals);
     final mappedLocals = {...locals, parsed.loopVariable: localId};
-    final compiledKey = _expr(key, params, libraryUri, mappedLocals, closures);
-    final compiledValue = _expr(
+    final compiledKey = _collectionValueExpr(
+      key,
+      params,
+      libraryUri,
+      mappedLocals,
+      closures,
+    );
+    final compiledValue = _collectionValueExpr(
       value,
       params,
       libraryUri,
@@ -482,4 +492,15 @@ Map<String, Object?>? _runtimeMapForExpr(
   return {
     'map_for_in': {'receiver': receiver, 'source': parsed.source},
   };
+}
+
+Map<String, Object?>? _collectionValueExpr(
+  Expression expression,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
+) {
+  return _asyncCompletedExpr(expression, params, libraryUri, locals) ??
+      _expr(expression, params, libraryUri, locals, closures);
 }

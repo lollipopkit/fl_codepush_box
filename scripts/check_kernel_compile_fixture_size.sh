@@ -38,10 +38,14 @@ paths=(
   "$ROOT_DIR/tests/e2e/test_phase_e_completion_gate.sh"
 )
 
-for assert_file in "$ROOT_DIR"/tests/e2e/kernel_compile_from_plan/assert_*.py; do
-  [ -f "$assert_file" ] || continue
+assertions_dir="$ROOT_DIR/tests/e2e/kernel_compile_from_plan/assertions"
+[ -d "$assertions_dir" ] || {
+  echo "missing Kernel compile-from-plan assertions directory: $assertions_dir" >&2
+  exit 1
+}
+while IFS= read -r assert_file; do
   paths+=("$assert_file")
-done
+done < <(find "$assertions_dir" -type f -name 'assert_*.py' | sort)
 
 for tool_file in "$ROOT_DIR"/tool/fcb_kernel_*.dart; do
   [ -f "$tool_file" ] || continue
@@ -56,11 +60,10 @@ for fixture_dir in \
     exit 1
   }
   found=0
-  for part in "$fixture_dir"/*.dart; do
-    [ -f "$part" ] || continue
+  while IFS= read -r part; do
     paths+=("$part")
     found=1
-  done
+  done < <(find "$fixture_dir" -type f -name '*.dart' | sort)
   [ "$found" -eq 1 ] || {
     echo "missing Kernel compile-from-plan fixture parts in: $fixture_dir" >&2
     exit 1

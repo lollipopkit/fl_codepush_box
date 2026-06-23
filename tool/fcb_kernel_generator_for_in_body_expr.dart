@@ -175,7 +175,13 @@ Map<String, Object?>? _loweredForInBreakBodyExpr(
     return null;
   }
   final breakStatement = statements[breakIndex] as IfStatement;
-  final condition = _expr(breakStatement.condition, params, libraryUri, locals);
+  final condition = _generatorValueExpr(
+    breakStatement.condition,
+    params,
+    libraryUri,
+    asyncKind,
+    locals,
+  );
   final beforeBreak = statements.take(breakIndex).toList(growable: false);
   final tail = statements.skip(breakIndex + 1).toList(growable: false);
   if (condition == null) return null;
@@ -258,7 +264,13 @@ Map<String, Object?>? _loweredForInContinueBlockExpr(
   if (first is IfStatement &&
       first.otherwise == null &&
       _isBreakToLabel(first.then, label)) {
-    final condition = _expr(first.condition, params, libraryUri, locals);
+    final condition = _generatorValueExpr(
+      first.condition,
+      params,
+      libraryUri,
+      asyncKind,
+      locals,
+    );
     final elseExpr = _loweredForInContinueBlockExpr(
       statements.skip(1).toList(growable: false),
       label,

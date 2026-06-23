@@ -96,11 +96,6 @@ write_valid_evidence() {
 
   {
     echo "kernel_compile_from_plan passed"
-    echo "interpreted_count: 508"
-    echo "reject_count: 2"
-    echo "unchanged_count: 13"
-    echo "module_function_count: 523"
-    echo "binary_function_count: 523"
     echo "source_runtime_filters: FcbPatchRuntimeAsyncStarSourceModuleStreamListen FcbPatchRuntimeAsyncStarSourceModuleDeepNestedAwaitFor"
     echo "triple_nested_runtime_cases: normal cancel outer-error middle-error inner-error"
   } >"$kernel_summary"

@@ -214,6 +214,7 @@ Map<String, Object?>? _loweredSwitchReturnStatementExpr(
     libraryUri,
     locals,
     closures,
+    compileReturn,
   );
   if (parsed == null) return null;
 
@@ -236,19 +237,18 @@ Map<String, Object?>? _loweredSwitchReturnStatementExpr(
       continue;
     }
     if (otherwise != null) return null;
-    final constants = _loweredSwitchCaseConstants(
+    final caseBranches = _loweredSwitchCaseBranches(
       ifStatement.condition,
       parsed.scrutineeVariable,
       parsed.constants,
+      body,
       params,
       libraryUri,
       locals,
       closures,
     );
-    if (constants == null || constants.isEmpty) return null;
-    for (final constant in constants) {
-      branches.add(_FcbSwitchExpressionBranch(constant, body));
-    }
+    if (caseBranches == null || caseBranches.isEmpty) return null;
+    branches.addAll(caseBranches);
   }
   if (otherwise == null || branches.isEmpty) return null;
   return _switchBranchesToConditional(parsed.scrutinee, branches, otherwise);
@@ -268,6 +268,7 @@ Map<String, Object?>? _loweredSwitchAssignStatementExpr(
     libraryUri,
     locals,
     closures,
+    compileValue,
   );
   if (parsed == null) return null;
 
@@ -317,19 +318,18 @@ Map<String, Object?>? _loweredSwitchAssignStatementExpr(
       continue;
     }
     if (otherwise != null) return null;
-    final constants = _loweredSwitchCaseConstants(
+    final caseBranches = _loweredSwitchCaseBranches(
       ifStatement.condition,
       parsed.scrutineeVariable,
       parsed.constants,
+      body,
       params,
       libraryUri,
       locals,
       closures,
     );
-    if (constants == null || constants.isEmpty) return null;
-    for (final constant in constants) {
-      branches.add(_FcbSwitchExpressionBranch(constant, body));
-    }
+    if (caseBranches == null || caseBranches.isEmpty) return null;
+    branches.addAll(caseBranches);
   }
   if (otherwise == null || branches.isEmpty) return null;
   return _switchBranchesToConditional(parsed.scrutinee, branches, otherwise);
@@ -341,6 +341,7 @@ _FcbLoweredSwitchStatement? _loweredSwitchStatementParts(
   String libraryUri,
   Map<VariableDeclaration, int> locals,
   Map<VariableDeclaration, FunctionExpression> closures,
+  Map<String, Object?>? Function(Expression expression) compileScrutinee,
 ) {
   if (statement is! LabeledStatement || statement.body is! Block) return null;
   final labelBody = statement.body as Block;
@@ -352,13 +353,7 @@ _FcbLoweredSwitchStatement? _loweredSwitchStatementParts(
     final current = labelBody.statements[caseStart];
     if (current is! VariableDeclaration || current.initializer == null) break;
     if (scrutineeVariable == null) {
-      final compiled = _expr(
-        current.initializer!,
-        params,
-        libraryUri,
-        locals,
-        closures,
-      );
+      final compiled = compileScrutinee(current.initializer!);
       if (compiled == null) return null;
       scrutineeVariable = current;
       scrutinee = compiled;
@@ -407,7 +402,9 @@ Map<String, Object?>? _asyncSwitchStatementExpr(
   Map<String, Object?>? Function(Expression expression) compileReturn,
 ) {
   if (!statement.hasDefault || statement.cases.length < 2) return null;
-  final scrutinee = _expr(statement.expression, params, libraryUri, locals);
+  final scrutinee =
+      _asyncCompletedExpr(statement.expression, params, libraryUri, locals) ??
+      _expr(statement.expression, params, libraryUri, locals);
   if (scrutinee == null) return null;
 
   final branches = <_FcbSwitchExpressionBranch>[];
@@ -554,8 +551,44 @@ bool _addSwitchCaseBranches(
   Set<String> params,
   String libraryUri,
   Map<VariableDeclaration, int> locals,
-  Map<VariableDeclaration, FunctionExpression> closures,
-) {
+  Map<VariableDeclaration, FunctionExpression> closures, {
+  Map<String, Object?>? Function(Expression expression)? compileGuard,
+}) {
+  if (switchCase is PatternSwitchCase) {
+    if (switchCase.patternGuards.isEmpty) return false;
+    for (final patternGuard in switchCase.patternGuards) {
+      final guard = patternGuard.guard == null
+          ? null
+          : compileGuard != null
+          ? compileGuard(patternGuard.guard!)
+          : _asyncCompletedExpr(
+                  patternGuard.guard!,
+                  params,
+                  libraryUri,
+                  locals,
+                ) ??
+                _expr(
+                  patternGuard.guard!,
+                  params,
+                  libraryUri,
+                  locals,
+                  closures,
+                );
+      if (patternGuard.guard != null && guard == null) return false;
+      final constants = _switchPatternConstants(
+        patternGuard.pattern,
+        params,
+        libraryUri,
+        locals,
+        closures,
+      );
+      if (constants == null || constants.isEmpty) return false;
+      for (final constant in constants) {
+        branches.add(_FcbSwitchExpressionBranch(constant, body, guard: guard));
+      }
+    }
+    return true;
+  }
   if (switchCase.expressions.isEmpty) return false;
   for (final expression in switchCase.expressions) {
     final constant = _switchConstantExpr(

@@ -13,9 +13,24 @@ Map<String, Object?>? _blockCollectionExpr(
   final first = expression.body.statements.first;
   if (first is! VariableDeclaration || first.initializer == null) return null;
   if ((expression.value as VariableGet).variable != first) return null;
-  final seed = _expr(first.initializer!, params, libraryUri, locals, closures);
+  final seed = _collectionValueExpr(
+    first.initializer!,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
   final list = seed?['list'];
   final map = seed?['map'];
+  final copied = _blockCopiedCollectionExpr(
+    expression,
+    first,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
+  if (copied != null) return copied;
   if (list is List) {
     Map<String, Object?> expr = {'list': list.cast<Map<String, Object?>>()};
     for (final statement in expression.body.statements.skip(1)) {
@@ -131,6 +146,158 @@ Map<String, Object?>? _blockCollectionExpr(
   return null;
 }
 
+Map<String, Object?>? _blockCopiedCollectionExpr(
+  BlockExpression expression,
+  VariableDeclaration variable,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
+) {
+  final seed = _copiedCollectionSeed(
+    variable.initializer,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
+  if (seed == null) return null;
+  Map<String, Object?> expr = seed.receiver;
+  var appended = false;
+  for (final statement in expression.body.statements.skip(1)) {
+    switch (seed.kind) {
+      case _CopiedCollectionKind.list:
+        final dynamicSpread = _dynamicListSpread(
+          statement,
+          variable,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
+        if (dynamicSpread != null) {
+          expr = {
+            'list_add_all': {'receiver': expr, 'spread': dynamicSpread},
+          };
+          appended = true;
+          continue;
+        }
+        final runtimeFor = _runtimeListForExpr(
+          statement,
+          variable,
+          expr,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
+        if (runtimeFor != null) {
+          expr = runtimeFor;
+          appended = true;
+          continue;
+        }
+        final staticSpread = _staticListAppendSpread(
+          statement,
+          variable,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
+        if (staticSpread == null) return null;
+        expr = {
+          'list_add_all': {'receiver': expr, 'spread': staticSpread},
+        };
+      case _CopiedCollectionKind.map:
+        final dynamicSpread = _dynamicMapSpread(
+          statement,
+          variable,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
+        if (dynamicSpread != null) {
+          expr = {
+            'map_add_all': {'receiver': expr, 'spread': dynamicSpread},
+          };
+          appended = true;
+          continue;
+        }
+        final runtimeFor = _runtimeMapForExpr(
+          statement,
+          variable,
+          expr,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
+        if (runtimeFor != null) {
+          expr = runtimeFor;
+          appended = true;
+          continue;
+        }
+        final staticSpread = _staticMapAppendSpread(
+          statement,
+          variable,
+          params,
+          libraryUri,
+          locals,
+          closures,
+        );
+        if (staticSpread == null) return null;
+        expr = {
+          'map_add_all': {'receiver': expr, 'spread': staticSpread},
+        };
+    }
+    appended = true;
+  }
+  return appended ? expr : null;
+}
+
+_CopiedCollectionSeed? _copiedCollectionSeed(
+  Expression? expression,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures,
+) {
+  if (expression is! StaticInvocation ||
+      expression.arguments.positional.length != 1 ||
+      expression.arguments.named.isNotEmpty) {
+    return null;
+  }
+  _CopiedCollectionKind? kind;
+  try {
+    final target = expression.target;
+    if (target.name.text != 'of') return null;
+    final klass = target.enclosingClass?.name;
+    final library = target.enclosingLibrary.importUri;
+    if (library.scheme != 'dart') return null;
+    if (klass == 'List') {
+      kind = _CopiedCollectionKind.list;
+    } else if (klass == 'LinkedHashMap') {
+      kind = _CopiedCollectionKind.map;
+    }
+  } catch (_) {
+    final text = _nodeText(expression);
+    if (text.contains('List::of')) {
+      kind = _CopiedCollectionKind.list;
+    } else if (text.contains('LinkedHashMap::of')) {
+      kind = _CopiedCollectionKind.map;
+    }
+  }
+  if (kind == null) return null;
+  final source = expression.arguments.positional.single;
+  if (source is! VariableGet || !locals.containsKey(source.variable)) {
+    return null;
+  }
+  final receiver = _expr(source, params, libraryUri, locals, closures);
+  if (receiver == null) return null;
+  return _CopiedCollectionSeed(kind, receiver);
+}
+
 bool _applyListStatement(
   Statement statement,
   VariableDeclaration variable,
@@ -170,7 +337,7 @@ bool _applyListStatement(
   final expression = statement.expression;
   if (_isCollectionCall(expression, variable, 'addAll', 1)) {
     final call = expression as InstanceInvocationExpression;
-    final spread = _expr(
+    final spread = _collectionValueExpr(
       call.arguments.positional.single,
       params,
       libraryUri,
@@ -184,7 +351,7 @@ bool _applyListStatement(
   }
   if (!_isCollectionCall(expression, variable, 'add', 1)) return false;
   final call = expression as InstanceInvocationExpression;
-  final item = _expr(
+  final item = _collectionValueExpr(
     call.arguments.positional.single,
     params,
     libraryUri,
@@ -235,7 +402,7 @@ bool _applyMapStatement(
   final expression = statement.expression;
   if (_isCollectionCall(expression, variable, 'addAll', 1)) {
     final call = expression as InstanceInvocationExpression;
-    final spread = _expr(
+    final spread = _collectionValueExpr(
       call.arguments.positional.single,
       params,
       libraryUri,
@@ -249,14 +416,14 @@ bool _applyMapStatement(
   }
   if (!_isCollectionCall(expression, variable, '[]=', 2)) return false;
   final call = expression as InstanceInvocationExpression;
-  final key = _expr(
+  final key = _collectionValueExpr(
     call.arguments.positional[0],
     params,
     libraryUri,
     locals,
     closures,
   );
-  final value = _expr(
+  final value = _collectionValueExpr(
     call.arguments.positional[1],
     params,
     libraryUri,
@@ -462,7 +629,13 @@ _RuntimeIteratorSource? _runtimeIteratorSource(
   if (_propertyName(receiver) == 'entries') {
     final mapReceiver = _propertyReceiver(receiver);
     if (mapReceiver == null) return null;
-    final map = _expr(mapReceiver, params, libraryUri, locals, closures);
+    final map = _collectionValueExpr(
+      mapReceiver,
+      params,
+      libraryUri,
+      locals,
+      closures,
+    );
     if (map == null || map['map'] is List) return null;
     return _RuntimeIteratorSource(
       kind: _RuntimeCollectionForKind.map,
@@ -471,7 +644,13 @@ _RuntimeIteratorSource? _runtimeIteratorSource(
       },
     );
   }
-  final source = _expr(receiver, params, libraryUri, locals, closures);
+  final source = _collectionValueExpr(
+    receiver,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
   if (source == null || source['list'] is List) return null;
   return _RuntimeIteratorSource(
     kind: _RuntimeCollectionForKind.list,
@@ -558,6 +737,15 @@ class _RuntimeCollectionFor {
   final Map<String, Object?> source;
   final VariableDeclaration loopVariable;
   final Expression addExpression;
+}
+
+enum _CopiedCollectionKind { list, map }
+
+class _CopiedCollectionSeed {
+  _CopiedCollectionSeed(this.kind, this.receiver);
+
+  final _CopiedCollectionKind kind;
+  final Map<String, Object?> receiver;
 }
 
 bool _isCollectionCall(

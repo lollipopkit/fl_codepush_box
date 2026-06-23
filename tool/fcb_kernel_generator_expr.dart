@@ -244,6 +244,10 @@ Map<String, Object?>? _generatorValueExpr(
   if (asyncKind == 'async_star' && expression is AwaitExpression) {
     return _awaitedFutureExpr(expression.operand, params, libraryUri, locals);
   }
+  if (asyncKind == 'async_star') {
+    return _asyncCompletedExpr(expression, params, libraryUri, locals) ??
+        _expr(expression, params, libraryUri, locals);
+  }
   return _expr(expression, params, libraryUri, locals);
 }
 
@@ -263,6 +267,9 @@ Map<String, Object?>? _generatorExpressionExpr(
   String libraryUri,
   Map<VariableDeclaration, int> locals,
 ) {
+  if (expression is Throw) {
+    return _expr(expression, params, libraryUri, locals);
+  }
   if (expression is VariableSet) {
     final id = locals[expression.variable];
     if (id == null) return null;
@@ -282,7 +289,9 @@ Map<String, Object?>? _generatorIfExpr(
   String asyncKind,
   Map<VariableDeclaration, int> locals,
 ) {
-  final condition = _expr(statement.condition, params, libraryUri, locals);
+  final condition = asyncKind == 'async_star'
+      ? _asyncConditionExpr(statement.condition, params, libraryUri, locals)
+      : _expr(statement.condition, params, libraryUri, locals);
   final thenExpr = _generatorBodyExpr(
     statement.then,
     params,
@@ -452,7 +461,13 @@ Map<String, Object?>? _generatorSwitchStatementExpr(
   Map<VariableDeclaration, int> locals,
 ) {
   if (!statement.hasDefault || statement.cases.length < 2) return null;
-  final scrutinee = _expr(statement.expression, params, libraryUri, locals);
+  final scrutinee = _generatorSwitchValueExpr(
+    statement.expression,
+    params,
+    libraryUri,
+    asyncKind,
+    locals,
+  );
   if (scrutinee == null) return null;
 
   final branches = <_FcbSwitchExpressionBranch>[];
@@ -482,6 +497,13 @@ Map<String, Object?>? _generatorSwitchStatementExpr(
       libraryUri,
       locals,
       const {},
+      compileGuard: (expression) => _generatorSwitchValueExpr(
+        expression,
+        params,
+        libraryUri,
+        asyncKind,
+        locals,
+      ),
     )) {
       return null;
     }
@@ -503,6 +525,13 @@ Map<String, Object?>? _generatorLoweredSwitchStatementExpr(
     libraryUri,
     locals,
     const {},
+    (expression) => _generatorSwitchValueExpr(
+      expression,
+      params,
+      libraryUri,
+      asyncKind,
+      locals,
+    ),
   );
   if (parsed == null) return null;
 
@@ -532,22 +561,42 @@ Map<String, Object?>? _generatorLoweredSwitchStatementExpr(
       continue;
     }
     if (otherwise != null) return null;
-    final constants = _loweredSwitchCaseConstants(
+    final caseBranches = _loweredSwitchCaseBranches(
       ifStatement.condition,
       parsed.scrutineeVariable,
       parsed.constants,
+      body,
       params,
       libraryUri,
       locals,
       const {},
+      compileGuard: (expression) => _generatorSwitchValueExpr(
+        expression,
+        params,
+        libraryUri,
+        asyncKind,
+        locals,
+      ),
     );
-    if (constants == null || constants.isEmpty) return null;
-    for (final constant in constants) {
-      branches.add(_FcbSwitchExpressionBranch(constant, body));
-    }
+    if (caseBranches == null || caseBranches.isEmpty) return null;
+    branches.addAll(caseBranches);
   }
   if (otherwise == null || branches.isEmpty) return null;
   return _switchBranchesToConditional(parsed.scrutinee, branches, otherwise);
+}
+
+Map<String, Object?>? _generatorSwitchValueExpr(
+  Expression expression,
+  Set<String> params,
+  String libraryUri,
+  String asyncKind,
+  Map<VariableDeclaration, int> locals,
+) {
+  if (asyncKind == 'async_star') {
+    return _asyncCompletedExpr(expression, params, libraryUri, locals) ??
+        _expr(expression, params, libraryUri, locals);
+  }
+  return _expr(expression, params, libraryUri, locals);
 }
 
 Map<String, Object?>? _generatorSwitchCaseBodyExpr(
@@ -563,7 +612,12 @@ Map<String, Object?>? _generatorSwitchCaseBodyExpr(
   if (statements.isEmpty) return null;
   final last = statements.last;
   final hasBreak = last is BreakStatement && last.target == breakLabel;
-  if (!hasBreak && !isDefault && breakLabel != null) return null;
+  if (!hasBreak &&
+      !isDefault &&
+      breakLabel != null &&
+      !_generatorSwitchCaseTerminates(statements)) {
+    return null;
+  }
   final bodyStatements = hasBreak
       ? statements.take(statements.length - 1).toList(growable: false)
       : statements;
@@ -572,6 +626,15 @@ Map<String, Object?>? _generatorSwitchCaseBodyExpr(
       ? bodyStatements.single
       : Block(bodyStatements);
   return _generatorBodyExpr(caseBody, params, libraryUri, asyncKind, locals);
+}
+
+bool _generatorSwitchCaseTerminates(List<Statement> statements) {
+  if (statements.length != 1) return false;
+  var statement = statements.single;
+  while (statement is Block && statement.statements.length == 1) {
+    statement = statement.statements.single;
+  }
+  return statement is ExpressionStatement && statement.expression is Throw;
 }
 
 Map<String, Object?>? _generatorLoweredStaticForInExpr(

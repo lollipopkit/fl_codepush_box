@@ -408,7 +408,7 @@ Map<String, Object?>? _expr(
   }
   if (expression is VariableGet) {
     final local = locals[expression.variable];
-    if (local != null) return {'let_local': local};
+    if (locals.containsKey(expression.variable)) return {'let_local': local};
     final name = expression.variable.name;
     if (name != null && params.contains(name)) return {'arg': name};
     return null;
@@ -416,7 +416,16 @@ Map<String, Object?>? _expr(
   if (expression is VariableSet) {
     final local = locals[expression.variable];
     if (local == null) return null;
-    final value = _expr(expression.value, params, libraryUri, locals, closures);
+    final value = expression.value is BlockExpression
+        ? _blockCollectionExpr(
+                expression.value as BlockExpression,
+                params,
+                libraryUri,
+                locals,
+                closures,
+              ) ??
+              _expr(expression.value, params, libraryUri, locals, closures)
+        : _expr(expression.value, params, libraryUri, locals, closures);
     if (value == null) return null;
     return {
       'set_local': {'id': local, 'value': value},

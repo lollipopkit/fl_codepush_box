@@ -1,0 +1,631 @@
+String syncSwitchStatementLabel(String tier) {
+  switch (tier) {
+    case 'gold':
+      return 'patched-switch-stmt-gold';
+    case 'silver':
+      return 'patched-switch-stmt-silver';
+    default:
+      return 'patched-switch-stmt-other';
+  }
+}
+
+Future<String> asyncSwitchStatementLabel(String tier) async {
+  switch (tier) {
+    case 'gold':
+      return 'patched-async-switch-stmt-gold';
+    case 'silver':
+      return 'patched-async-switch-stmt-silver';
+    default:
+      return 'patched-async-switch-stmt-other';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementLabel(Future<String> ready) async {
+  final tier = await ready;
+  switch (tier) {
+    case 'gold':
+      return 'patched-await-switch-stmt-gold';
+    case 'silver':
+      return 'patched-await-switch-stmt-silver';
+    default:
+      return 'patched-await-switch-stmt-other';
+  }
+}
+
+int syncSwitchStatementScore(int code) {
+  switch (code) {
+    case 7:
+      return 700;
+    case 9:
+      return 900;
+    default:
+      return 100;
+  }
+}
+
+List<String> switchStatementListNames(String tier) {
+  switch (tier) {
+    case 'gold':
+      return ['patched-switch-stmt-list-head', 'patched-switch-stmt-list-gold'];
+    case 'silver':
+      return [
+        'patched-switch-stmt-list-head',
+        'patched-switch-stmt-list-silver',
+      ];
+    default:
+      return [
+        'patched-switch-stmt-list-head',
+        'patched-switch-stmt-list-other',
+      ];
+  }
+}
+
+Map<String, String> switchStatementMapLabels(int code) {
+  switch (code) {
+    case 7:
+      return {'state': 'patched-switch-stmt-map-seven'};
+    case 9:
+      return {'state': 'patched-switch-stmt-map-nine'};
+    default:
+      return {'state': 'patched-switch-stmt-map-other'};
+  }
+}
+
+String unchangedGuardedSwitchStatementLabel(String tier, bool enabled) {
+  switch (tier) {
+    case 'gold' when enabled:
+      return 'patched-guarded-switch-stmt-gold';
+    case 'vip' when enabled:
+      return 'patched-guarded-switch-stmt-vip';
+    default:
+      return 'patched-guarded-switch-stmt-other';
+  }
+}
+
+Future<String> asyncGuardedSwitchStatementLabel(
+  String tier,
+  bool enabled,
+) async {
+  switch (tier) {
+    case 'gold' when enabled:
+      return 'patched-async-guarded-switch-stmt-gold';
+    case 'vip' when enabled:
+      return 'patched-async-guarded-switch-stmt-vip';
+    default:
+      return 'patched-async-guarded-switch-stmt-other';
+  }
+}
+
+Future<String> asyncAwaitThenGuardedSwitchStatementLabel(
+  Future<String> ready,
+  bool enabled,
+) async {
+  final tier = await ready;
+  switch (tier) {
+    case 'gold' when enabled:
+      return 'patched-await-guarded-switch-stmt-gold';
+    case 'vip' when enabled:
+      return 'patched-await-guarded-switch-stmt-vip';
+    default:
+      return 'patched-await-guarded-switch-stmt-other';
+  }
+}
+
+String syncSwitchStatementAssignedLabel(String tier) {
+  var label = 'patched-switch-stmt-assigned-head';
+  switch (tier) {
+    case 'gold':
+      label = 'patched-switch-stmt-assigned-gold';
+      break;
+    case 'silver':
+      label = 'patched-switch-stmt-assigned-silver';
+      break;
+    default:
+      label = 'patched-switch-stmt-assigned-other';
+  }
+  return 'patched-switch-stmt-assigned-$label';
+}
+
+Future<String> asyncSwitchStatementAssignedLabel(String tier) async {
+  var label = 'patched-async-switch-stmt-assigned-head';
+  switch (tier) {
+    case 'gold':
+      label = 'patched-async-switch-stmt-assigned-gold';
+      break;
+    case 'silver':
+      label = 'patched-async-switch-stmt-assigned-silver';
+      break;
+    default:
+      label = 'patched-async-switch-stmt-assigned-other';
+  }
+  return 'patched-async-switch-stmt-assigned-$label';
+}
+
+Future<String> asyncAwaitThenSwitchStatementAssignedLabel(
+  Future<String> ready,
+) async {
+  final tier = await ready;
+  var label = 'patched-await-switch-stmt-assigned-head';
+  switch (tier) {
+    case 'gold':
+      label = 'patched-await-switch-stmt-assigned-gold';
+      break;
+    case 'silver':
+      label = 'patched-await-switch-stmt-assigned-silver';
+      break;
+    default:
+      label = 'patched-await-switch-stmt-assigned-other';
+  }
+  return 'patched-await-switch-stmt-assigned-$label';
+}
+
+int syncSwitchStatementAssignedScore(int code) {
+  var score = 1000;
+  switch (code) {
+    case 7:
+      score = 7000;
+      break;
+    case 9:
+      score = 9000;
+      break;
+    default:
+      score = 1000;
+  }
+  return score + 1;
+}
+
+List<String> switchStatementAssignedListNames(String tier) {
+  var label = 'patched-switch-stmt-assigned-list-head';
+  switch (tier) {
+    case 'gold':
+      label = 'patched-switch-stmt-assigned-list-gold';
+      break;
+    case 'silver':
+      label = 'patched-switch-stmt-assigned-list-silver';
+      break;
+    default:
+      label = 'patched-switch-stmt-assigned-list-other';
+  }
+  return [label, 'patched-switch-stmt-assigned-list-tail'];
+}
+
+Map<String, String> switchStatementAssignedMapLabels(int code) {
+  var label = 'patched-switch-stmt-assigned-map';
+  switch (code) {
+    case 7:
+      label = 'patched-switch-stmt-assigned-map-seven';
+      break;
+    case 9:
+      label = 'patched-switch-stmt-assigned-map-nine';
+      break;
+    default:
+      label = 'patched-switch-stmt-assigned-map-other';
+  }
+  return {'state': label};
+}
+
+String syncSwitchStatementThrowLabel(String tier) {
+  switch (tier) {
+    case 'gold':
+      return 'patched-switch-stmt-throw-gold';
+    case 'blocked':
+      throw 'patched-switch-stmt-throw-blocked';
+    default:
+      return 'patched-switch-stmt-throw-other';
+  }
+}
+
+Future<String> asyncSwitchStatementThrowLabel(String tier) async {
+  switch (tier) {
+    case 'gold':
+      return 'patched-async-switch-stmt-throw-gold';
+    case 'blocked':
+      throw 'patched-async-switch-stmt-throw-blocked';
+    default:
+      return 'patched-async-switch-stmt-throw-other';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementThrowLabel(
+  Future<String> ready,
+) async {
+  final tier = await ready;
+  switch (tier) {
+    case 'gold':
+      return 'patched-await-switch-stmt-throw-gold';
+    case 'blocked':
+      throw 'patched-await-switch-stmt-throw-blocked';
+    default:
+      return 'patched-await-switch-stmt-throw-other';
+  }
+}
+
+String syncSwitchStatementSequenceLabel(String tier) {
+  switch (tier) {
+    case 'gold':
+      final label = 'patched-switch-stmt-seq-gold';
+      return 'patched-switch-stmt-seq-$label';
+    case 'blocked':
+      final label = 'patched-switch-stmt-seq-blocked';
+      throw 'patched-switch-stmt-seq-$label';
+    default:
+      final label = 'patched-switch-stmt-seq-other';
+      return 'patched-switch-stmt-seq-$label';
+  }
+}
+
+Future<String> asyncSwitchStatementSequenceLabel(String tier) async {
+  switch (tier) {
+    case 'gold':
+      final label = 'patched-async-switch-stmt-seq-gold';
+      return 'patched-async-switch-stmt-seq-$label';
+    case 'blocked':
+      final label = 'patched-async-switch-stmt-seq-blocked';
+      throw 'patched-async-switch-stmt-seq-$label';
+    default:
+      final label = 'patched-async-switch-stmt-seq-other';
+      return 'patched-async-switch-stmt-seq-$label';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementSequenceLabel(
+  Future<String> ready,
+) async {
+  final tier = await ready;
+  switch (tier) {
+    case 'gold':
+      final label = 'patched-await-switch-stmt-seq-gold';
+      return 'patched-await-switch-stmt-seq-$label';
+    case 'blocked':
+      final label = 'patched-await-switch-stmt-seq-blocked';
+      throw 'patched-await-switch-stmt-seq-$label';
+    default:
+      final label = 'patched-await-switch-stmt-seq-other';
+      return 'patched-await-switch-stmt-seq-$label';
+  }
+}
+
+String syncSwitchStatementSideEffectTail(String tier) {
+  var label = 'patched-switch-stmt-side-head';
+  var suffix = 'patched-switch-stmt-side-suffix-head';
+  switch (tier) {
+    case 'gold':
+      label = 'patched-switch-stmt-side-gold';
+      suffix = 'patched-switch-stmt-side-suffix-gold';
+      break;
+    case 'silver':
+      label = 'patched-switch-stmt-side-silver';
+      suffix = 'patched-switch-stmt-side-suffix-silver';
+      break;
+    default:
+      label = 'patched-switch-stmt-side-other';
+      suffix = 'patched-switch-stmt-side-suffix-other';
+  }
+  return 'patched-switch-stmt-side-$label-$suffix';
+}
+
+Future<String> asyncSwitchStatementSideEffectTail(String tier) async {
+  var label = 'patched-async-switch-stmt-side-head';
+  var suffix = 'patched-async-switch-stmt-side-suffix-head';
+  switch (tier) {
+    case 'gold':
+      label = 'patched-async-switch-stmt-side-gold';
+      suffix = 'patched-async-switch-stmt-side-suffix-gold';
+      break;
+    case 'silver':
+      label = 'patched-async-switch-stmt-side-silver';
+      suffix = 'patched-async-switch-stmt-side-suffix-silver';
+      break;
+    default:
+      label = 'patched-async-switch-stmt-side-other';
+      suffix = 'patched-async-switch-stmt-side-suffix-other';
+  }
+  return 'patched-async-switch-stmt-side-$label-$suffix';
+}
+
+Future<String> asyncAwaitThenSwitchStatementSideEffectTail(
+  Future<String> ready,
+) async {
+  final tier = await ready;
+  var label = 'patched-await-switch-stmt-side-head';
+  var suffix = 'patched-await-switch-stmt-side-suffix-head';
+  switch (tier) {
+    case 'gold':
+      label = 'patched-await-switch-stmt-side-gold';
+      suffix = 'patched-await-switch-stmt-side-suffix-gold';
+      break;
+    case 'silver':
+      label = 'patched-await-switch-stmt-side-silver';
+      suffix = 'patched-await-switch-stmt-side-suffix-silver';
+      break;
+    default:
+      label = 'patched-await-switch-stmt-side-other';
+      suffix = 'patched-await-switch-stmt-side-suffix-other';
+  }
+  return 'patched-await-switch-stmt-side-$label-$suffix';
+}
+
+Future<String> asyncSwitchStatementAwaitCaseLabel(
+  String tier,
+  Future<String> ready,
+) async {
+  switch (tier) {
+    case 'gold':
+      final label = await ready;
+      return 'patched-async-switch-stmt-await-case-gold-$label';
+    case 'blocked':
+      final label = await ready;
+      throw 'patched-async-switch-stmt-await-case-blocked-$label';
+    default:
+      final label = await ready;
+      return 'patched-async-switch-stmt-await-case-other-$label';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementAwaitCaseLabel(
+  Future<String> tierReady,
+  Future<String> labelReady,
+) async {
+  final tier = await tierReady;
+  switch (tier) {
+    case 'gold':
+      final label = await labelReady;
+      return 'patched-await-switch-stmt-await-case-gold-$label';
+    case 'blocked':
+      final label = await labelReady;
+      throw 'patched-await-switch-stmt-await-case-blocked-$label';
+    default:
+      final label = await labelReady;
+      return 'patched-await-switch-stmt-await-case-other-$label';
+  }
+}
+
+String syncSwitchStatementMultiCaseLabel(String tier) {
+  switch (tier) {
+    case 'gold':
+    case 'vip':
+      return 'patched-switch-stmt-multi-premium';
+    case 'silver':
+      return 'patched-switch-stmt-multi-silver';
+    default:
+      return 'patched-switch-stmt-multi-other';
+  }
+}
+
+String syncSwitchStatementOrPatternLabel(String tier) {
+  switch (tier) {
+    case 'gold' || 'vip':
+      return 'patched-switch-stmt-or-premium';
+    case 'trial' || 'guest':
+      return 'patched-switch-stmt-or-limited';
+    default:
+      return 'patched-switch-stmt-or-other';
+  }
+}
+
+Future<String> asyncSwitchStatementMultiCaseAssignedLabel(String tier) async {
+  var label = 'patched-async-switch-stmt-multi-head';
+  switch (tier) {
+    case 'gold':
+    case 'vip':
+      label = 'patched-async-switch-stmt-multi-premium';
+      break;
+    case 'silver':
+      label = 'patched-async-switch-stmt-multi-silver';
+      break;
+    default:
+      label = 'patched-async-switch-stmt-multi-other';
+  }
+  return 'patched-async-switch-stmt-multi-$label';
+}
+
+Future<String> asyncSwitchStatementOrPatternAssignedLabel(String tier) async {
+  var label = 'patched-async-switch-stmt-or-head';
+  switch (tier) {
+    case 'gold' || 'vip':
+      label = 'patched-async-switch-stmt-or-premium';
+      break;
+    case 'trial' || 'guest':
+      label = 'patched-async-switch-stmt-or-limited';
+      break;
+    default:
+      label = 'patched-async-switch-stmt-or-other';
+  }
+  return 'patched-async-switch-stmt-or-$label';
+}
+
+Future<String> asyncSwitchStatementMultiCaseAwaitCaseLabel(
+  String tier,
+  Future<String> ready,
+) async {
+  switch (tier) {
+    case 'gold':
+    case 'vip':
+      final label = await ready;
+      return 'patched-async-switch-stmt-multi-await-premium-$label';
+    case 'blocked':
+      final label = await ready;
+      throw 'patched-async-switch-stmt-multi-await-blocked-$label';
+    default:
+      final label = await ready;
+      return 'patched-async-switch-stmt-multi-await-other-$label';
+  }
+}
+
+Future<String> asyncSwitchStatementOrPatternAwaitCaseLabel(
+  String tier,
+  Future<String> ready,
+) async {
+  switch (tier) {
+    case 'gold' || 'vip':
+      final label = await ready;
+      return 'patched-async-switch-stmt-or-await-premium-$label';
+    case 'blocked' || 'denied':
+      final label = await ready;
+      throw 'patched-async-switch-stmt-or-await-blocked-$label';
+    default:
+      final label = await ready;
+      return 'patched-async-switch-stmt-or-await-other-$label';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementOrPatternLabel(
+  Future<String> ready,
+) async {
+  final tier = await ready;
+  switch (tier) {
+    case 'gold' || 'vip':
+      return 'patched-await-switch-stmt-or-premium';
+    case 'trial' || 'guest':
+      return 'patched-await-switch-stmt-or-limited';
+    default:
+      return 'patched-await-switch-stmt-or-other';
+  }
+}
+
+Future<String> asyncAwaitConditionSwitchStatementTryCatchRecoveryLabel(
+  Future<String> ready,
+  Future<String> recovery,
+) async {
+  try {
+    switch (await ready) {
+      case 'gold':
+        return 'patched-await-condition-switch-stmt-try-catch-gold';
+      case 'blocked':
+        throw 'patched-await-condition-switch-stmt-try-catch-blocked';
+      default:
+        return 'patched-await-condition-switch-stmt-try-catch-other';
+    }
+  } catch (error) {
+    final label = await recovery;
+    return 'patched-await-condition-switch-stmt-try-catch-caught-$error-$label';
+  }
+}
+
+Future<String> asyncAwaitConditionSwitchStatementTryFinallyCleanupLabel(
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  try {
+    switch (await ready) {
+      case 'gold':
+        return 'patched-await-condition-switch-stmt-try-finally-gold';
+      case 'silver':
+        return 'patched-await-condition-switch-stmt-try-finally-silver';
+      default:
+        return 'patched-await-condition-switch-stmt-try-finally-other';
+    }
+  } finally {
+    await cleanup;
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementTryCatchRecoveryLabel(
+  Future<String> ready,
+  Future<String> recovery,
+) async {
+  final tier = await ready;
+  try {
+    switch (tier) {
+      case 'gold':
+        return 'patched-await-then-switch-stmt-try-catch-gold';
+      case 'blocked':
+        throw 'patched-await-then-switch-stmt-try-catch-blocked';
+      default:
+        return 'patched-await-then-switch-stmt-try-catch-other';
+    }
+  } catch (error) {
+    final label = await recovery;
+    return 'patched-await-then-switch-stmt-try-catch-caught-$error-$label';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementTryFinallyCleanupLabel(
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  final tier = await ready;
+  try {
+    switch (tier) {
+      case 'gold':
+        return 'patched-await-then-switch-stmt-try-finally-gold';
+      case 'silver':
+        return 'patched-await-then-switch-stmt-try-finally-silver';
+      default:
+        return 'patched-await-then-switch-stmt-try-finally-other';
+    }
+  } finally {
+    await cleanup;
+  }
+}
+
+Future<String> asyncDoubleAwaitSwitchStatementTryCatchFinallyRecoveryLabel(
+  Future<String> ready,
+  Future<String> recovery,
+  Future<String> cleanup,
+) async {
+  final tier = await ready;
+  try {
+    switch (tier) {
+      case 'gold':
+        return 'patched-double-await-switch-stmt-try-catch-finally-gold';
+      case 'blocked':
+        throw 'patched-double-await-switch-stmt-try-catch-finally-blocked';
+      default:
+        return 'patched-double-await-switch-stmt-try-catch-finally-other';
+    }
+  } catch (error) {
+    final label = await recovery;
+    return 'patched-double-await-switch-stmt-try-catch-finally-caught-$error-$label';
+  } finally {
+    await cleanup;
+  }
+}
+
+Future<String> asyncDoubleAwaitSwitchStatementTryFinallyCleanupLabel(
+  Future<String> ready,
+  Future<String> cleanup,
+) async {
+  final tier = await ready;
+  try {
+    switch (tier) {
+      case 'gold':
+        return 'patched-double-await-switch-stmt-try-finally-gold';
+      case 'silver':
+        return 'patched-double-await-switch-stmt-try-finally-silver';
+      default:
+        return 'patched-double-await-switch-stmt-try-finally-other';
+    }
+  } finally {
+    await cleanup;
+  }
+}
+
+Future<String> asyncSwitchStatementAwaitGuardLabel(
+  String tier,
+  Future<bool> enabled,
+) async {
+  switch (tier) {
+    case 'gold' when await enabled:
+      return 'patched-switch-stmt-await-guard-gold';
+    case 'vip' when await enabled:
+      return 'patched-switch-stmt-await-guard-vip';
+    default:
+      return 'patched-switch-stmt-await-guard-other';
+  }
+}
+
+Future<String> asyncAwaitThenSwitchStatementAwaitGuardLabel(
+  Future<String> ready,
+  Future<bool> enabled,
+) async {
+  final tier = await ready;
+  switch (tier) {
+    case 'gold' when await enabled:
+      return 'patched-await-switch-stmt-await-guard-gold';
+    case 'vip' when await enabled:
+      return 'patched-await-switch-stmt-await-guard-vip';
+    default:
+      return 'patched-await-switch-stmt-await-guard-other';
+  }
+}

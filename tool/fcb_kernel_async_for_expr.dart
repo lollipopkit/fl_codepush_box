@@ -52,6 +52,7 @@ Map<String, Object?>? _asyncForExpr(
   if (condition == null || body == null) return null;
   final beforeBreak = body.remove('before_break');
   final breakCondition = body.remove('break_condition');
+  final breakBody = body.remove('break_body');
   final beforeContinue = body.remove('before_continue');
   final continueCondition = body.remove('continue_condition');
   final continueBody = body.remove('continue_body');
@@ -63,6 +64,7 @@ Map<String, Object?>? _asyncForExpr(
       if (continueBody != null) 'continue_body': continueBody,
       if (beforeBreak != null) 'before_break': beforeBreak,
       if (breakCondition != null) 'break_condition': breakCondition,
+      if (breakBody != null) 'break_body': breakBody,
       'body': body,
     },
   };
@@ -83,37 +85,49 @@ Map<String, Object?>? _asyncForBodyExpr(
   final bodyLabel = statement is LabeledStatement ? statement : null;
   final bodyNode = bodyLabel?.body ?? statement;
   final bodyStatements = bodyNode is Block ? bodyNode.statements : [bodyNode];
-  final body = bodyLabel == null
+  final tryFinallyBody = bodyLabel == null
       ? null
-      : breakLabel == null
-      ? _asyncContinuableForBodyExpr(
+      : _asyncTryFinallyForBodyExpr(
           bodyStatements,
           bodyLabel,
+          breakLabel,
           paramsSet,
           libraryUri,
           locals,
-        )
-      : _asyncContinuableBreakableForBodyExpr(
-              bodyStatements,
-              bodyLabel,
-              breakLabel,
-              paramsSet,
-              libraryUri,
-              locals,
-            ) ??
-            _asyncContinuableForBodyExpr(
+        );
+  final body =
+      tryFinallyBody ??
+      (bodyLabel == null
+          ? null
+          : breakLabel == null
+          ? _asyncContinuableForBodyExpr(
               bodyStatements,
               bodyLabel,
               paramsSet,
               libraryUri,
               locals,
-            ) ??
-            _asyncTailStatementsSourceExpr(
-              bodyStatements,
-              paramsSet,
-              libraryUri,
-              locals,
-            );
+            )
+          : _asyncContinuableBreakableForBodyExpr(
+                  bodyStatements,
+                  bodyLabel,
+                  breakLabel,
+                  paramsSet,
+                  libraryUri,
+                  locals,
+                ) ??
+                _asyncContinuableForBodyExpr(
+                  bodyStatements,
+                  bodyLabel,
+                  paramsSet,
+                  libraryUri,
+                  locals,
+                ) ??
+                _asyncTailStatementsSourceExpr(
+                  bodyStatements,
+                  paramsSet,
+                  libraryUri,
+                  locals,
+                ));
   if (body == null && breakLabel != null) {
     final breakBody = _asyncBreakableWhileBodyExpr(
       bodyStatements,
@@ -144,11 +158,19 @@ Map<String, Object?>? _asyncForBodyExpr(
   }
   final beforeBreak = body.remove('before_break');
   final breakCondition = body.remove('break_condition');
+  final breakBody = body.remove('break_body');
   final beforeContinue = body.remove('before_continue');
   final continueCondition = body.remove('continue_condition');
   final continueBody = body.remove('continue_body');
   final appendedBody = _appendAsyncSeq(body, update);
-  if (continueBody == null) return appendedBody;
+  if (continueBody == null) {
+    return {
+      if (beforeBreak != null) 'before_break': beforeBreak,
+      if (breakCondition != null) 'break_condition': breakCondition,
+      if (breakBody != null) 'break_body': breakBody,
+      ...appendedBody,
+    };
+  }
   if (continueBody is! Map) return null;
   return {
     if (beforeContinue != null) 'before_continue': beforeContinue,
@@ -159,8 +181,69 @@ Map<String, Object?>? _asyncForBodyExpr(
     ),
     if (beforeBreak != null) 'before_break': beforeBreak,
     if (breakCondition != null) 'break_condition': breakCondition,
+    if (breakBody != null) 'break_body': breakBody,
     ...appendedBody,
   };
+}
+
+Map<String, Object?>? _asyncTryFinallyForBodyExpr(
+  List<Statement> statements,
+  LabeledStatement continueLabel,
+  LabeledStatement? breakLabel,
+  Set<String> paramsSet,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+) {
+  if (statements.length != 1 || statements.single is! TryFinally) return null;
+  final tryFinally = statements.single as TryFinally;
+  final finalizer = _asyncTailStatementsSourceExpr(
+    _asyncStatementsFromBody(tryFinally.finalizer),
+    paramsSet,
+    libraryUri,
+    locals,
+  );
+  if (finalizer == null) return null;
+  final bodyStatements = _asyncStatementsFromBody(tryFinally.body);
+  final body = breakLabel == null
+      ? _asyncContinuableForBodyExpr(
+          bodyStatements,
+          continueLabel,
+          paramsSet,
+          libraryUri,
+          locals,
+        )
+      : _asyncContinuableBreakableForBodyExpr(
+          bodyStatements,
+          continueLabel,
+          breakLabel,
+          paramsSet,
+          libraryUri,
+          locals,
+        );
+  if (body == null) return null;
+
+  final beforeContinue = body.remove('before_continue');
+  final continueCondition = body.remove('continue_condition');
+  final continueBody = body.remove('continue_body');
+  final beforeBreak = body.remove('before_break');
+  final breakCondition = body.remove('break_condition');
+  if (beforeContinue != null || beforeBreak != null) return null;
+
+  final result = <String, Object?>{};
+  if (continueCondition != null) {
+    if (continueBody is! Map) return null;
+    result['continue_condition'] = continueCondition;
+    result['continue_body'] = _appendAsyncSeq(
+      continueBody.cast<String, Object?>(),
+      finalizer,
+    );
+  }
+  if (breakCondition != null) {
+    result['break_condition'] = breakCondition;
+    result['break_body'] = finalizer;
+  }
+  result['try_finally'] = {'body': body, 'finally': finalizer};
+  return result;
 }
 
 Map<String, Object?>? _asyncContinuableBreakableForBodyExpr(

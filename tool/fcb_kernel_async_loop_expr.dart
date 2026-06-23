@@ -19,6 +19,24 @@ Map<String, Object?>? _asyncDoExpr(
   final effectiveBreakLabel = bodyLabel ?? breakLabel;
   final bodyNode = bodyLabel?.body ?? statement.body;
   final bodyStatements = bodyNode is Block ? bodyNode.statements : [bodyNode];
+  final tryFinallyBody = bodyLabel == null
+      ? breakLabel == null
+            ? null
+            : _asyncTryFinallyBreakableWhileBodyExpr(
+                bodyStatements,
+                breakLabel,
+                paramsSet,
+                libraryUri,
+                locals,
+              )
+      : _asyncTryFinallyWhileBodyExpr(
+          bodyStatements,
+          bodyLabel,
+          breakLabel,
+          paramsSet,
+          libraryUri,
+          locals,
+        );
   final combinedBody = breakLabel != null && bodyLabel != null
       ? _asyncContinuableBreakableLoopBodyExpr(
           bodyStatements,
@@ -30,6 +48,7 @@ Map<String, Object?>? _asyncDoExpr(
         )
       : null;
   final body =
+      tryFinallyBody ??
       combinedBody ??
       _asyncContinuableWhileBodyExpr(
         bodyStatements,
@@ -234,6 +253,24 @@ Map<String, Object?>? _asyncWhileExpr(
   final effectiveBreakLabel = bodyLabel ?? breakLabel;
   final bodyNode = bodyLabel?.body ?? statement.body;
   final bodyStatements = bodyNode is Block ? bodyNode.statements : [bodyNode];
+  final tryFinallyBody = bodyLabel == null
+      ? breakLabel == null
+            ? null
+            : _asyncTryFinallyBreakableWhileBodyExpr(
+                bodyStatements,
+                breakLabel,
+                paramsSet,
+                libraryUri,
+                locals,
+              )
+      : _asyncTryFinallyWhileBodyExpr(
+          bodyStatements,
+          bodyLabel,
+          breakLabel,
+          paramsSet,
+          libraryUri,
+          locals,
+        );
   final combinedBody = breakLabel != null && bodyLabel != null
       ? _asyncContinuableBreakableLoopBodyExpr(
           bodyStatements,
@@ -245,6 +282,7 @@ Map<String, Object?>? _asyncWhileExpr(
         )
       : null;
   final body =
+      tryFinallyBody ??
       combinedBody ??
       _asyncContinuableWhileBodyExpr(
         bodyStatements,
@@ -269,6 +307,7 @@ Map<String, Object?>? _asyncWhileExpr(
   if (condition == null || body == null) return null;
   final beforeBreak = body.remove('before_break');
   final breakCondition = body.remove('break_condition');
+  final breakBody = body.remove('break_body');
   final beforeContinue = body.remove('before_continue');
   final continueCondition = body.remove('continue_condition');
   final continueBody = body.remove('continue_body');
@@ -280,8 +319,188 @@ Map<String, Object?>? _asyncWhileExpr(
       if (continueBody != null) 'continue_body': continueBody,
       if (beforeBreak != null) 'before_break': beforeBreak,
       if (breakCondition != null) 'break_condition': breakCondition,
+      if (breakBody != null) 'break_body': breakBody,
       'body': body,
     },
+  };
+}
+
+Map<String, Object?>? _asyncTryFinallyWhileBodyExpr(
+  List<Statement> statements,
+  LabeledStatement continueLabel,
+  LabeledStatement? breakLabel,
+  Set<String> paramsSet,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+) {
+  if (breakLabel == null || statements.length != 1) return null;
+  final only = statements.single;
+  if (only is! TryFinally) return null;
+  final finalizer = _asyncTailStatementsSourceExpr(
+    _asyncStatementsFromBody(only.finalizer),
+    paramsSet,
+    libraryUri,
+    locals,
+  );
+  if (finalizer == null) return null;
+  final tryBody = _asyncStatementsFromBody(only.body);
+  Map<String, Object?>? tryFinallyBody;
+  Map<String, Object?>? body = _asyncContinuableBreakableLoopBodyExpr(
+    tryBody,
+    continueLabel,
+    breakLabel,
+    paramsSet,
+    libraryUri,
+    locals,
+  );
+  tryFinallyBody = body;
+  if (body == null &&
+      tryBody.length == 1 &&
+      tryBody.single is LabeledStatement) {
+    final nestedLabel = tryBody.single as LabeledStatement;
+    body = _asyncContinuableBreakableLoopBodyExpr(
+      _asyncStatementsFromBody(nestedLabel.body),
+      nestedLabel,
+      breakLabel,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    tryFinallyBody = body;
+  }
+  if (body == null && tryBody.length == 1 && tryBody.single is TryCatch) {
+    final tryCatch = tryBody.single as TryCatch;
+    if (tryCatch.catches.length != 1) return null;
+    final catchClause = tryCatch.catches.single;
+    if (catchClause.stackTrace != null || catchClause.exception == null) {
+      return null;
+    }
+    final catchLocalId = locals.length;
+    final tryCatchBody = _asyncStatementsFromBody(tryCatch.body);
+    body =
+        _asyncContinuableBreakableLoopBodyExpr(
+          tryCatchBody,
+          continueLabel,
+          breakLabel,
+          paramsSet,
+          libraryUri,
+          locals,
+        ) ??
+        _asyncBreakableWhileBodyExpr(
+          tryCatchBody,
+          breakLabel,
+          paramsSet,
+          libraryUri,
+          locals,
+        );
+    final catchExpr = _asyncTailStatementsSourceExpr(
+      _asyncStatementsFromBody(catchClause.body),
+      paramsSet,
+      libraryUri,
+      {...locals, catchClause.exception!: catchLocalId},
+    );
+    if (body == null || catchExpr == null) return null;
+    tryFinallyBody = {
+      'try_catch': {
+        'body': body,
+        'catch_local': catchLocalId,
+        'catch': catchExpr,
+      },
+    };
+  }
+  if (body == null || tryFinallyBody == null) return null;
+  final beforeContinue = body.remove('before_continue');
+  final continueCondition = body.remove('continue_condition');
+  final continueBody = body.remove('continue_body');
+  final beforeBreak = body.remove('before_break');
+  final breakCondition = body.remove('break_condition');
+  if (beforeContinue != null || beforeBreak != null) return null;
+  if (breakCondition == null) return null;
+  final result = <String, Object?>{
+    'break_condition': breakCondition,
+    'break_body': finalizer,
+    'try_finally': {'body': tryFinallyBody, 'finally': finalizer},
+  };
+  if (continueCondition != null) {
+    if (continueBody is! Map) return null;
+    result['continue_condition'] = continueCondition;
+    result['continue_body'] = _appendAsyncSeq(
+      continueBody.cast<String, Object?>(),
+      finalizer,
+    );
+  } else if (continueBody != null) {
+    return null;
+  }
+  return result;
+}
+
+Map<String, Object?>? _asyncTryFinallyBreakableWhileBodyExpr(
+  List<Statement> statements,
+  LabeledStatement breakLabel,
+  Set<String> paramsSet,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+) {
+  if (statements.length != 1) return null;
+  final only = statements.single;
+  if (only is! TryFinally) return null;
+  final finalizer = _asyncTailStatementsSourceExpr(
+    _asyncStatementsFromBody(only.finalizer),
+    paramsSet,
+    libraryUri,
+    locals,
+  );
+  if (finalizer == null) return null;
+  final tryBody = _asyncStatementsFromBody(only.body);
+  Map<String, Object?>? body;
+  Map<String, Object?>? tryFinallyBody;
+  if (tryBody.length == 1 && tryBody.single is TryCatch) {
+    final tryCatch = tryBody.single as TryCatch;
+    if (tryCatch.catches.length != 1) return null;
+    final catchClause = tryCatch.catches.single;
+    if (catchClause.stackTrace != null || catchClause.exception == null) {
+      return null;
+    }
+    final catchLocalId = locals.length;
+    body = _asyncBreakableWhileBodyExpr(
+      _asyncStatementsFromBody(tryCatch.body),
+      breakLabel,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    final catchExpr = _asyncTailStatementsSourceExpr(
+      _asyncStatementsFromBody(catchClause.body),
+      paramsSet,
+      libraryUri,
+      {...locals, catchClause.exception!: catchLocalId},
+    );
+    if (body == null || catchExpr == null) return null;
+    tryFinallyBody = {
+      'try_catch': {
+        'body': body,
+        'catch_local': catchLocalId,
+        'catch': catchExpr,
+      },
+    };
+  } else {
+    body = _asyncBreakableWhileBodyExpr(
+      tryBody,
+      breakLabel,
+      paramsSet,
+      libraryUri,
+      locals,
+    );
+    tryFinallyBody = body;
+  }
+  if (body == null || tryFinallyBody == null) return null;
+  final beforeBreak = body.remove('before_break');
+  final breakCondition = body.remove('break_condition');
+  if (beforeBreak != null || breakCondition == null) return null;
+  return {
+    'break_condition': breakCondition,
+    'break_body': finalizer,
+    'try_finally': {'body': tryFinallyBody, 'finally': finalizer},
   };
 }
 

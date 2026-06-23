@@ -287,7 +287,13 @@ Map<String, Object?>? _generatorLoweredAsyncForInStreamExpr(
   final streamLocalId = locals.length;
   final iteratorLocalId = locals.length + 1;
   final loopLocalId = locals.length + 2;
-  final streamValue = _expr(stream.initializer!, params, libraryUri, locals);
+  final streamValue = _generatorValueExpr(
+    stream.initializer!,
+    params,
+    libraryUri,
+    asyncKind,
+    locals,
+  );
   if (streamValue == null) return null;
   final streamLocals = {...locals, stream: streamLocalId};
   final iteratorValue = _streamIteratorConstructorExpr(
@@ -380,7 +386,13 @@ Map<String, Object?>? _yieldStarStreamExpr(
   final streamLocalId = locals.length;
   final iteratorLocalId = locals.length + 1;
   final currentLocalId = locals.length + 2;
-  final streamValue = _expr(expression, params, libraryUri, locals);
+  final streamValue = _generatorValueExpr(
+    expression,
+    params,
+    libraryUri,
+    'async_star',
+    locals,
+  );
   if (streamValue == null) return null;
   final iteratorValue = _streamIteratorConstructorValue(streamLocalId);
   final condition = {

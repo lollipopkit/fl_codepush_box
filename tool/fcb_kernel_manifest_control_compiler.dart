@@ -274,6 +274,7 @@ extension _RestrictedBytecodeControlCompiler on _RestrictedBytecodeCompiler {
     final body = spec['body'];
     final beforeBreak = spec['before_break'];
     final breakCondition = spec['break_condition'];
+    final breakBody = spec['break_body'];
     final beforeContinue = spec['before_continue'];
     final continueCondition = spec['continue_condition'];
     final continueBody = spec['continue_body'];
@@ -289,8 +290,16 @@ extension _RestrictedBytecodeControlCompiler on _RestrictedBytecodeCompiler {
       stderr.writeln('while_loop break_condition must be an expression');
       exit(2);
     }
+    if (breakBody != null && breakBody is! Map) {
+      stderr.writeln('while_loop break_body must be an expression');
+      exit(2);
+    }
     if (beforeBreak != null && breakCondition == null) {
       stderr.writeln('while_loop before_break requires break_condition');
+      exit(2);
+    }
+    if (breakBody != null && breakCondition == null) {
+      stderr.writeln('while_loop break_body requires break_condition');
       exit(2);
     }
     if (beforeContinue != null && beforeContinue is! Map) {
@@ -341,6 +350,10 @@ extension _RestrictedBytecodeControlCompiler on _RestrictedBytecodeCompiler {
       compileExpr(breakCondition.cast<String, Object?>());
       op(_opJumpIfFalse);
       final continuePatch = reserveU16();
+      if (breakBody is Map) {
+        compileExpr(breakBody.cast<String, Object?>());
+        op(_opPop);
+      }
       op(_opJump);
       final breakPatch = reserveU16();
       patchU16(continuePatch, code.length);

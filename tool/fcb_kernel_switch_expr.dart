@@ -20,7 +20,10 @@ Map<String, Object?>? _switchExpressionExpr(
   final branches = <_FcbSwitchExpressionBranch>[];
   for (final switchCase in expression.cases) {
     final patternGuard = switchCase.patternGuard;
-    if (patternGuard.guard != null) return null;
+    final guard = patternGuard.guard == null
+        ? null
+        : _expr(patternGuard.guard!, params, libraryUri, locals, closures);
+    if (patternGuard.guard != null && guard == null) return null;
     final body = _expr(
       switchCase.expression,
       params,
@@ -46,7 +49,7 @@ Map<String, Object?>? _switchExpressionExpr(
     );
     if (constants == null || constants.isEmpty) return null;
     for (final constant in constants) {
-      branches.add(_FcbSwitchExpressionBranch(constant, body));
+      branches.add(_FcbSwitchExpressionBranch(constant, body, guard: guard));
     }
   }
   if (otherwise == null || branches.isEmpty) return null;
@@ -95,10 +98,11 @@ List<Map<String, Object?>>? _switchPatternConstants(
 }
 
 class _FcbSwitchExpressionBranch {
-  _FcbSwitchExpressionBranch(this.constant, this.body);
+  _FcbSwitchExpressionBranch(this.constant, this.body, {this.guard});
 
   final Map<String, Object?> constant;
   final Map<String, Object?> body;
+  final Map<String, Object?>? guard;
 }
 
 Map<String, Object?>? _loweredSwitchBlockExpressionExpr(
@@ -185,19 +189,18 @@ Map<String, Object?>? _loweredSwitchBlockExpressionExpr(
       continue;
     }
     if (otherwise != null) return null;
-    final caseConstants = _loweredSwitchCaseConstants(
+    final caseBranches = _loweredSwitchCaseBranches(
       condition,
       scrutineeVariable,
       constants,
+      caseBody,
       params,
       libraryUri,
       locals,
       closures,
     );
-    if (caseConstants == null || caseConstants.isEmpty) return null;
-    for (final constant in caseConstants) {
-      branches.add(_FcbSwitchExpressionBranch(constant, caseBody));
-    }
+    if (caseBranches == null || caseBranches.isEmpty) return null;
+    branches.addAll(caseBranches);
   }
   if (otherwise == null || branches.isEmpty) return null;
 
@@ -212,9 +215,19 @@ Map<String, Object?> _switchBranchesToConditional(
 ) {
   var result = otherwise;
   for (final branch in branches.reversed) {
+    final match = {'op': '==', 'left': scrutinee, 'right': branch.constant};
+    final guard = branch.guard;
     result = {
       'conditional': {
-        'condition': {'op': '==', 'left': scrutinee, 'right': branch.constant},
+        'condition': guard == null
+            ? match
+            : {
+                'conditional': {
+                  'condition': match,
+                  'then': guard,
+                  'else': {'bool': false},
+                },
+              },
         'then': branch.body,
         'else': result,
       },
@@ -253,6 +266,120 @@ Map<String, Object?>? _loweredSwitchAssignedValue(
   final set = first.expression as VariableSet;
   if (set.variable != resultVariable) return null;
   return _expr(set.value, params, libraryUri, locals, closures);
+}
+
+List<_FcbSwitchExpressionBranch>? _loweredSwitchCaseBranches(
+  Expression condition,
+  VariableDeclaration scrutineeVariable,
+  Map<VariableDeclaration, Map<String, Object?>> constants,
+  Map<String, Object?> body,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures, {
+  Map<String, Object?>? Function(Expression expression)? compileGuard,
+}) {
+  if (condition is LogicalExpression) {
+    if (condition.operatorEnum == LogicalExpressionOperator.OR) {
+      final left = _loweredSwitchCaseBranches(
+        condition.left,
+        scrutineeVariable,
+        constants,
+        body,
+        params,
+        libraryUri,
+        locals,
+        closures,
+        compileGuard: compileGuard,
+      );
+      final right = _loweredSwitchCaseBranches(
+        condition.right,
+        scrutineeVariable,
+        constants,
+        body,
+        params,
+        libraryUri,
+        locals,
+        closures,
+        compileGuard: compileGuard,
+      );
+      if (left == null || right == null) return null;
+      return [...left, ...right];
+    }
+    if (condition.operatorEnum == LogicalExpressionOperator.AND) {
+      return _loweredSwitchGuardedCaseBranches(
+            condition.left,
+            condition.right,
+            scrutineeVariable,
+            constants,
+            body,
+            params,
+            libraryUri,
+            locals,
+            closures,
+            compileGuard: compileGuard,
+          ) ??
+          _loweredSwitchGuardedCaseBranches(
+            condition.right,
+            condition.left,
+            scrutineeVariable,
+            constants,
+            body,
+            params,
+            libraryUri,
+            locals,
+            closures,
+            compileGuard: compileGuard,
+          );
+    }
+  }
+  final caseConstants = _loweredSwitchCaseConstants(
+    condition,
+    scrutineeVariable,
+    constants,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
+  if (caseConstants == null) return null;
+  return [
+    for (final constant in caseConstants)
+      _FcbSwitchExpressionBranch(constant, body),
+  ];
+}
+
+List<_FcbSwitchExpressionBranch>? _loweredSwitchGuardedCaseBranches(
+  Expression caseCondition,
+  Expression guardCondition,
+  VariableDeclaration scrutineeVariable,
+  Map<VariableDeclaration, Map<String, Object?>> constants,
+  Map<String, Object?> body,
+  Set<String> params,
+  String libraryUri,
+  Map<VariableDeclaration, int> locals,
+  Map<VariableDeclaration, FunctionExpression> closures, {
+  Map<String, Object?>? Function(Expression expression)? compileGuard,
+}) {
+  final caseConstants = _loweredSwitchCaseConstants(
+    caseCondition,
+    scrutineeVariable,
+    constants,
+    params,
+    libraryUri,
+    locals,
+    closures,
+  );
+  if (caseConstants == null || caseConstants.isEmpty) return null;
+  final guard = compileGuard != null
+      ? compileGuard(guardCondition)
+      : _asyncCompletedExpr(guardCondition, params, libraryUri, locals) ??
+            _expr(guardCondition, params, libraryUri, locals, closures);
+  if (guard == null) return null;
+  return [
+    for (final constant in caseConstants)
+      _FcbSwitchExpressionBranch(constant, body, guard: guard),
+  ];
 }
 
 List<Map<String, Object?>>? _loweredSwitchCaseConstants(
